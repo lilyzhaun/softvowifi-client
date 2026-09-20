@@ -1,0 +1,35 @@
+# Gradle and build output
+.gradle/
+**/.gradle/
+.kotlin/
+build/
+**/build/
+
+# Local Android and IDE state
+local.properties
+.idea/
+*.iml
+
+# Signing and private material
+*.jks
+*.keystore
+*.p12
+*.pem
+*.key
+signing.properties
+private/
+receipts/
+*receipt*.md
+
+# Packaged artifacts and logs
+*.apk
+*.aab
+*.apks
+*.zip
+*.log
+
+# Keep the wrapper, sources, fixtures, and schemas tracked.
+!app/manager/gradle/
+!app/manager/gradle/wrapper/
+!app/manager/gradle/wrapper/gradle-wrapper.jar
+!app/manager/gradle/wrapper/gradle-wrapper.properties

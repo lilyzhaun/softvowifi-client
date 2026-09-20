@@ -1,0 +1,113 @@
+{
+  "formatVersion": 1,
+  "database": {
+    "version": 2,
+    "identityHash": "a5fa91b88412365727bafa06aa531ba2",
+    "entities": [
+      {
+        "tableName": "call_records",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`sim_owner_id` TEXT NOT NULL, `correlation_id` TEXT NOT NULL, `direction` TEXT NOT NULL, `peer_phone` TEXT, `started_at_ms` INTEGER NOT NULL, `connected_at_ms` INTEGER, `ended_at_ms` INTEGER, `duration_sec` INTEGER, `outcome` TEXT NOT NULL, PRIMARY KEY(`sim_owner_id`, `correlation_id`))",
+        "fields": [
+          {
+            "fieldPath": "simOwnerId",
+            "columnName": "sim_owner_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "correlationId",
+            "columnName": "correlation_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "direction",
+            "columnName": "direction",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "peerPhone",
+            "columnName": "peer_phone",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "startedAtMs",
+            "columnName": "started_at_ms",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "connectedAtMs",
+            "columnName": "connected_at_ms",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "endedAtMs",
+            "columnName": "ended_at_ms",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "durationSec",
+            "columnName": "duration_sec",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "outcome",
+            "columnName": "outcome",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "sim_owner_id",
+            "correlation_id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_call_records_owner_started",
+            "unique": false,
+            "columnNames": [
+              "sim_owner_id",
+              "started_at_ms",
+              "correlation_id"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_call_records_owner_started` ON `${TABLE_NAME}` (`sim_owner_id`, `started_at_ms`, `correlation_id`)"
+          }
+        ]
+      },
+      {
+        "tableName": "call_history_selection",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER NOT NULL, `owner_id` TEXT NOT NULL, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "ownerId",
+            "columnName": "owner_id",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        }
+      }
+    ],
+    "setupQueries": [
+      "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, 'a5fa91b88412365727bafa06aa531ba2')"
+    ]
+  }
+}

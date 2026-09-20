@@ -1,0 +1,142 @@
+{
+  "formatVersion": 1,
+  "database": {
+    "version": 1,
+    "identityHash": "ed8a282ddb1e4da00907222af5c59fdb",
+    "entities": [
+      {
+        "tableName": "messages",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`message_id` TEXT NOT NULL, `sim_owner_id` TEXT NOT NULL, `direction` TEXT NOT NULL, `peer_address` TEXT NOT NULL, `conversation_key` TEXT NOT NULL, `body` TEXT NOT NULL, `message_at_ms` INTEGER NOT NULL, `engine_sms_id` TEXT, `outgoing_status` TEXT, `engine_status` TEXT, `status_updated_at_ms` INTEGER NOT NULL, `failure_reason` TEXT, PRIMARY KEY(`message_id`))",
+        "fields": [
+          {
+            "fieldPath": "messageId",
+            "columnName": "message_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "simOwnerId",
+            "columnName": "sim_owner_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "direction",
+            "columnName": "direction",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "peerAddress",
+            "columnName": "peer_address",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "conversationKey",
+            "columnName": "conversation_key",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "body",
+            "columnName": "body",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "messageAtMs",
+            "columnName": "message_at_ms",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "engineSmsId",
+            "columnName": "engine_sms_id",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "outgoingStatus",
+            "columnName": "outgoing_status",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "engineStatus",
+            "columnName": "engine_status",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "statusUpdatedAtMs",
+            "columnName": "status_updated_at_ms",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "failureReason",
+            "columnName": "failure_reason",
+            "affinity": "TEXT"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "message_id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_messages_owner_direction_engine_sms_id",
+            "unique": true,
+            "columnNames": [
+              "sim_owner_id",
+              "direction",
+              "engine_sms_id"
+            ],
+            "orders": [],
+            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_messages_owner_direction_engine_sms_id` ON `${TABLE_NAME}` (`sim_owner_id`, `direction`, `engine_sms_id`)"
+          },
+          {
+            "name": "index_messages_owner_conversation_sort",
+            "unique": false,
+            "columnNames": [
+              "sim_owner_id",
+              "conversation_key",
+              "message_at_ms",
+              "message_id"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_messages_owner_conversation_sort` ON `${TABLE_NAME}` (`sim_owner_id`, `conversation_key`, `message_at_ms`, `message_id`)"
+          }
+        ]
+      },
+      {
+        "tableName": "message_metadata",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`key` TEXT NOT NULL, `value` TEXT NOT NULL, PRIMARY KEY(`key`))",
+        "fields": [
+          {
+            "fieldPath": "key",
+            "columnName": "key",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "value",
+            "columnName": "value",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "key"
+          ]
+        }
+      }
+    ],
+    "setupQueries": [
+      "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, 'ed8a282ddb1e4da00907222af5c59fdb')"
+    ]
+  }
+}

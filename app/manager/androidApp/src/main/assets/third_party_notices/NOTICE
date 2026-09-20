@@ -1,0 +1,187 @@
+SoftVoWiFi client — THIRD-PARTY MATERIAL INDEX (REVIEW DRAFT)
+
+This proposed index is not approval to publish or install an artifact.
+Client-owned code is subject to the separately approved MIT scope.
+Third-party code/data retain their own terms and attribution.
+
+MaterialKolor 4.1.1: project MIT text is included for applicable portions.
+Its material-color-utilities module is Apache-2.0, Copyright 2021 Google LLC.
+The upstream module records conversion from Java to Kotlin/Multiplatform.
+The root POM MIT label is not used to replace the module-specific licence.
+Guava listenablefuture 1.0 inherits Apache-2.0 from guava-parent 26.0-android.
+The generated AOSP country table retains its separate modification notice.
+The package builder supplies the exact Go toolchain licence separately.
+This index does not cover the separately delivered closed-source core.
+
+Resolved Android runtime graph (includes metadata/facade/BOM nodes):
+- androidx.activity:activity-compose:1.13.0: The Apache Software License, Version 2.0
+- androidx.activity:activity-ktx:1.13.0: The Apache Software License, Version 2.0
+- androidx.activity:activity:1.13.0: The Apache Software License, Version 2.0
+- androidx.annotation:annotation-experimental:1.5.0: The Apache Software License, Version 2.0
+- androidx.annotation:annotation-jvm:1.9.1: The Apache Software License, Version 2.0
+- androidx.annotation:annotation:1.9.1: The Apache Software License, Version 2.0
+- androidx.arch.core:core-common:2.2.0: The Apache Software License, Version 2.0
+- androidx.arch.core:core-runtime:2.2.0: The Apache Software License, Version 2.0
+- androidx.autofill:autofill:1.0.0: The Apache Software License, Version 2.0
+- androidx.collection:collection-jvm:1.6.0: The Apache Software License, Version 2.0
+- androidx.collection:collection-ktx:1.6.0: The Apache Software License, Version 2.0
+- androidx.collection:collection:1.6.0: The Apache Software License, Version 2.0
+- androidx.compose.animation:animation-android:1.11.2: The Apache Software License, Version 2.0
+- androidx.compose.animation:animation-core-android:1.11.2: The Apache Software License, Version 2.0
+- androidx.compose.animation:animation-core:1.11.2: The Apache Software License, Version 2.0
+- androidx.compose.animation:animation:1.11.2: The Apache Software License, Version 2.0
+- androidx.compose.foundation:foundation-android:1.11.2: The Apache Software License, Version 2.0
+- androidx.compose.foundation:foundation-layout-android:1.11.2: The Apache Software License, Version 2.0
+- androidx.compose.foundation:foundation-layout:1.11.2: The Apache Software License, Version 2.0
+- androidx.compose.foundation:foundation:1.11.2: The Apache Software License, Version 2.0
+- androidx.compose.material3:material3-android:1.4.0: The Apache Software License, Version 2.0
+- androidx.compose.material3:material3-window-size-class-android:1.4.0: The Apache Software License, Version 2.0
+- androidx.compose.material3:material3-window-size-class:1.4.0: The Apache Software License, Version 2.0
+- androidx.compose.material3:material3:1.4.0: The Apache Software License, Version 2.0
+- androidx.compose.material:material-ripple-android:1.8.1: The Apache Software License, Version 2.0
+- androidx.compose.material:material-ripple:1.8.1: The Apache Software License, Version 2.0
+- androidx.compose.runtime:runtime-android:1.11.2: The Apache Software License, Version 2.0
+- androidx.compose.runtime:runtime-annotation-android:1.11.2: The Apache Software License, Version 2.0
+- androidx.compose.runtime:runtime-annotation:1.11.2: The Apache Software License, Version 2.0
+- androidx.compose.runtime:runtime-retain-android:1.11.2: The Apache Software License, Version 2.0
+- androidx.compose.runtime:runtime-retain:1.11.2: The Apache Software License, Version 2.0
+- androidx.compose.runtime:runtime-saveable-android:1.11.2: The Apache Software License, Version 2.0
+- androidx.compose.runtime:runtime-saveable:1.11.2: The Apache Software License, Version 2.0
+- androidx.compose.runtime:runtime:1.11.2: The Apache Software License, Version 2.0
+- androidx.compose.ui:ui-android:1.11.2: The Apache Software License, Version 2.0
+- androidx.compose.ui:ui-geometry-android:1.11.2: The Apache Software License, Version 2.0
+- androidx.compose.ui:ui-geometry:1.11.2: The Apache Software License, Version 2.0
+- androidx.compose.ui:ui-graphics-android:1.11.2: The Apache Software License, Version 2.0
+- androidx.compose.ui:ui-graphics:1.11.2: The Apache Software License, Version 2.0
+- androidx.compose.ui:ui-text-android:1.11.2: The Apache Software License, Version 2.0
+- androidx.compose.ui:ui-text:1.11.2: The Apache Software License, Version 2.0
+- androidx.compose.ui:ui-tooling-android:1.11.2: The Apache Software License, Version 2.0
+- androidx.compose.ui:ui-tooling-data-android:1.11.2: The Apache Software License, Version 2.0
+- androidx.compose.ui:ui-tooling-data:1.11.2: The Apache Software License, Version 2.0
+- androidx.compose.ui:ui-tooling-preview-android:1.11.2: The Apache Software License, Version 2.0
+- androidx.compose.ui:ui-tooling-preview:1.11.2: The Apache Software License, Version 2.0
+- androidx.compose.ui:ui-tooling:1.11.2: The Apache Software License, Version 2.0
+- androidx.compose.ui:ui-unit-android:1.11.2: The Apache Software License, Version 2.0
+- androidx.compose.ui:ui-unit:1.11.2: The Apache Software License, Version 2.0
+- androidx.compose.ui:ui-util-android:1.11.2: The Apache Software License, Version 2.0
+- androidx.compose.ui:ui-util:1.11.2: The Apache Software License, Version 2.0
+- androidx.compose.ui:ui:1.11.2: The Apache Software License, Version 2.0
+- androidx.concurrent:concurrent-futures:1.1.0: The Apache Software License, Version 2.0
+- androidx.core:core-ktx:1.18.0: The Apache Software License, Version 2.0
+- androidx.core:core-viewtree:1.0.0: The Apache Software License, Version 2.0
+- androidx.core:core:1.18.0: The Apache Software License, Version 2.0
+- androidx.customview:customview-poolingcontainer:1.0.0: The Apache Software License, Version 2.0
+- androidx.documentfile:documentfile:1.0.0: The Apache Software License, Version 2.0
+- androidx.dynamicanimation:dynamicanimation:1.0.0: The Apache Software License, Version 2.0
+- androidx.emoji2:emoji2:1.4.0: The Apache Software License, Version 2.0
+- androidx.graphics:graphics-path:1.0.1: The Apache Software License, Version 2.0
+- androidx.interpolator:interpolator:1.0.0: The Apache Software License, Version 2.0
+- androidx.legacy:legacy-support-core-utils:1.0.0: The Apache Software License, Version 2.0
+- androidx.lifecycle:lifecycle-common-java8:2.10.0: The Apache Software License, Version 2.0
+- androidx.lifecycle:lifecycle-common-jvm:2.10.0: The Apache Software License, Version 2.0
+- androidx.lifecycle:lifecycle-common:2.10.0: The Apache Software License, Version 2.0
+- androidx.lifecycle:lifecycle-livedata-core-ktx:2.10.0: The Apache Software License, Version 2.0
+- androidx.lifecycle:lifecycle-livedata-core:2.10.0: The Apache Software License, Version 2.0
+- androidx.lifecycle:lifecycle-livedata:2.10.0: The Apache Software License, Version 2.0
+- androidx.lifecycle:lifecycle-process:2.10.0: The Apache Software License, Version 2.0
+- androidx.lifecycle:lifecycle-runtime-android:2.10.0: The Apache Software License, Version 2.0
+- androidx.lifecycle:lifecycle-runtime-compose-android:2.10.0: The Apache Software License, Version 2.0
+- androidx.lifecycle:lifecycle-runtime-compose:2.10.0: The Apache Software License, Version 2.0
+- androidx.lifecycle:lifecycle-runtime-ktx-android:2.10.0: The Apache Software License, Version 2.0
+- androidx.lifecycle:lifecycle-runtime-ktx:2.10.0: The Apache Software License, Version 2.0
+- androidx.lifecycle:lifecycle-runtime:2.10.0: The Apache Software License, Version 2.0
+- androidx.lifecycle:lifecycle-viewmodel-android:2.10.0: The Apache Software License, Version 2.0
+- androidx.lifecycle:lifecycle-viewmodel-ktx:2.10.0: The Apache Software License, Version 2.0
+- androidx.lifecycle:lifecycle-viewmodel-savedstate-android:2.10.0: The Apache Software License, Version 2.0
+- androidx.lifecycle:lifecycle-viewmodel-savedstate:2.10.0: The Apache Software License, Version 2.0
+- androidx.lifecycle:lifecycle-viewmodel:2.10.0: The Apache Software License, Version 2.0
+- androidx.loader:loader:1.0.0: The Apache Software License, Version 2.0
+- androidx.localbroadcastmanager:localbroadcastmanager:1.0.0: The Apache Software License, Version 2.0
+- androidx.navigation3:navigation3-runtime-android:1.1.4: The Apache Software License, Version 2.0
+- androidx.navigation3:navigation3-runtime:1.1.4: The Apache Software License, Version 2.0
+- androidx.navigationevent:navigationevent-android:1.1.2: The Apache Software License, Version 2.0
+- androidx.navigationevent:navigationevent-compose-android:1.1.2: The Apache Software License, Version 2.0
+- androidx.navigationevent:navigationevent-compose:1.1.2: The Apache Software License, Version 2.0
+- androidx.navigationevent:navigationevent:1.1.2: The Apache Software License, Version 2.0
+- androidx.print:print:1.0.0: The Apache Software License, Version 2.0
+- androidx.profileinstaller:profileinstaller:1.4.0: The Apache Software License, Version 2.0
+- androidx.room3:room3-common-jvm:3.0.1: The Apache Software License, Version 2.0
+- androidx.room3:room3-common:3.0.1: The Apache Software License, Version 2.0
+- androidx.room3:room3-runtime-android:3.0.1: The Apache Software License, Version 2.0
+- androidx.room3:room3-runtime:3.0.1: The Apache Software License, Version 2.0
+- androidx.savedstate:savedstate-android:1.4.0: The Apache Software License, Version 2.0
+- androidx.savedstate:savedstate-compose-android:1.4.0: The Apache Software License, Version 2.0
+- androidx.savedstate:savedstate-compose:1.4.0: The Apache Software License, Version 2.0
+- androidx.savedstate:savedstate-ktx:1.4.0: The Apache Software License, Version 2.0
+- androidx.savedstate:savedstate:1.4.0: The Apache Software License, Version 2.0
+- androidx.sqlite:sqlite-android:2.7.0: The Apache Software License, Version 2.0
+- androidx.sqlite:sqlite-async-android:2.7.0: The Apache Software License, Version 2.0
+- androidx.sqlite:sqlite-async:2.7.0: The Apache Software License, Version 2.0
+- androidx.sqlite:sqlite-framework-android:2.7.0: The Apache Software License, Version 2.0
+- androidx.sqlite:sqlite-framework:2.7.0: The Apache Software License, Version 2.0
+- androidx.sqlite:sqlite:2.7.0: The Apache Software License, Version 2.0
+- androidx.startup:startup-runtime:1.1.1: The Apache Software License, Version 2.0
+- androidx.tracing:tracing:1.2.0: The Apache Software License, Version 2.0
+- androidx.transition:transition:1.6.0: The Apache Software License, Version 2.0
+- androidx.versionedparcelable:versionedparcelable:1.1.1: The Apache Software License, Version 2.0
+- androidx.window:window-core-android:1.5.0: The Apache Software License, Version 2.0
+- androidx.window:window-core:1.5.0: The Apache Software License, Version 2.0
+- androidx.window:window:1.5.0: The Apache Software License, Version 2.0
+- com.google.guava:listenablefuture:1.0: Apache-2.0 via verified guava-parent:26.0-android
+- com.materialkolor:material-color-utilities-android:4.1.1: The MIT License; module-specific Apache-2.0 evidence also retained
+- com.materialkolor:material-color-utilities:4.1.1: The MIT License; module-specific Apache-2.0 evidence also retained
+- dev.drewhamilton.poko:poko-annotations-jvm:0.21.1: The Apache Software License, Version 2.0
+- dev.drewhamilton.poko:poko-annotations:0.21.1: The Apache Software License, Version 2.0
+- org.jetbrains.androidx.lifecycle:lifecycle-common:2.10.0: The Apache Software License, Version 2.0
+- org.jetbrains.androidx.lifecycle:lifecycle-runtime-compose:2.10.0: The Apache Software License, Version 2.0
+- org.jetbrains.androidx.lifecycle:lifecycle-runtime:2.10.0: The Apache Software License, Version 2.0
+- org.jetbrains.androidx.lifecycle:lifecycle-viewmodel-savedstate:2.9.6: The Apache Software License, Version 2.0
+- org.jetbrains.androidx.lifecycle:lifecycle-viewmodel:2.9.6: The Apache Software License, Version 2.0
+- org.jetbrains.androidx.savedstate:savedstate-compose:1.3.6: The Apache Software License, Version 2.0
+- org.jetbrains.androidx.savedstate:savedstate:1.3.6: The Apache Software License, Version 2.0
+- org.jetbrains.compose.animation:animation-core:1.11.1: The Apache Software License, Version 2.0
+- org.jetbrains.compose.animation:animation:1.11.1: The Apache Software License, Version 2.0
+- org.jetbrains.compose.foundation:foundation-layout:1.11.1: The Apache Software License, Version 2.0
+- org.jetbrains.compose.foundation:foundation:1.11.1: The Apache Software License, Version 2.0
+- org.jetbrains.compose.material3:material3-window-size-class:1.9.0: The Apache Software License, Version 2.0
+- org.jetbrains.compose.runtime:runtime-saveable:1.11.1: The Apache Software License, Version 2.0
+- org.jetbrains.compose.runtime:runtime:1.11.1: The Apache Software License, Version 2.0
+- org.jetbrains.compose.ui:ui-geometry:1.11.1: The Apache Software License, Version 2.0
+- org.jetbrains.compose.ui:ui-graphics:1.11.1: The Apache Software License, Version 2.0
+- org.jetbrains.compose.ui:ui-text:1.11.1: The Apache Software License, Version 2.0
+- org.jetbrains.compose.ui:ui-tooling-data:1.11.1: The Apache Software License, Version 2.0
+- org.jetbrains.compose.ui:ui-tooling-preview:1.11.1: The Apache Software License, Version 2.0
+- org.jetbrains.compose.ui:ui-tooling:1.11.1: The Apache Software License, Version 2.0
+- org.jetbrains.compose.ui:ui-unit:1.11.1: The Apache Software License, Version 2.0
+- org.jetbrains.compose.ui:ui-util:1.11.1: The Apache Software License, Version 2.0
+- org.jetbrains.compose.ui:ui:1.11.1: The Apache Software License, Version 2.0
+- org.jetbrains.kotlin:kotlin-stdlib:2.4.10: Apache-2.0
+- org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2: Apache-2.0
+- org.jetbrains.kotlinx:kotlinx-coroutines-bom:1.10.2: Apache-2.0
+- org.jetbrains.kotlinx:kotlinx-coroutines-core-jvm:1.10.2: Apache-2.0
+- org.jetbrains.kotlinx:kotlinx-coroutines-core:1.10.2: Apache-2.0
+- org.jetbrains.kotlinx:kotlinx-serialization-bom:1.11.0: Apache-2.0
+- org.jetbrains.kotlinx:kotlinx-serialization-core-jvm:1.11.0: Apache-2.0
+- org.jetbrains.kotlinx:kotlinx-serialization-core:1.11.0: Apache-2.0
+- org.jetbrains.kotlinx:kotlinx-serialization-json-jvm:1.11.0: Apache-2.0
+- org.jetbrains.kotlinx:kotlinx-serialization-json:1.11.0: Apache-2.0
+- org.jetbrains:annotations:23.0.0: The Apache Software License, Version 2.0
+- org.jspecify:jspecify:1.0.0: The Apache License, Version 2.0
+- top.yukonga.miuix.kmp:miuix-blur-android:0.9.3: The Apache Software License, Version 2.0
+- top.yukonga.miuix.kmp:miuix-blur:0.9.3: The Apache Software License, Version 2.0
+- top.yukonga.miuix.kmp:miuix-core-android:0.9.3: The Apache Software License, Version 2.0
+- top.yukonga.miuix.kmp:miuix-core:0.9.3: The Apache Software License, Version 2.0
+- top.yukonga.miuix.kmp:miuix-icons-android:0.9.3: The Apache Software License, Version 2.0
+- top.yukonga.miuix.kmp:miuix-icons:0.9.3: The Apache Software License, Version 2.0
+- top.yukonga.miuix.kmp:miuix-navigation3-ui-android:0.9.3: The Apache Software License, Version 2.0
+- top.yukonga.miuix.kmp:miuix-navigation3-ui:0.9.3: The Apache Software License, Version 2.0
+- top.yukonga.miuix.kmp:miuix-preference-android:0.9.3: The Apache Software License, Version 2.0
+- top.yukonga.miuix.kmp:miuix-preference:0.9.3: The Apache Software License, Version 2.0
+- top.yukonga.miuix.kmp:miuix-shader-android:0.9.3: The Apache Software License, Version 2.0
+- top.yukonga.miuix.kmp:miuix-shader:0.9.3: The Apache Software License, Version 2.0
+- top.yukonga.miuix.kmp:miuix-squircle-android:0.9.3: The Apache Software License, Version 2.0
+- top.yukonga.miuix.kmp:miuix-squircle:0.9.3: The Apache Software License, Version 2.0
+- top.yukonga.miuix.kmp:miuix-ui-android:0.9.3: The Apache Software License, Version 2.0
+- top.yukonga.miuix.kmp:miuix-ui:0.9.3: The Apache Software License, Version 2.0
+
+Release gate: upstream/embedded NOTICE completeness and source rights remain under review.

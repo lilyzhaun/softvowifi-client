@@ -1,0 +1,125 @@
+package com.vowifi.sw.manager.ui
+
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.size
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+import com.vowifi.sw.manager.model.OperationalLogFile
+import com.vowifi.sw.manager.model.OperationalLogFilter
+import com.vowifi.sw.manager.model.OperationalLogKind
+import com.vowifi.sw.manager.model.OperationalLogLevel
+import top.yukonga.miuix.kmp.basic.Card
+import top.yukonga.miuix.kmp.basic.Icon
+import top.yukonga.miuix.kmp.icon.MiuixIcons
+import top.yukonga.miuix.kmp.icon.extended.Info
+import top.yukonga.miuix.kmp.preference.OverlayDropdownPreference
+
+internal data class LogFilterPresentation(
+    val files: List<OperationalLogFile>,
+    val selectedFileId: String,
+    val filter: OperationalLogFilter,
+)
+
+internal data class LogFilterActions(
+    val onSelectFile: (OperationalLogFile) -> Unit,
+    val onKindSelected: (OperationalLogKind?) -> Unit,
+    val onLevelSelected: (OperationalLogLevel?) -> Unit,
+)
+
+@Composable
+internal fun LogFilterRow(
+    presentation: LogFilterPresentation,
+    actions: LogFilterActions,
+    modifier: Modifier = Modifier,
+) {
+    val files = presentation.files
+    val selectedFileId = presentation.selectedFileId
+    val filter = presentation.filter
+    val fileOptions = files.map(::operationalLogFileLabel)
+    val selectedFileIndex = files.indexOfFirst { it.id == selectedFileId }
+    val hasSelectedFile = selectedFileIndex >= 0
+    val kindOptions = operationalLogKindOptions()
+    val levelOptions = operationalLogLevelOptions()
+    val fileItems = when {
+        files.isEmpty() -> listOf("暂无可用日志")
+        hasSelectedFile -> fileOptions
+        else -> listOf("未选择日志") + fileOptions
+    }
+    Card(
+        modifier = modifier.fillMaxWidth(),
+        insideMargin = PaddingValues(vertical = 4.dp),
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            OverlayDropdownPreference(
+                items = fileItems,
+                selectedIndex = if (hasSelectedFile) selectedFileIndex else 0,
+                title = "日志文件",
+                startAction = {
+                    Icon(
+                        imageVector = MiuixIcons.Info,
+                        contentDescription = null,
+                        modifier = Modifier.size(20.dp),
+                    )
+                },
+                enabled = files.isNotEmpty(),
+                onSelectedIndexChange = { index ->
+                    files.getOrNull(if (hasSelectedFile) index else index - 1)?.let(actions.onSelectFile)
+                },
+            )
+            OverlayDropdownPreference(
+                title = "类型",
+                items = kindOptions.map { it.second },
+                selectedIndex = kindOptions.indexOfFirst { it.first == filter.kind }.coerceAtLeast(0),
+                startAction = {
+                    Icon(
+                        imageVector = MiuixIcons.Info,
+                        contentDescription = null,
+                        modifier = Modifier.size(20.dp),
+                    )
+                },
+                onSelectedIndexChange = { index -> kindOptions.getOrNull(index)?.let { actions.onKindSelected(it.first) } },
+            )
+            OverlayDropdownPreference(
+                title = "级别",
+                items = levelOptions.map { it.second },
+                selectedIndex = levelOptions.indexOfFirst { it.first == filter.level }.coerceAtLeast(0),
+                startAction = {
+                    Icon(
+                        imageVector = MiuixIcons.Info,
+                        contentDescription = null,
+                        modifier = Modifier.size(20.dp),
+                    )
+                },
+                onSelectedIndexChange = { index -> levelOptions.getOrNull(index)?.let { actions.onLevelSelected(it.first) } },
+            )
+        }
+    }
+}
+
+internal fun operationalLogKindOptions(): List<Pair<OperationalLogKind?, String>> = listOf(
+    null to "全部",
+    OperationalLogKind.ENGINE to "引擎",
+    OperationalLogKind.TUNNEL to "隧道",
+    OperationalLogKind.IMS to "IMS",
+)
+
+internal fun operationalLogLevelOptions(): List<Pair<OperationalLogLevel?, String>> = listOf(
+    null to "全部",
+    OperationalLogLevel.INFO to "信息",
+    OperationalLogLevel.WARN to "告警",
+    OperationalLogLevel.ERROR to "错误",
+)
+
+internal fun operationalLogFileLabel(file: OperationalLogFile): String {
+    val source = when {
+        file.name.lowercase().contains("launcher") -> "启动"
+        file.name.lowercase().contains("engine") -> "引擎"
+        else -> "日志"
+    }
+    val suffix = file.suffix.filter(Char::isLetterOrDigit).takeLast(4)
+    return if (suffix.isEmpty()) "$source ••••" else "$source •••• $suffix"
+}

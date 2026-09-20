@@ -1,0 +1,11 @@
+SoftVoWiFi Client Snapshot
+
+This root notice distinguishes source materials from future binary release compliance. It is not approval to publish, install, or redistribute a binary release.
+
+Client-owned code is licensed under the root MIT LICENSE only where the owner has approved that scope. Third-party and derived materials retain their own terms and notices.
+
+The generated `CountryCatalogGenerated.kt` is derived MCC to ISO2 data only. Its preserved header identifies AOSP `MccTable.java`, Copyright (C) 2006 The Android Open Source Project, Apache-2.0, pinned at commit `307806916047d68377ff74674f95ca499243e068` with raw SHA-256 `68a2ed822151f0cdacc023fb924c1dff9bc7e913bcad5220dd1f42503e715840`. AOSP Java helpers are not copied. The matching asset notice records that the data was extracted from `sTable.add(new MccEntry(mcc, "iso", digits))` records and is not a relicensing of the AOSP implementation.
+
+The Gradle wrapper and wrapper JAR are third-party Apache materials and are preserved with the snapshot. Build-time dependencies downloaded by Gradle, including AndroidX, Compose, Kotlin, miuix, MaterialKolor, and their transitive dependencies, are not bundled source materials in this snapshot. Their eventual binary-release notices require separate review.
+
+`app/manager/androidApp/src/main/assets/third_party_notices/NOTICE` is candidate review material, not a complete binary-release compliance notice. Its listed dependency information and the six files in that directory remain unchanged. Do not treat this root notice or those assets as approval for a binary release.

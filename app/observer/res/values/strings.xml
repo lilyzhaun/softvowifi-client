@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">SoftVoWiFi</string>
+    <string name="observer_channel">IMS observation</string>
+    <string name="observer_running">IMS registration observer is running</string>
+</resources>
