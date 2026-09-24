@@ -18,7 +18,7 @@ import kotlin.test.assertEquals
 
 class HomeNoticeDestinationTest {
     @Test
-    fun registrationNoticesRouteToSettingsDiagnostics() {
+    fun observerErrorsStayOutOfHomeSoftwareHealthNotices() {
         val readErrorPresentation = homeDashboardPresentation(
             registrationState = RegistrationUiState.ReadError("raw observer read failure"),
             engineState = SimControlUiState.Loading,
@@ -26,8 +26,7 @@ class HomeNoticeDestinationTest {
             nowMs = NOW_MS,
             localDateLabel = { "8月25日" },
         )
-        val readErrorNotice: HomeNoticePresentation = readErrorPresentation.notices.single { it.title == "无法读取 IMS 状态" }
-        assertEquals(AppRoute.SettingsDiagnostics, readErrorNotice.destination)
+        assertEquals(emptyList(), readErrorPresentation.notices)
 
         val parseErrorPresentation = homeDashboardPresentation(
             registrationState = RegistrationUiState.ParseError(listOf(ParseIssue(1, "observer parse failure"))),
@@ -36,8 +35,7 @@ class HomeNoticeDestinationTest {
             nowMs = NOW_MS,
             localDateLabel = { "8月25日" },
         )
-        val parseErrorNotice: HomeNoticePresentation = parseErrorPresentation.notices.single { it.title == "IMS 事件无法解析" }
-        assertEquals(AppRoute.SettingsDiagnostics, parseErrorNotice.destination)
+        assertEquals(emptyList(), parseErrorPresentation.notices)
 
         val issuesPresentation = homeDashboardPresentation(
             registrationState = RegistrationUiState.Data(
@@ -52,8 +50,7 @@ class HomeNoticeDestinationTest {
             nowMs = NOW_MS,
             localDateLabel = { "8月25日" },
         )
-        val issuesNotice: HomeNoticePresentation = issuesPresentation.notices.single { it.title == "IMS 数据含告警" }
-        assertEquals(AppRoute.SettingsDiagnostics, issuesNotice.destination)
+        assertEquals(emptyList(), issuesPresentation.notices)
     }
 
     @Test

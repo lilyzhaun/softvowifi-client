@@ -40,6 +40,7 @@ internal data class SoftVoWiFiContentState(
     val logs: OperationalLogUiState,
     val messages: MessageUiState,
     val calls: CallUiState,
+    val callLines: com.vowifi.sw.manager.data.CallLineState,
     val callHistory: CallHistoryState,
     val callAudio: CallAudioControls,
     val appearance: AppearanceSettings,
@@ -53,13 +54,9 @@ internal data class SoftVoWiFiContentActions(
     val exportBusy: Boolean,
     val appVersion: String,
     val refreshHome: () -> Unit,
-    val messageDraftRecipient: String,
-    val messageDraftBody: String,
-    val callDraft: String,
+    val messageDraft: com.vowifi.sw.manager.ui.BoundMessageDraft,
+    val callDraft: com.vowifi.sw.manager.ui.CallDialDraft,
     val onCallDraftChange: (String) -> Unit,
-    val onMessageDraftRecipientChange: (String) -> Unit,
-    val onMessageDraftBodyChange: (String) -> Unit,
-    val onClearMessageDraft: () -> Unit,
     val onNavigate: (AppRoute.Subpage) -> Unit,
     val onOpenHomeNotice: (AppRoute.Subpage) -> Unit,
     val blurSupported: Boolean,
@@ -108,6 +105,10 @@ internal fun SoftVoWiFiDestinationContent(
             onMute = sources.calls::mute,
             onSpeaker = sources.calls::speaker,
             onOpenCall = actions.openCall,
+            lineContent = { com.vowifi.sw.manager.ui.CallLineEntry(state.callLines, actions.callDraft.label, {
+                actions.callDraft.select(it, state.callLines); sources.calls.selectLine(it)
+            }, enabled = (state.calls as? CallUiState.Ready)?.busy != true) },
+            currentLineLabel = actions.callLineLabel,
         )
         AppRoute.Messages -> MessagesScreen(
             state = state.messages,
@@ -116,11 +117,12 @@ internal fun SoftVoWiFiDestinationContent(
             notificationsEnabled = sources.messages.notificationsEnabled.collectAsState().value,
             onNotificationSettings = sources.messages::openNotificationSettings,
             historyChoices = sources.messages.historyChoices.collectAsState().value,
-            onSelectHistoryOwner = sources.messages::selectHistoryOwner,
+            onSelectHistoryOwner = actions.messageDraft.selectOwner,
             onSaveOwnerRemark = sources.messages::saveOwnerRemark,
             onRefreshHistory = sources.messages::refresh,
             onSearchHistory = sources.messages::searchHistory,
             onLoadMore = sources.messages::loadMoreHistory,
+            selectionNotice = actions.messageDraft.selectionNotice,
         )
         is AppRoute.MessageThread -> MessageThreadScreen(
             handle = route.conversation,
@@ -130,13 +132,20 @@ internal fun SoftVoWiFiDestinationContent(
             onLoadOlder = sources.messages::loadOlderMessages,
         )
         AppRoute.NewMessage -> NewMessageScreen(
-            state = state.messages,
-            recipient = actions.messageDraftRecipient,
-            body = actions.messageDraftBody,
-            onRecipientChange = actions.onMessageDraftRecipientChange,
-            onBodyChange = actions.onMessageDraftBodyChange,
-            onClearDraft = actions.onClearMessageDraft,
-            onSend = { number, text -> sources.messages.sendFromDisplayedOwner((state.messages as? MessageUiState.Available)?.ownerId, number, text) },
+            state = com.vowifi.sw.manager.ui.messageStateForDraft(state.messages, actions.messageDraft.owner),
+            recipient = actions.messageDraft.draft.recipient,
+            body = actions.messageDraft.draft.body,
+            onRecipientChange = actions.messageDraft.draft.updateRecipient,
+            onBodyChange = actions.messageDraft.draft.updateBody,
+            onClearDraft = actions.messageDraft.draft.clear,
+            onSend = { number, text -> sources.messages.sendFromDisplayedOwner(actions.messageDraft.owner, number, text) },
+            draftOwner = actions.messageDraft.owner,
+            historyChoices = sources.messages.historyChoices.collectAsState().value,
+            onSelectHistoryOwner = actions.messageDraft.selectOwner,
+            onSaveOwnerRemark = sources.messages::saveOwnerRemark,
+            onRefreshHistory = sources.messages::refresh,
+            selectionNotice = actions.messageDraft.selectionNotice,
+            onClearUnboundDraft = actions.messageDraft.clearUnbound,
         )
         AppRoute.Settings -> SettingsScreen(
             catalog = settingsCatalog(
@@ -183,15 +192,27 @@ internal fun SoftVoWiFiDestinationContent(
         )
         AppRoute.SettingsCallNotifications -> SettingsCallNotificationsScreen(sources.callNotificationSettings)
         AppRoute.SettingsAbout -> SettingsAboutScreen(actions.appVersion)
-        AppRoute.Dialpad -> CallsDialpadScreen(
+        AppRoute.Dialpad -> {
+        val outgoingBinding = actions.callDraft.binding(state.callLines)
+        CallsDialpadScreen(
             state = state.calls,
-            draft = actions.callDraft,
+            draft = actions.callDraft.number,
             onDraftChange = actions.onCallDraftChange,
-            onDial = { number -> (state.calls as? CallUiState.Ready)?.binding?.let { binding ->
-                actions.callDial?.invoke(binding, number) ?: sources.calls.dial(binding, number)
+            onDial = { number -> outgoingBinding?.let { binding ->
+                actions.callDial?.invoke(binding, number) ?: if ((state.calls as? CallUiState.Ready)?.origin == com.vowifi.sw.manager.model.CallOrigin.DESKTOP_FIXTURE) {
+                    sources.calls.dial(binding, number)
+                } else Unit
             } },
-            lineLabel = actions.callLineLabel,
+            lineLabel = actions.callDraft.label,
             onPermissions = actions.callPermissions,
+            outgoingEnabled = outgoingBinding != null &&
+                (actions.callDial != null || (state.calls as? CallUiState.Ready)?.origin == com.vowifi.sw.manager.model.CallOrigin.DESKTOP_FIXTURE),
+            outgoingNotice = if (actions.callDial == null && (state.calls as? CallUiState.Ready)?.origin != com.vowifi.sw.manager.model.CallOrigin.DESKTOP_FIXTURE)
+                "拨号授权入口不可用" else actions.callDraft.notice(state.callLines),
+            lineContent = { com.vowifi.sw.manager.ui.CallLineEntry(state.callLines, actions.callDraft.label, {
+                actions.callDraft.select(it, state.callLines); sources.calls.selectLine(it)
+            }, enabled = (state.calls as? CallUiState.Ready)?.busy != true) },
         )
+        }
     }
 }

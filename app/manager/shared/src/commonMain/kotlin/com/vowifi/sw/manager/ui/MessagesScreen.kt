@@ -39,6 +39,7 @@ fun MessagesScreen(
     onSaveOwnerRemark: suspend (com.vowifi.sw.manager.data.SimOwnerId, String) -> com.vowifi.sw.manager.data.MessageRemarkSaveResult = { _, _ -> com.vowifi.sw.manager.data.MessageRemarkSaveResult.Failed },
     onSearchHistory: (String) -> Unit = {},
     onLoadMore: () -> Unit = {},
+    selectionNotice: String? = null,
 ) {
     var pickerOpen by remember { mutableStateOf(false) }
     var editor by remember { mutableStateOf<MessageRemarkEditor?>(null) }
@@ -57,6 +58,14 @@ fun MessagesScreen(
         }
         if (historyChoices.lines.isNotEmpty()) {
             item(key = "message-line-entry") { MessageLineEntry(historyChoices) { pickerOpen = true } }
+        }
+        selectionNotice?.let { notice ->
+            item(key = "message-draft-recovery") {
+                androidx.compose.foundation.layout.Column {
+                    CommunicationNotice(notice)
+                    ManagerTextAction("处理未绑定草稿", ManagerAction.Navigate, onNewMessage)
+                }
+            }
         }
         if (onRefreshHistory != null && (state is MessageUiState.Failure || state is MessageUiState.Unavailable || state is MessageUiState.PermissionDenied)) {
             item(key = "refresh-history") {

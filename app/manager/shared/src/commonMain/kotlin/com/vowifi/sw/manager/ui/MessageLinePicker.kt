@@ -54,17 +54,17 @@ internal object MessageLineLayout {
 }
 
 @Composable
-internal fun MessageLineEntry(choices: MessageHistoryChoices, onOpen: () -> Unit) {
+internal fun MessageLineEntry(choices: MessageHistoryChoices, title: String? = null, onOpen: () -> Unit) {
     val selected = choices.lines.firstOrNull { it.owner == choices.selectedOwner }
     val feedback = managerActionFeedback(ManagerAction.Navigate)
     CompositionLocalProvider(LocalIndication provides NoVisualIndication) {
         ArrowPreference(
-            title = selected?.lineTitle() ?: "短信线路",
+            title = title ?: selected?.lineTitle() ?: "短信线路",
             summary = when {
                 choices.labelsFailed -> "无法读取线路备注，点此重试"
                 choices.labelsLoading -> "正在读取线路备注"
                 selected != null -> selected.lineSummary()
-                else -> "选择要浏览的线路"
+                else -> "选择浏览及新建短信的线路"
             },
             modifier = Modifier.fillMaxWidth().padding(vertical = MessageLineLayout.gap)
                 .heightIn(min = MessageLineLayout.touch).managerPressScale(feedback),
@@ -83,7 +83,7 @@ internal fun MessageLinePicker(
 ) {
     var query by remember { mutableStateOf("") }
     val lines = filterMessageLines(choices.lines, query)
-    OverlayDialog(show = true, title = "选择短信线路", summary = "仅切换浏览历史，不切换发送线路", onDismissRequest = onDismiss) {
+    OverlayDialog(show = true, title = "选择短信线路", summary = "选择浏览和新建短信的线路；已有会话仍用原线路回复。", onDismissRequest = onDismiss) {
         Column(verticalArrangement = Arrangement.spacedBy(MessageLineLayout.gap)) {
             TextField(value = query, onValueChange = { query = it }, label = "搜索备注或本地编号", modifier = Modifier.fillMaxWidth())
             when {

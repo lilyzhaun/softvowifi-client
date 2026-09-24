@@ -105,6 +105,7 @@ class MessageNotificationIngressTest {
             MessagePersistenceObserver { identity, rows, fresh -> policy.snapshot(identity, rows, fresh) },
         )
         assertEquals(emptyList(), alerts)
+        source.selectHistoryOwner(owner)
         assertFalse(assertIs<MessageUiState.Inbox>(source.state.value).composerEnabled)
         source.close()
     }
@@ -120,6 +121,8 @@ private class ImmediateMessageTransport : EngineMessageTransport {
             put("timestamp", 1)
         }))
     }
-    override suspend fun request(method: String, params: JsonObject, timeoutMillis: Long): EngineProtocolFrame.Response =
-        error("No outgoing request expected")
+    override suspend fun request(method: String, params: JsonObject, timeoutMillis: Long): EngineProtocolFrame.Response {
+        check(method == "getStatus") { "No outgoing request expected" }
+        return messageStatusResponse()
+    }
 }

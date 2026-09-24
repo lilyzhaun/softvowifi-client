@@ -108,10 +108,9 @@ final class RegistrationObserver implements AutoCloseable {
     }
 
     private synchronized void write(JSONObject event) {
-        String line = event.toString();
+        String line = event.toString() + '\n';
         try (FileOutputStream stream = new FileOutputStream(output, true)) {
             stream.write(line.getBytes(StandardCharsets.UTF_8));
-            stream.write('\n');
         } catch (IOException exception) {
             Log.e(TAG, "observer_output_unavailable");
         }

@@ -22,23 +22,32 @@ internal data class BackdropOwnershipContract(
 internal fun backdropOwnershipContract(
     effectiveBlur: Boolean,
     subpageVisible: Boolean,
-    bottomMode: BottomChromeMode = BottomChromeMode.FLOATING,
+): BackdropOwnershipContract = backdropOwnershipContract(
+    effectiveBlur = effectiveBlur,
+    effectiveLiquidGlass = effectiveBlur,
+    subpageVisible = subpageVisible,
+)
+
+internal fun backdropOwnershipContract(
+    effectiveBlur: Boolean,
+    effectiveLiquidGlass: Boolean,
+    subpageVisible: Boolean,
 ): BackdropOwnershipContract = BackdropOwnershipContract(
-    rootPagerLayerBackdropAttachments = if (effectiveBlur) 1 else 0,
+    rootPagerLayerBackdropAttachments = if (effectiveBlur || effectiveLiquidGlass) 1 else 0,
     perRootPageLayerBackdropAttachments = if (effectiveBlur) 1 else 0,
     privateSubpageBackdropAttachments = if (effectiveBlur && subpageVisible) 1 else 0,
-    bottomBarConsumesRootPagerBackdrop = effectiveBlur && !subpageVisible && bottomMode == BottomChromeMode.NORMAL,
+    bottomBarConsumesRootPagerBackdrop = effectiveLiquidGlass,
     textureEffectCount = 0,
-    rootPagerBottomBarConsumers = if (effectiveBlur && !subpageVisible && bottomMode == BottomChromeMode.NORMAL) 1 else 0,
-    bottomBarLocalBackdropAttachments = 0,
-    bottomBarLocalBackdropConsumers = 0,
-    bottomBarDrawBackdropCallCount = if (effectiveBlur && !subpageVisible && bottomMode == BottomChromeMode.NORMAL) 1 else 0,
+    rootPagerBottomBarConsumers = if (effectiveLiquidGlass) 3 else 0,
+    bottomBarLocalBackdropAttachments = if (effectiveLiquidGlass) 1 else 0,
+    bottomBarLocalBackdropConsumers = if (effectiveLiquidGlass) 1 else 0,
+    bottomBarDrawBackdropCallCount = if (effectiveLiquidGlass) 3 else 0,
     rootPagerOtherConsumers = 0,
     rootPageLocalBackdropAttachments = if (effectiveBlur) 1 else 0,
     rootPageTopBarConsumers = if (effectiveBlur) 1 else 0,
     privateSubpageTopBarConsumers = if (effectiveBlur && subpageVisible) 1 else 0,
     consumerInsideOwnCaptureSubtree = false,
-    drawBackdropConsumerCount = if (effectiveBlur) 1 + if (subpageVisible || bottomMode == BottomChromeMode.NORMAL) 1 else 0 else 0,
+    drawBackdropConsumerCount = (if (effectiveLiquidGlass) 3 else 0) + (if (effectiveBlur) 1 + if (subpageVisible) 1 else 0 else 0),
     embeddedPageScaffoldBackdropAttachments = 0,
 )
 

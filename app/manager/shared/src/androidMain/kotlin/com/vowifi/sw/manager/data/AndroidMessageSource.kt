@@ -1,6 +1,7 @@
 package com.vowifi.sw.manager.data
 
 import android.content.Context
+import android.telephony.SubscriptionManager
 import com.vowifi.sw.manager.model.EngineInstanceState
 import com.vowifi.sw.manager.model.MessageUiState
 import java.io.IOException
@@ -39,6 +40,7 @@ class AndroidMessageSource(
                         listInstances = ::listInstances,
                         transportFor = { iccid -> AndroidEngineMessageTransport(pool, iccid) },
                         clock = clock,
+                        activeIccids = { activeMessageIccids(context) },
                     ),
                     parentContext = parentContext,
                     repository = repository,
@@ -133,3 +135,13 @@ private fun String?.isPermissionDenied(): Boolean =
     this.orEmpty().contains("EACCES", ignoreCase = true) ||
         this.orEmpty().contains("Permission denied", ignoreCase = true) ||
         this.orEmpty().contains("error=13", ignoreCase = true)
+
+internal fun activeMessageIccids(context: Context): List<String?>? = try {
+    context.getSystemService(SubscriptionManager::class.java)?.activeSubscriptionInfoList?.map {
+        IccidNormalizer.normalize(it.iccId)
+    }
+} catch (_: SecurityException) {
+    null
+} catch (_: IllegalStateException) {
+    null
+}

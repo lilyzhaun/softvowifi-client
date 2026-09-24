@@ -17,6 +17,7 @@ internal object EngineMessagePersistenceFixtures {
             listInstances = { instances },
             transportFor = { transport },
             clock = { NOW_MS },
+            activeIccids = { instances.map { it.iccid } },
         ),
         parentContext = kotlin.coroutines.coroutineContext,
         repository = repository,
@@ -54,3 +55,8 @@ internal object EngineMessagePersistenceFixtures {
     const val ICCID_B = "8986002"
     const val NOW_MS = 1_700_000_000_000L
 }
+
+internal fun messageStatusResponse(ims: String = "REGISTERED") = EngineProtocolFrame.Response(1, buildJsonObject {
+    put("tunnel", "CONNECTED"); put("reconnects", 0); put("ims", ims)
+    put("call", "IDLE"); put("transport", "UDP"); put("pcscf", kotlinx.serialization.json.JsonArray(emptyList()))
+}, null)

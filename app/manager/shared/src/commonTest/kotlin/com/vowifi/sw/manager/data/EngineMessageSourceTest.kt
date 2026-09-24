@@ -44,12 +44,13 @@ class EngineMessageSourceTest {
     }
 
     @Test
-    fun multipleRunningInstancesStayUnsupported() = runTest(UnconfinedTestDispatcher()) {
+    fun multipleRunningInstancesRequireExplicitOwnerBeforeSending() = runTest(UnconfinedTestDispatcher()) {
         val transport = FakeEngineMessageTransport()
         val source = sourceOf(listOf(running(ICCID_A), running(ICCID_B)), transport)
 
-        val failure = assertIs<MessageUiState.Failure>(source.state.value)
-        assertEquals(ActiveEngineSelector.MULTIPLE_MESSAGE, failure.message)
+        val unbound = assertIs<MessageUiState.Unavailable>(source.state.value)
+        assertEquals(MESSAGE_SELECT_OWNER, unbound.message)
+        assertEquals(2, source.historyChoices.value.lines.size)
         source.sendSms(SYNTH_NUMBER, SYNTH_TEXT)
         assertTrue(transport.requests.isEmpty())
         source.close()
@@ -345,6 +346,7 @@ class EngineMessageSourceTest {
                 listInstances = { instances },
                 transportFor = { transport },
                 clock = { NOW_MS },
+                activeIccids = { instances.filter { it.lifecycle == EngineLifecycle.RUNNING }.map { it.iccid } },
             ),
             parentContext = coroutineContext,
             repository = FakeMessageRepository(),
@@ -365,9 +367,9 @@ class EngineMessageSourceTest {
 
         instances = listOf(running(ICCID_A), running(ICCID_B))
         source.refresh()
-        val multiple = assertIs<MessageUiState.Inbox>(source.state.value)
-        assertFalse(multiple.composerEnabled)
-        assertEquals(ActiveEngineSelector.MULTIPLE_MESSAGE, multiple.attachmentNotice)
+        val multiple = assertIs<MessageUiState.Unavailable>(source.state.value)
+        assertEquals(MESSAGE_SELECT_OWNER, multiple.message)
+        assertEquals(2, source.historyChoices.value.lines.size)
         source.close()
     }
 
@@ -381,6 +383,7 @@ class EngineMessageSourceTest {
             listInstances = { instances },
             transportFor = { transport },
             clock = { NOW_MS },
+            activeIccids = { instances.filter { it.lifecycle == EngineLifecycle.RUNNING }.map { it.iccid } },
         ),
         parentContext = kotlin.coroutines.coroutineContext,
         repository = repository,
@@ -408,6 +411,7 @@ internal class FakeEngineMessageTransport(
     private val timeoutRequests: Boolean = false,
 ) : EngineMessageTransport {
     val requests = mutableListOf<RecordedRequest>()
+    var statusRequests = 0
     private val remaining = sendResults.also { queue ->
         if (sendResult != null) queue.add(sendResult)
     }
@@ -419,6 +423,10 @@ internal class FakeEngineMessageTransport(
         params: JsonObject,
         timeoutMillis: Long,
     ): EngineProtocolFrame.Response {
+        if (method == "getStatus") {
+            statusRequests++
+            return messageStatusResponse()
+        }
         requests += RecordedRequest(method, params, timeoutMillis)
         requestGate?.await()
         if (timeoutRequests) {

@@ -8,14 +8,18 @@ import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.unit.dp
 import top.yukonga.miuix.kmp.basic.NavigationBar
 import top.yukonga.miuix.kmp.basic.NavigationBarDisplayMode
 import top.yukonga.miuix.kmp.basic.NavigationBarItem
@@ -97,30 +101,27 @@ internal fun BottomNavigationBar(
             showDivider = !chromeSpec.effectiveBlur,
             mode = NavigationBarDisplayMode.IconAndText,
         ) {
-            DestinationNavigationItems(destination, onDestinationSelected)
-        }
-        BottomChromeMode.FLOATING -> NativeFloatingNavigation(modifier) {
-            DestinationNavigationItems(destination) { item ->
-                if (item != destination) onDestinationSelected(item)
+            AppDestination.entries.forEach { item ->
+                NavigationBarItem(
+                    selected = item == destination,
+                    onClick = { onDestinationSelected(item) },
+                    icon = item.icon,
+                    label = item.label,
+                    badge = if (item == AppDestination.MESSAGES) {
+                        { MessageSummaryBadge(LocalMessageUnreadSummary.current, indicatorOnly = LocalDensity.current.fontScale > 1.3f) }
+                    } else null,
+                )
             }
         }
-    }
-}
-
-@Composable
-internal fun RowScope.DestinationNavigationItems(
-    destination: AppDestination,
-    onDestinationSelected: (AppDestination) -> Unit,
-) {
-    AppDestination.entries.forEach { item ->
-        NavigationBarItem(
-            selected = item == destination,
-            onClick = { onDestinationSelected(item) },
-            icon = item.icon,
-            label = item.label,
-            badge = if (item == AppDestination.MESSAGES) {
-                { MessageSummaryBadge(LocalMessageUnreadSummary.current, indicatorOnly = LocalDensity.current.fontScale > 1.3f) }
-            } else null,
+        BottomChromeMode.FLOATING -> SlidingFloatingBottomBar(
+            selectedIndex = destination.ordinal,
+            onSelected = { onDestinationSelected(AppDestination.entries[it]) },
+            spec = chromeSpec,
+            backdrop = backdrop,
+            items = AppDestination.entries.map { SlidingBarItem(it.label, it.icon) },
+            modifier = modifier.padding(
+                bottom = 12.dp + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding(),
+            ),
         )
     }
 }

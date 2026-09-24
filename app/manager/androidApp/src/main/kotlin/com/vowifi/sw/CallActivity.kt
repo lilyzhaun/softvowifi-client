@@ -18,6 +18,8 @@ import com.vowifi.sw.manager.ui.SoftVoWiFiTheme
 import kotlinx.coroutines.delay
 import com.vowifi.sw.manager.ui.CallLoadingContent
 import com.vowifi.sw.manager.ui.CallEndContent
+import com.vowifi.sw.manager.ui.AndroidAppearanceSettingsSource
+import com.vowifi.sw.manager.ui.PhoneActionFeedback
 
 class CallActivity : ComponentActivity() {
     private lateinit var runtime: SoftVoWiFiRuntime
@@ -40,6 +42,8 @@ class CallActivity : ComponentActivity() {
         onBackPressedDispatcher.addCallback(this) { returnToManagement() }
         runtime.calls.refresh()
         setContent {
+            val appearance = remember(resumed) { AndroidAppearanceSettingsSource(applicationContext) }
+            val appearanceSettings by appearance.state.collectAsState()
             val state by runtime.calls.state.collectAsState()
             val audio by runtime.calls.audioControls.collectAsState()
             val line by runtime.calls.lifecycle.lineLabel.collectAsState()
@@ -66,6 +70,7 @@ class CallActivity : ComponentActivity() {
                 }
             }
             SoftVoWiFiTheme {
+                PhoneActionFeedback(appearanceSettings) {
                 if (authorized != null && ready != null && (ready.phase == CallPhase.Idle || current?.let { authorized?.sameCall(it) } == true)) {
                     if (ready.phase == CallPhase.Idle) CallEndContent(ready.operationMessage, ::returnToManagement)
                     else {
@@ -82,6 +87,7 @@ class CallActivity : ComponentActivity() {
                     }
                 } else CallLoadingContent(runtime.calls::refresh, { finish() },
                     if (state == CallUiState.Loading || ready?.sync == CallSyncState.Recovering) "正在确认通话" else "暂时无法确认通话，请刷新或返回")
+                }
             }
         }
     }

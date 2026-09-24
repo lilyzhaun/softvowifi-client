@@ -5,19 +5,24 @@ import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.serialization.json.JsonObject
 
 internal class AndroidEngineMessageTransport(
-    private val pool: AndroidEngineClientPool,
-    private val iccid: String,
+    pool: AndroidEngineClientPool,
+    iccid: String,
 ) : EngineMessageTransport {
+    private val client = pool.clientFor(iccid)
+    @Volatile private var connection: LocalSocketEngineClient.MessageConnection? = null
     override val events: SharedFlow<EngineProtocolFrame.Event>
-        get() = pool.clientFor(iccid).events
+        get() = client.events
+    override val messageDisconnects get() = client.disconnected
 
     override suspend fun request(
         method: String,
         params: JsonObject,
         timeoutMillis: Long,
-    ): EngineProtocolFrame.Response = pool.clientFor(iccid).request(method, params, timeoutMillis)
+    ): EngineProtocolFrame.Response = checkNotNull(connection) { "message connection not ready" }.request(method, params, timeoutMillis)
 
     override suspend fun connect() {
-        pool.clientFor(iccid).connect()
+        if (connection == null) connection = client.connectForMessages()
     }
+
+    override fun retireMessages() { connection?.retire() }
 }

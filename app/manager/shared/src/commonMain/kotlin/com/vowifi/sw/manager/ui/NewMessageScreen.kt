@@ -18,6 +18,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.vowifi.sw.manager.model.MessageUiState
+import com.vowifi.sw.manager.model.MessageHistoryChoices
+import com.vowifi.sw.manager.data.MessageRemarkSaveResult
+import com.vowifi.sw.manager.data.SimOwnerId
 import com.vowifi.sw.manager.ui.navigation.AppRoute
 import top.yukonga.miuix.kmp.basic.TextField
 import top.yukonga.miuix.kmp.basic.Text
@@ -27,6 +30,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.input.KeyboardType
+import top.yukonga.miuix.kmp.overlay.OverlayDialog
 
 @Composable
 internal fun NewMessageScreen(
@@ -37,11 +41,24 @@ internal fun NewMessageScreen(
     onBodyChange: (String) -> Unit,
     onClearDraft: () -> Unit,
     onSend: (String, String) -> Unit,
+    draftOwner: SimOwnerId? = (state as? MessageUiState.Available)?.ownerId,
+    historyChoices: MessageHistoryChoices = MessageHistoryChoices(),
+    onSelectHistoryOwner: (SimOwnerId) -> Unit = {},
+    onSaveOwnerRemark: suspend (SimOwnerId, String) -> MessageRemarkSaveResult = { _, _ -> MessageRemarkSaveResult.Failed },
+    onRefreshHistory: (() -> Unit)? = null,
+    selectionNotice: String? = null,
+    onClearUnboundDraft: (() -> Unit)? = null,
 ) {
     val compose = projectMessageConversations(messageProjectionOwner(), state).compose
     val submission = rememberMessageDraftSubmission(state, recipient, body, onClearDraft, onSend)
     val requestImeOwner = rememberMessageImeOwnerRequest()
     var recipientTouched by rememberSaveable { mutableStateOf(false) }
+    var pickerOpen by remember { mutableStateOf(false) }
+    var editor by remember { mutableStateOf<MessageRemarkEditor?>(null) }
+    val choices = historyChoices.copy(selectedOwner = draftOwner)
+    val selectedLine = choices.lines.firstOrNull { it.owner == draftOwner }
+    val canClearUnbound = draftOwner == null && (recipient.isNotEmpty() || body.isNotEmpty()) && onClearUnboundDraft != null
+    var clearConfirmation by remember(draftOwner) { mutableStateOf(false) }
     Column(Modifier.fillMaxSize()) {
         BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
             val topInset = LocalSubpageTopContentInset.current
@@ -76,9 +93,25 @@ internal fun NewMessageScreen(
                         color = if (isValidMessageRecipient(recipient)) LocalSoftVoWiFiColors.current.interactive else LocalSoftVoWiFiColors.current.error,
                         fontSize = 14.sp, lineHeight = 20.sp)
                 }
+                if (choices.lines.isNotEmpty() || draftOwner != null) {
+                    item(key = "message-line-entry") {
+                        MessageLineEntry(choices, title = "发送线路：" +
+                            (selectedLine?.lineTitle() ?: if (draftOwner == null) "请选择 SIM" else "已绑定线路")) {
+                            pickerOpen = true
+                        }
+                    }
+                }
+                selectionNotice?.let { notice -> item(key = "selection-notice") { CommunicationNotice(notice) } }
+                if (canClearUnbound) item(key = "clear-unbound-draft") {
+                    ManagerTextAction("清空未绑定草稿", ManagerAction.ContextAction, { clearConfirmation = true })
+                }
                 if (state is MessageUiState.Available) {
                     item(key = "message-line") {
-                        CommunicationNotice(if (state.composerEnabled) "发送线路：当前连接线路" else "只读：可编辑草稿，连接后再发送。不会转交其他线路。")
+                        CommunicationNotice(when {
+                            draftOwner == null -> "请选择发送短信的 SIM；草稿尚未绑定线路。"
+                            state.composerEnabled -> "仅从所选线路发送，不会转交其他线路。"
+                            else -> "所选线路当前不可发送，草稿已保留；请确认线路后再发送。"
+                        })
                     }
                     state.attachmentNotice?.let { notice -> item(key = "messages-notice") { CommunicationNotice(notice) } }
                 } else messageStateSpec(state)?.let { panel ->
@@ -105,6 +138,26 @@ internal fun NewMessageScreen(
             onSend = submission.submit,
             canSend = canSendMessageInput(recipient, body),
         )
+    }
+    if (pickerOpen) MessageLinePicker(choices, { pickerOpen = false }, {
+        pickerOpen = false
+        onSelectHistoryOwner(it)
+    }, {
+        pickerOpen = false
+        editor = MessageRemarkEditor(it.owner, it.label?.remark.orEmpty(), it.label?.ordinal)
+    }, onRefreshHistory)
+    editor?.let { MessageRemarkDialog(it, { editor = null }, onSaveOwnerRemark) }
+    if (clearConfirmation && canClearUnbound) OverlayDialog(show = true, title = "清空未绑定草稿？",
+        summary = "仅清空尚未选择线路的号码与正文；各线路草稿保持不变。",
+        onDismissRequest = { clearConfirmation = false }) {
+        Column {
+            ManagerTextAction("取消", ManagerAction.Rejected, { clearConfirmation = false })
+            ManagerTextAction("确认清空", ManagerAction.ContextAction, {
+                clearConfirmation = false
+                submission.draftEdited()
+                onClearUnboundDraft.invoke()
+            })
+        }
     }
 }
 

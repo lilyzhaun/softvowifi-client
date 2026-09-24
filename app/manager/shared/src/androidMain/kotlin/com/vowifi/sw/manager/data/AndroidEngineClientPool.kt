@@ -1,6 +1,8 @@
 package com.vowifi.sw.manager.data
 
 import android.net.LocalSocket
+import com.vowifi.sw.manager.model.ClientCapabilitiesFailure
+import com.vowifi.sw.manager.model.ClientCapabilitiesResult
 
 class AndroidEngineClientPool(private val socketFactory: () -> LocalSocket = { LocalSocket() }) : AutoCloseable {
     private val lock = Any()
@@ -10,6 +12,18 @@ class AndroidEngineClientPool(private val socketFactory: () -> LocalSocket = { L
     internal fun clientFor(iccid: String): LocalSocketEngineClient = synchronized(lock) {
         check(!closed) { "engine client pool is closed" }
         clients.getOrPut(iccid) { LocalSocketEngineClient(socketPath(iccid), socketFactory) }
+    }
+
+    internal suspend fun clientCapabilities(iccid: String): ClientCapabilitiesResult {
+        val client = synchronized(lock) { clients[iccid] }
+            ?: return ClientCapabilitiesResult.Unavailable(ClientCapabilitiesFailure.Transport)
+        val result = EngineClientCapabilitiesSource { method, params ->
+            client.request(method, params, EngineClientCapabilitiesSource.TIMEOUT_MILLIS)
+        }.query()
+        return synchronized(lock) {
+            if (!closed && clients[iccid] === client) result
+            else ClientCapabilitiesResult.Unavailable(ClientCapabilitiesFailure.Transport)
+        }
     }
 
     internal fun remove(iccid: String): LocalSocketEngineClient? = synchronized(lock) {

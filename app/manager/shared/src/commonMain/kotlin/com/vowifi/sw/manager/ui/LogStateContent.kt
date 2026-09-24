@@ -85,7 +85,7 @@ private fun LazyListScope.operationalLogDataItems(
                 if (state is OperationalLogUiState.Warning) {
                     item(key = "operational-logs-warning") {
                         StatePanel(
-                            spec = operationalLogWarningSpec(),
+                            spec = operationalLogWarningSpec(state),
                             modifier = Modifier.padding(bottom = gap),
                         )
                     }
@@ -189,11 +189,30 @@ internal fun operationalLogManagerStatus(state: OperationalLogUiState): ManagerS
     -> error("Data states use filters and entries")
 }
 
-internal fun operationalLogWarningStatus(): ManagerStatus = managerStatus(
-    kind = ManagerStatusKind.Warning,
-    title = "日志可能不完整",
-    summary = "已显示可用的运行事件；部分来源暂时不可用。",
-)
+internal fun operationalLogWarningStatus(state: OperationalLogUiState.Warning): ManagerStatus {
+    val readFailed = state.loadInfo.issue != null
+    val parseIssues = state.issues.isNotEmpty()
+    val windowOnly = state.truncated && !parseIssues && !readFailed
+    return managerStatus(
+        kind = when {
+            readFailed -> ManagerStatusKind.Failure
+            windowOnly -> ManagerStatusKind.Unavailable
+            else -> ManagerStatusKind.Warning
+        },
+        title = when {
+            readFailed -> "日志读取失败"
+            parseIssues -> "部分日志无法解析"
+            windowOnly -> "最近日志窗口"
+            else -> "日志可能不完整"
+        },
+        summary = buildString {
+            append("已显示可用的运行事件。")
+            if (state.truncated) append("最多显示最近50条运行记录；更早记录未在此窗口显示。")
+            if (parseIssues) append("有${state.issues.size}处日志格式无法解析。")
+            if (readFailed) append("本次日志读取未完成，请刷新重试。")
+        },
+    )
+}
 
 internal fun operationalLogFilteredEmptyStatus(): ManagerStatus = managerStatus(
     kind = ManagerStatusKind.Empty,
@@ -204,8 +223,8 @@ internal fun operationalLogFilteredEmptyStatus(): ManagerStatus = managerStatus(
 internal fun operationalLogStateSpec(state: OperationalLogUiState): StatePanelSpec =
     operationalLogManagerStatus(state).toStatePanelSpec()
 
-internal fun operationalLogWarningSpec(): StatePanelSpec =
-    operationalLogWarningStatus().toStatePanelSpec()
+internal fun operationalLogWarningSpec(state: OperationalLogUiState.Warning): StatePanelSpec =
+    operationalLogWarningStatus(state).toStatePanelSpec()
 
 internal fun operationalLogFilteredEmptySpec(): StatePanelSpec =
     operationalLogFilteredEmptyStatus().toStatePanelSpec()

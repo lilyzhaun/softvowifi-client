@@ -31,7 +31,7 @@ internal suspend fun startOwnedAudio(
             onStarted()
             false
         }
-        if (stale) audio.stop()
+        if (stale) audio.stopIf(pending.session())
     }
 }
 

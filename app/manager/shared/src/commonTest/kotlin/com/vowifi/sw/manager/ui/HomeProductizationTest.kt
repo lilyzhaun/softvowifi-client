@@ -16,22 +16,20 @@ import kotlin.test.assertTrue
 
 class HomeProductizationTest {
     @Test
-    fun defaultOldEventLabelsUseActualLocalDatesRatherThanConstantPlaceholder() {
+    fun oldObserverDatesDoNotAppearAsSoftwareRegistrationEvidence() {
         val firstTimestamp = 1_704_110_400_000L
         val secondTimestamp = firstTimestamp + 86_400_000L
-        fun label(timestamp: Long): String {
+        fun facts(timestamp: Long): List<HomeFactPresentation> {
             val event = RegistrationEvent(timestamp, 1, "REGISTERED")
             return homeDashboardPresentation(
                 RegistrationUiState.Data(RegistrationSnapshot(listOf(event), listOf(event), emptyList())),
                 SimControlUiState.Ready(emptyList()), EnvironmentDiagnosticsUiState.Loading,
                 secondTimestamp + 7 * 86_400_000L,
-            ).facts.single { it.label == "最近注册事件" }.value
+            ).facts
         }
-        assertEquals(messageDateSpec(firstTimestamp).label, label(firstTimestamp))
-        assertEquals(messageDateSpec(secondTimestamp).label, label(secondTimestamp))
-        assertTrue(label(firstTimestamp).contains("2024"))
-        assertFalse(label(firstTimestamp) == label(secondTimestamp))
-        assertFalse(label(firstTimestamp) == "较早")
+        assertEquals(facts(firstTimestamp), facts(secondTimestamp))
+        assertEquals("暂无活动 SIM", facts(firstTimestamp).first().value)
+        assertFalse(facts(firstTimestamp).any { it.label == "最近注册事件" || it.label == "事件质量" })
     }
 
     @Test

@@ -162,7 +162,7 @@ class ConfigurationPolicyRenderTest {
             repeat(8) { scene.render((it + 1) * 100_000_000L).close() }
             click(scene, "高级设置")
             repeat(8) { scene.render((it + 10) * 100_000_000L).close() }
-            val directory = Files.createDirectories(Path.of("build/reports/configuration-policy-render"))
+            val directory = Files.createDirectories(Path.of("/var/tmp/vowifi-ims-policy-ui"))
             scene.render(900_000_000L).use { image ->
                 requireNotNull(image.encodeToData()).use { data -> Files.write(directory.resolve("policy-${scale.toInt()}x.png"), data.bytes) }
             }

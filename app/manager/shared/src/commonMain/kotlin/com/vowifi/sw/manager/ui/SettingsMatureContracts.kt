@@ -43,6 +43,7 @@ internal fun settingsAppearanceContract(): SettingsAppearanceContract = Settings
     switches = listOf(
         AppearancePreferenceKey.FLOATING_NAV,
         AppearancePreferenceKey.BLUR_ENABLED,
+        AppearancePreferenceKey.LIQUID_GLASS_ENABLED,
         AppearancePreferenceKey.PREDICTIVE_BACK_ENABLED,
         AppearancePreferenceKey.HAPTICS_ENABLED,
     ),

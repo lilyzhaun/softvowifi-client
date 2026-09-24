@@ -13,13 +13,15 @@ internal class CallHistoryRecorder(
     private val clock: () -> Long,
     parentContext: CoroutineContext,
 ) {
-    private val store = CallHistoryStore(binding?.repository, parentContext, clock)
+    private val lock = Any()
+    private val open = mutableMapOf<Key, OpenCall>()
+    private val store = CallHistoryStore(binding?.repository, parentContext, clock, ::canClear)
     val state: StateFlow<CallHistoryState> = store.state
     val owners = store.owners
     fun selectHistory(choice: CallHistoryOwnerChoice) = store.selectHistory(choice)
 
     private var nextSequence = 0L
-    private var open: OpenCall? = null
+    private data class Key(val owner: SimOwnerId, val generation: Long)
 
     fun claimDial(iccid: String?, number: String, generation: Long): CallHistoryEffect? {
         val owner = ownerOf(iccid) ?: return identityFailure()
@@ -35,8 +37,13 @@ internal class CallHistoryRecorder(
             startedAtMs = clock(),
             connectedAtMs = null,
         )
-        open = created
-        return effect(owner, created.toWrite(CallOutcome.STARTED) ?: return identityFailure())
+        val write = created.toWrite(CallOutcome.STARTED) ?: return identityFailure()
+        return synchronized(lock) {
+            val key = Key(owner, generation)
+            if (key in open) return@synchronized null
+            open[key] = created
+            effect(owner, write)
+        }
     }
 
     fun observe(
@@ -47,89 +54,84 @@ internal class CallHistoryRecorder(
         cause: CallHistoryCause,
     ): CallHistoryEffect? {
         if (binding == null) return null
-        ringing(iccid, generation, before, after)?.let { return it }
-        bindToken(generation, after)
-        connected(generation, after)?.let { return it }
-        if (before.phase != CallPhase.Idle && after.phase == CallPhase.Idle) {
-            return closeOpen(generation, cause)
+        val owner = ownerOf(iccid) ?: return if (before.phase == CallPhase.Idle && after.phase == CallPhase.Ringing) identityFailure() else null
+        val key = Key(owner, generation)
+        val now = clock()
+        val correlation = if (before.phase == CallPhase.Idle && after.phase == CallPhase.Ringing) {
+            CallCorrelationKey.parse(after.token.orEmpty())
+                ?: CallCorrelationKey.parse(binding.nextCorrelation()) ?: return identityFailure()
+        } else null
+        return synchronized(lock) {
+            ringing(key, before, after, correlation, now)?.let { return@synchronized it }
+            val current = open[key] ?: return@synchronized null
+            if (after.phase == CallPhase.Idle) {
+                if (before.phase == CallPhase.Idle) return@synchronized null
+                return@synchronized closeOpen(key, before.token, cause, now)
+            }
+            if (current.engineToken != null && current.engineToken != after.token) return@synchronized null
+            if (current.engineToken == null) current.engineToken = after.token
+            if (after.phase != CallPhase.InCall || current.connectedAtMs != null) return@synchronized null
+            current.connectedAtMs = now
+            current.toWrite(CallOutcome.CONNECTED)?.let { effect(owner, it) }
         }
-        return null
     }
 
     fun ownerFor(iccid: String?): SimOwnerId? = ownerOf(iccid)
 
-    fun claimInterrupt(): CallHistoryEffect? = closeOpen(open?.generation ?: -1L, CallHistoryCause.Interrupted)
+    fun claimInterrupt(iccid: String?, generation: Long, token: String?): CallHistoryEffect? {
+        val owner = ownerOf(iccid) ?: return null
+        val now = clock()
+        return synchronized(lock) { closeOpen(Key(owner, generation), token, CallHistoryCause.Interrupted, now) }
+    }
 
     fun enqueue(effect: CallHistoryEffect) = store.write(effect)
     fun refreshOwner(owner: SimOwnerId) = store.select(owner)
     fun clear(expected: CallHistoryState.Ready) {
-        if (open == null) store.clear(expected)
+        if (canClear()) store.clear(expected)
     }
+    private fun canClear(): Boolean = synchronized(lock) { open.isEmpty() }
     fun close() = store.close()
 
     private fun ringing(
-        iccid: String?,
-        generation: Long,
+        key: Key,
         before: CallSession,
         after: CallSession,
+        correlation: CallCorrelationKey?,
+        now: Long,
     ): CallHistoryEffect? {
         if (after.phase != CallPhase.Ringing) return null
         val token = after.token ?: return null
-        val current = open
-        if (current != null && current.generation == generation && current.engineToken == token) {
+        val current = open[key]
+        if (current != null && current.engineToken == token) {
             if (current.peer != null) return null
             current.peer = callHistoryPeer(after.peer) ?: return null
             return effect(current.owner, current.toWrite(CallOutcome.STARTED) ?: return null)
         }
         if (current != null) return null
         if (before.phase != CallPhase.Idle) return null
-        val owner = ownerOf(iccid) ?: return identityFailure()
-        val correlation = CallCorrelationKey.parse(token)
-            ?: CallCorrelationKey.parse(binding?.nextCorrelation?.invoke().orEmpty())
-            ?: return identityFailure()
         val created = OpenCall(
-            owner = owner,
-            correlation = correlation,
+            owner = key.owner,
+            correlation = correlation ?: return null,
             direction = CallDirection.INCOMING,
-            generation = generation,
+            generation = key.generation,
             engineToken = token,
             peer = callHistoryPeer(after.peer),
-            startedAtMs = clock(),
+            startedAtMs = now,
             connectedAtMs = null,
         )
-        open = created
-        return effect(owner, created.toWrite(CallOutcome.STARTED) ?: return identityFailure())
+        open[key] = created
+        return effect(key.owner, created.toWrite(CallOutcome.STARTED) ?: return null)
     }
 
-    private fun bindToken(generation: Long, after: CallSession) {
-        val current = open ?: return
-        if (current.generation != generation || current.engineToken != null) return
-        current.engineToken = after.token
-    }
-
-    private fun connected(generation: Long, after: CallSession): CallHistoryEffect? {
-        if (after.phase != CallPhase.InCall) return null
-        val current = open ?: return null
-        if (current.generation != generation) return null
-        if (current.engineToken != null && after.token != null && current.engineToken != after.token) {
-            return null
-        }
-        if (current.engineToken == null) current.engineToken = after.token
-        if (current.connectedAtMs != null) return null
-        current.connectedAtMs = clock()
-        return effect(current.owner, current.toWrite(CallOutcome.CONNECTED) ?: return null)
-    }
-
-    private fun closeOpen(generation: Long, cause: CallHistoryCause): CallHistoryEffect? {
-        val current = open ?: return null
-        if (generation >= 0L && current.generation != generation) return null
+    private fun closeOpen(key: Key, token: String?, cause: CallHistoryCause, now: Long): CallHistoryEffect? {
+        val current = open[key] ?: return null
+        if (current.engineToken != null && current.engineToken != token) return null
         if (cause is CallHistoryCause.EventEnded) {
             val token = cause.effect.token
             if (current.engineToken != null && current.engineToken != token) return null
             if (current.engineToken == null) current.engineToken = token
             current.peer = current.peer ?: callHistoryPeer(cause.effect.peer)
         }
-        val now = clock()
         val connected = current.connectedAtMs != null
         val outcome = terminalOutcome(cause, connected)
         val duration = callHistoryDurationSec(
@@ -138,7 +140,7 @@ internal class CallHistoryRecorder(
             now,
         )
         val write = current.toWrite(outcome, now, duration) ?: return null
-        open = null
+        open.remove(key)
         return effect(current.owner, write)
     }
 

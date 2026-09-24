@@ -20,6 +20,10 @@ internal class MessageHistorySelection(
     private val output = MutableStateFlow<MessageUiState>(MessageUiState.Loading)
     val state: StateFlow<MessageUiState> = output
     private var live: MessageUiState = MessageUiState.Loading
+    private var liveOwners = emptyMap<SimOwnerId, MessageUiState.Ready>()
+    private var activeOwners: Set<SimOwnerId>? = null
+    private var activeRosterComplete = false
+    private var automaticOwner: SimOwnerId? = null
     private var selected: String? = null
     private var target: StoredMessageConversation? = null
     private var dataRevision = 0L
@@ -32,6 +36,11 @@ internal class MessageHistorySelection(
     val historyChoices get() = inbox.choices
     suspend fun saveOwnerRemark(owner: SimOwnerId, input: String) = inbox.saveRemark(owner, input)
     fun refreshInbox() = inbox.refresh()
+    suspend fun initialOwners() = inbox.initialOwners.await()
+    fun refreshAfterStartup() = synchronized(lock) {
+        inbox.refreshPage()
+        selected?.let { load(it, append = false) }
+    }
     fun selectHistoryOwner(owner: SimOwnerId) = inbox.select(owner)
     fun searchInbox(query: String) = inbox.search(query)
     fun loadMoreInbox() = inbox.more()
@@ -56,14 +65,25 @@ internal class MessageHistorySelection(
         render()
     }
 
-    fun publishLive(value: MessageUiState) = synchronized(lock) {
-        val previous = live as? MessageUiState.Ready
-        val current = value as? MessageUiState.Ready
+    fun publishLive(
+        value: MessageUiState,
+        sessions: Map<SimOwnerId, MessageUiState.Ready> = (value as? MessageUiState.Ready)?.let { ready ->
+            ready.ownerId?.let { mapOf(it to ready) }
+        }.orEmpty(),
+        availableOwners: Set<SimOwnerId>? = null,
+        defaultOwner: SimOwnerId? = (value as? MessageUiState.Ready)?.takeIf { it.composerEnabled }?.ownerId,
+        availableOwnersComplete: Boolean = availableOwners != null,
+    ) = synchronized(lock) {
+        val previous = liveOwners
+        liveOwners = sessions
+        activeOwners = availableOwners
+        activeRosterComplete = availableOwnersComplete
+        automaticOwner = defaultOwner
         live = value
-        if (previous?.ownerId != current?.ownerId || previous?.records !== current?.records) {
+        if (previous.keys != sessions.keys || sessions.any { (owner, current) -> previous[owner]?.records !== current.records }) {
             inbox.refresh()
             target?.let { identity ->
-                if (identity.owner == current?.ownerId) {
+                if (previous[identity.owner]?.records !== sessions[identity.owner]?.records) {
                     dataRevision++
                     selected?.let { load(it, append = false) }
                 }
@@ -126,7 +146,7 @@ internal class MessageHistorySelection(
                         history = MessageUiState.Ready(applyReads(records), MessageOrigin.ENGINE, ownerId = identity.owner,
                             composerEnabled = false, attachmentNotice = HISTORY_READ_ONLY,
                             window = MessageThreadWindow(identity, slice.older))
-                        if ((live as? MessageUiState.Ready)?.ownerId != identity.owner) observer.onThreadUnread(identity, unread - reads.keys)
+                        if (identity.owner !in liveOwners) observer.onThreadUnread(identity, unread - reads.keys)
                         reads.clear()
                     }
                 }
@@ -149,10 +169,10 @@ internal class MessageHistorySelection(
     }
 
     private fun render() {
-        val root = inbox.render(live)
-        val current = live as? MessageUiState.Ready
+        val root = inbox.render(live, liveOwners, activeOwners, automaticOwner, activeRosterComplete)
         val saved = history as? MessageUiState.Ready
-        output.value = if (selected == null) root else if (saved != null && current != null && current.ownerId == saved.ownerId) {
+        val current = saved?.ownerId?.let(liveOwners::get)
+        output.value = if (selected == null) root else if (saved != null && current != null) {
             saved.copy(sendBusy = current.sendBusy, composerEnabled = current.composerEnabled,
                 attachmentNotice = current.attachmentNotice, sendAttempt = current.sendAttempt)
         } else history

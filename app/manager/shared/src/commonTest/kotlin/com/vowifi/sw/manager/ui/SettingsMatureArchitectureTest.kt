@@ -41,7 +41,7 @@ class SettingsMatureArchitectureTest {
     }
 
     @Test
-    fun settingsRootIsHubOnlyAndAppearanceOwnsFourSwitches() {
+    fun settingsRootIsHubOnlyAndAppearanceOwnsTwoSwitches() {
         val hub = settingsHubContract()
         val appearance = settingsAppearanceContract()
 
@@ -53,6 +53,7 @@ class SettingsMatureArchitectureTest {
             listOf(
                 AppearancePreferenceKey.FLOATING_NAV,
                 AppearancePreferenceKey.BLUR_ENABLED,
+                AppearancePreferenceKey.LIQUID_GLASS_ENABLED,
                 AppearancePreferenceKey.PREDICTIVE_BACK_ENABLED,
                 AppearancePreferenceKey.HAPTICS_ENABLED,
             ),

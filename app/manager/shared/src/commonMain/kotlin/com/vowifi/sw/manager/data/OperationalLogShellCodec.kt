@@ -30,8 +30,8 @@ object OperationalLogShellCodec {
         val wire = decode<TailEnvelope>(output)
         if (!wire.ok || !safeOpaqueId(wire.id)) invalid("日志读取返回失败")
         if (wire.lines.any(OperationalLogRedactor::requiresWireRedaction)) invalid("日志内容未完成脱敏")
-        val parsed = parser.parse(wire.lines.joinToString("\n"))
-        return OperationalLogTail(wire.id, wire.truncated, parsed.entries, parsed.issues)
+        val parsed = parser.parse(wire.lines.takeLast(50).joinToString("\n"))
+        return OperationalLogTail(wire.id, wire.truncated || wire.lines.size > 50, parsed.entries, parsed.issues)
     }
 
     fun catalog(output: String): OperationalLogList {
@@ -51,8 +51,8 @@ object OperationalLogShellCodec {
         val wire = decode<KeyReadEnvelope>(output)
         if (!wire.ok || !identityKey.matches(wire.key) || wire.lines.size > 200) invalid("日志读取返回失败")
         if (wire.lines.any(OperationalLogRedactor::requiresWireRedaction)) invalid("日志内容未完成脱敏")
-        val parsed = parser.parse(wire.lines.joinToString("\n"))
-        return OperationalLogTail(wire.key, wire.truncated, parsed.entries, parsed.issues)
+        val parsed = parser.parse(wire.lines.takeLast(50).joinToString("\n"))
+        return OperationalLogTail(wire.key, wire.truncated || wire.lines.size > 50, parsed.entries, parsed.issues)
     }
 
     @Serializable

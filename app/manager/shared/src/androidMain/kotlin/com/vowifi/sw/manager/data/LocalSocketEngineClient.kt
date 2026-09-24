@@ -5,6 +5,7 @@ import android.net.LocalSocketAddress
 import com.vowifi.sw.manager.model.EngineProtocolFrame
 import java.io.BufferedReader
 import java.io.EOFException
+import java.io.IOException
 import java.io.InputStreamReader
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong
@@ -13,6 +14,8 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
@@ -50,6 +53,45 @@ internal class LocalSocketEngineClient(
     suspend fun connect() {
         withContext(Dispatchers.IO) { ensureConnected() }
         handshake()
+    }
+
+    suspend fun connectForMessages(): MessageConnection {
+        connect()
+        return synchronized(connectionLock) {
+            val connected = socket ?: throw EOFException("message connection disconnected")
+            if (closed || !handshaken) throw EOFException("message connection not ready")
+            MessageConnection(connected)
+        }
+    }
+
+    internal inner class MessageConnection internal constructor(private val connected: LocalSocket) {
+        private var active = true
+
+        fun retire() = synchronized(connectionLock) { active = false }
+
+        suspend fun request(method: String, params: JsonObject, timeoutMillis: Long): EngineProtocolFrame.Response {
+            val id = nextId.getAndIncrement()
+            val deferred = CompletableDeferred<EngineProtocolFrame.Response>()
+            try {
+                withContext(Dispatchers.IO) {
+                    val context = currentCoroutineContext()
+                    synchronized(writeLock) {
+                        synchronized(connectionLock) {
+                            context.ensureActive()
+                            if (!active || closed || socket !== connected || !handshaken) {
+                                throw EOFException("message connection retired")
+                            }
+                            pending[id] = deferred
+                            connected.outputStream.write(EngineProtocolCodec.request(id, method, params).encodeToByteArray())
+                            connected.outputStream.flush()
+                        }
+                    }
+                }
+                return withEngineRequestTimeout(timeoutMillis) { deferred.await() }
+            } finally {
+                pending.remove(id)
+            }
+        }
     }
 
     suspend fun request(
@@ -118,10 +160,15 @@ internal class LocalSocketEngineClient(
             check(!closed) { "engine client closed" }
             if (socket != null) return
             val connected = socketFactory()
-            connected.connect(
-                LocalSocketAddress(socketPath, LocalSocketAddress.Namespace.FILESYSTEM),
-            )
-            connected.setSoTimeout(0)
+            try {
+                connected.connect(
+                    LocalSocketAddress(socketPath, LocalSocketAddress.Namespace.FILESYSTEM),
+                )
+                connected.setSoTimeout(0)
+            } catch (error: IOException) {
+                try { connected.close() } catch (failure: IOException) { error.addSuppressed(failure) }
+                throw error
+            }
             socket = connected
             handshaken = false
             scope.launch { readLoop(connected) }
@@ -148,24 +195,29 @@ internal class LocalSocketEngineClient(
             if (socket !== connected) return
             socket = null
             handshaken = false
-            connected.close()
+            try { connected.close() } catch (failure: IOException) { error.addSuppressed(failure) }
+            finally {
+                pending.values.forEach { deferred -> deferred.completeExceptionally(error) }
+                pending.clear()
+                mutableDisconnected.tryEmit(Unit)
+            }
         }
-        pending.values.forEach { deferred -> deferred.completeExceptionally(error) }
-        pending.clear()
-        mutableDisconnected.tryEmit(Unit)
     }
 
     override fun close() {
         scope.cancel()
-        synchronized(connectionLock) {
+        val connected = synchronized(connectionLock) {
             closed = true
-            socket?.close()
-            socket = null
-            handshaken = false
+            socket.also {
+                socket = null
+                handshaken = false
+            }
         }
-        val error = EOFException("engine client closed")
-        pending.values.forEach { deferred -> deferred.completeExceptionally(error) }
-        pending.clear()
+        try { connected?.use { it.shutdownInput() } } finally {
+            val error = EOFException("engine client closed")
+            pending.values.forEach { deferred -> deferred.completeExceptionally(error) }
+            pending.clear()
+        }
     }
 }
 

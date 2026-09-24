@@ -48,6 +48,7 @@ import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import androidx.lifecycle.Lifecycle
 import com.vowifi.sw.manager.model.CallUiState
+import com.vowifi.sw.manager.model.CallBinding
 import com.vowifi.sw.manager.model.CallPhase
 import com.vowifi.sw.manager.model.CallSyncState
 
@@ -56,6 +57,7 @@ class MainActivity : ComponentActivity() {
     private lateinit var processRuntime: SoftVoWiFiRuntime
     private lateinit var callPermissions: CallPermissionActions
     private var lastOpenedCall: String? = null
+    private var lastOpenedBinding: CallBinding? = null
     private val notificationPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission(),
     ) {
@@ -70,12 +72,19 @@ class MainActivity : ComponentActivity() {
         callPermissions = CallPermissionActions(this, processRuntime.calls.lifecycle)
         lastOpenedCall = intent.getStringExtra(CallActivity.EXTRA_MINIMIZED)
             ?: intent.getStringExtra(AndroidIncomingCallNotificationCoordinator.EXTRA_NOTIFICATION_KEY)
+        lastOpenedBinding = processRuntime.notifications.resolveKey(lastOpenedCall)
         lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.RESUMED) {
                 processRuntime.calls.state.collect { state ->
                     if (state is CallUiState.Ready && state.phase != CallPhase.Idle && state.sync == CallSyncState.Ready) {
                         val key = processRuntime.notifications.keyForCurrent()
-                        if (key != null && key != lastOpenedCall) { lastOpenedCall = key; startActivity(processRuntime.notifications.openIntent(key)) }
+                        if (key != null) {
+                            val sameCall = state.binding?.let { lastOpenedBinding?.sameCall(it) } == true
+                            val shouldOpen = key != lastOpenedCall && !sameCall
+                            lastOpenedCall = key
+                            lastOpenedBinding = state.binding
+                            if (shouldOpen) startActivity(processRuntime.notifications.openIntent(key))
+                        }
                     }
                 }
             }
@@ -190,6 +199,13 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
+        try {
+            startForegroundService(Intent(this, ObserverService::class.java))
+        } catch (_: SecurityException) {
+            android.util.Log.w("SoftVoWiFiObserver", "observer_start_permission_denied")
+        } catch (_: IllegalStateException) {
+            android.util.Log.w("SoftVoWiFiObserver", "observer_start_not_allowed")
+        }
         enforceResizeImeOwner()
         requestNotificationPermissionIfNeeded()
         processRuntime.messages.setResumed(true)
@@ -220,7 +236,10 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        intent.getStringExtra(CallActivity.EXTRA_MINIMIZED)?.let { lastOpenedCall = it }
+        intent.getStringExtra(CallActivity.EXTRA_MINIMIZED)?.let {
+            lastOpenedCall = it
+            lastOpenedBinding = processRuntime.notifications.resolveKey(it)
+        }
         if (consumeMessageLaunch(intent)) return
         applyIncomingCallLaunch(intent, processRuntime.notifications)
         val route = IncomingRoute.onNewIntent(

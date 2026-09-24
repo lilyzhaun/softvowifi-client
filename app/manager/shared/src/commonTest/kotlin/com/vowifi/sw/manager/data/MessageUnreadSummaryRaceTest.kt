@@ -70,6 +70,7 @@ class MessageUnreadSummaryRaceTest {
             EngineMessageRuntime(
                 listInstances = { listOf(EngineInstanceState(iccid, EngineLifecycle.RUNNING, pid = 7)) },
                 transportFor = { transport }, clock = { 9000L },
+                activeIccids = { listOf(iccid) },
             ),
             coroutineContext, repository, ::ownerFor, sequentialIds("late-b"),
         )

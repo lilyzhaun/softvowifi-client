@@ -39,7 +39,7 @@ internal class IncomingCallNotificationBuilder(
             .setAutoCancel(false)
             .setContentIntent(buildOpenCallsPending(notificationKey))
 
-        if (policy == NotificationPolicyDecision.FULL_SCREEN) {
+        if (shouldPostIncomingCallNotification(policy)) {
             builder.setFullScreenIntent(buildFullScreenPending(notificationKey), true)
         }
 

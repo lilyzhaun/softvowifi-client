@@ -1,47 +1,48 @@
 package com.vowifi.sw.manager.data
 
 import com.vowifi.sw.manager.model.MessageRecord
-import com.vowifi.sw.manager.model.MessageUiState
 import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.flow.onSubscription
 import kotlinx.coroutines.sync.withLock
 
 internal suspend fun collectMessageEvents(
     session: EngineMessageSession,
-    transport: EngineMessageTransport,
+    line: MessageLiveSession,
 ) {
     try {
-        transport.events.onSubscription { transport.connect() }.collect { frame ->
+        line.transport.events.onSubscription {
+            line.transport.connect()
+            session.mutex.withLock {
+                if (!session.isCurrent(line)) return@withLock
+                line.connected = true
+                refreshMessageStatus(session, line)
+            }
+        }.collect { frame ->
             val event = SmsProtocolCodec.decodeEvent(frame) ?: return@collect
             session.mutex.withLock {
-                if (session.closed || session.activeTransport !== transport) return@withLock
-                val owner = session.activeOwner ?: return@withLock
+                if (!session.isCurrent(line)) return@withLock
                 when (event) {
-                    is SmsWireEvent.Received -> applyReceivedMessage(session, owner, event)
-                    is SmsWireEvent.Sent -> applyOrBufferSent(session, owner, event)
+                    is SmsWireEvent.Received -> applyReceivedMessage(session, line, event)
+                    is SmsWireEvent.Sent -> applyOrBufferSent(session, line, event)
                 }
             }
         }
     } catch (error: CancellationException) {
         throw error
     } catch (_: Exception) {
-        session.mutex.withLock {
-            if (!session.closed && session.activeTransport === transport) {
-                session.fail(MessageUiState.Failure(MESSAGE_CONNECT_FAILURE))
-            }
-        }
+        disconnectMessageSession(session, line)
     }
 }
 
 private suspend fun applyReceivedMessage(
     session: EngineMessageSession,
-    owner: SimOwnerId,
+    line: MessageLiveSession,
     event: SmsWireEvent.Received,
 ) {
     var freshIncomingId: String? = null
     try {
         val result = session.repository.insertIncomingIfAbsent(
-            ownerId = owner,
+            ownerId = line.owner,
             messageId = session.nextMessageId(),
             engineSmsId = event.smsId,
             peerAddress = event.number,
@@ -50,49 +51,48 @@ private suspend fun applyReceivedMessage(
             nowMs = session.runtime.clock(),
         )
         session.unreadSummary.refresh()
-        session.records = session.repository.listByOwner(owner)
+        line.records = session.repository.listByOwner(line.owner)
         if (result.inserted) freshIncomingId = result.messageId
     } catch (error: CancellationException) {
         throw error
     } catch (_: Exception) {
-        session.storageHealthy = false
-        session.attachmentNotice = STORAGE_SYNC_NOTICE
+        line.storageHealthy = false
+        line.attachmentNotice = STORAGE_SYNC_NOTICE
     }
-    session.publishRecords(freshIncomingId)
+    session.publishRecords(line, freshIncomingId)
 }
 
 internal suspend fun applyOrBufferSent(
     session: EngineMessageSession,
-    owner: SimOwnerId,
+    line: MessageLiveSession,
     event: SmsWireEvent.Sent,
 ) {
     try {
-        val known = session.records.any { record ->
+        val known = line.records.any { record ->
             record is MessageRecord.Outgoing && record.engineSmsId == event.smsId
         }
         if (known) {
-            session.repository.applyOutgoingStatus(owner, event.smsId, event.status, session.runtime.clock())
-            session.records = session.repository.listByOwner(owner)
-            session.publishRecords()
+            session.repository.applyOutgoingStatus(line.owner, event.smsId, event.status, session.runtime.clock())
+            line.records = session.repository.listByOwner(line.owner)
+            session.publishRecords(line)
             return
         }
-        if (session.sendBusy) {
-            session.pendingSent = session.pendingSent + event
+        if (line.sendBusy) {
+            line.pendingSent = line.pendingSent + event
         }
     } catch (error: CancellationException) {
         throw error
     } catch (_: Exception) {
-        session.storageHealthy = false
-        session.attachmentNotice = STORAGE_SYNC_NOTICE
-        session.publishRecords()
+        line.storageHealthy = false
+        line.attachmentNotice = STORAGE_SYNC_NOTICE
+        session.publishRecords(line)
     }
 }
 
-internal suspend fun replayPendingSent(session: EngineMessageSession) {
-    val owner = session.activeOwner ?: return
-    val buffered = session.pendingSent
-    session.pendingSent = emptyList()
+internal suspend fun replayPendingSent(session: EngineMessageSession, line: MessageLiveSession) {
+    val buffered = line.pendingSent
+    line.pendingSent = emptyList()
     buffered.forEach { event ->
-        session.repository.applyOutgoingStatus(owner, event.smsId, event.status, session.runtime.clock())
+        session.repository.applyOutgoingStatus(line.owner, event.smsId, event.status, session.runtime.clock())
     }
 }

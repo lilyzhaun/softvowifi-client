@@ -112,8 +112,9 @@ class AndroidIncomingCallNotificationCoordinator(
         }
         val peerName = uiState.peer?.text() ?: "未知号码"
         if (state.notificationKey == key && state.peerName == peerName) return
-        state = IncomingCallNotificationState(key, peerName)
-        postNotification(peerName, key)
+        if (postNotification(peerName, key)) {
+            state = IncomingCallNotificationState(key, peerName)
+        }
     }
 
     private fun cancelIfActive() {
@@ -161,12 +162,14 @@ class AndroidIncomingCallNotificationCoordinator(
     }
 
     private fun createChannel() {
+        if (notificationManager.getNotificationChannel(CHANNEL_ID) != null) return
         val channel = NotificationChannel(
             CHANNEL_ID,
             "来电通知",
             NotificationManager.IMPORTANCE_HIGH,
         ).apply {
             description = "VoWiFi 来电通知"
+            enableVibration(true)
         }
         notificationManager.createNotificationChannel(channel)
     }

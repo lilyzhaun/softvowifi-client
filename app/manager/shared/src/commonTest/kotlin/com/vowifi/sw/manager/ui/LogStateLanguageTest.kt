@@ -6,6 +6,8 @@ import com.vowifi.sw.manager.model.OperationalLogKind
 import com.vowifi.sw.manager.model.OperationalLogLevel
 import com.vowifi.sw.manager.model.OperationalLogMessage
 import com.vowifi.sw.manager.model.OperationalLogUiState
+import com.vowifi.sw.manager.model.OperationalLogLoadInfo
+import com.vowifi.sw.manager.model.OperationalLogParseIssue
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -61,10 +63,12 @@ class LogStateLanguageTest {
             assertFalse(status.summary.contains("脱敏"))
         }
 
-        val warningStatus = operationalLogWarningStatus()
+        val warningStatus = operationalLogWarningStatus(OperationalLogUiState.Warning(
+            emptyList(), false, listOf(OperationalLogParseIssue(1, "synthetic-private-detail")),
+        ))
         assertEquals(ManagerStatusKind.Warning, warningStatus.kind)
-        assertEquals("日志可能不完整", warningStatus.title)
-        assertEquals("已显示可用的运行事件；部分来源暂时不可用。", warningStatus.summary)
+        assertEquals("部分日志无法解析", warningStatus.title)
+        assertEquals("已显示可用的运行事件。有1处日志格式无法解析。", warningStatus.summary)
         assertFalse(warningStatus.summary.contains("脱敏"))
 
         val filteredEmptyStatus = operationalLogFilteredEmptyStatus()
@@ -72,6 +76,36 @@ class LogStateLanguageTest {
         assertEquals("暂无运行日志", filteredEmptyStatus.title)
         assertEquals("当前筛选条件下没有可显示的事件。", filteredEmptyStatus.summary)
         assertFalse(filteredEmptyStatus.summary.contains("脱敏"))
+    }
+
+    @Test fun truncatedWindowUsesNeutralAtMostCopyWithoutChangingLoadMetadata() {
+        val info = OperationalLogLoadInfo(reading = true, cached = true, legacy = true)
+        val state = OperationalLogUiState.Warning(emptyList(), true, emptyList(), loadInfo = info)
+        val status = operationalLogWarningStatus(state)
+        assertEquals(ManagerStatusKind.Unavailable, status.kind)
+        assertEquals("最近日志窗口", status.title)
+        assertEquals("已显示可用的运行事件。最多显示最近50条运行记录；更早记录未在此窗口显示。", status.summary)
+        assertEquals(StatePanelTone.NEUTRAL, status.toStatePanelSpec().tone)
+        assertFalse(status.summary.contains("不可用"))
+        assertEquals(info, state.loadInfo)
+        assertTrue(state.truncated)
+        assertTrue(state.entries.isEmpty())
+    }
+
+    @Test fun readIssueNeverBecomesNeutralEvenWhenOnlyCachedWindowWasTruncated() {
+        for (issues in listOf(emptyList(), listOf(OperationalLogParseIssue(1, "synthetic-private-detail")))) {
+            val state = OperationalLogUiState.Warning(emptyList(), true, issues,
+                loadInfo = OperationalLogLoadInfo(cached = true, issue = "synthetic-private-read-detail"))
+            val status = operationalLogWarningStatus(state)
+            assertEquals(ManagerStatusKind.Failure, status.kind)
+            assertEquals(StatePanelTone.ERROR, status.toStatePanelSpec().tone)
+            assertEquals("日志读取失败", status.title)
+            assertTrue(status.summary.contains("最多显示最近50条"))
+            assertTrue(status.summary.contains("本次日志读取未完成，请刷新重试。"))
+            assertEquals(issues.isNotEmpty(), status.summary.contains("有1处日志格式无法解析。"))
+            assertFalse(status.summary.contains("synthetic-private"))
+            assertEquals(issues, state.issues)
+        }
     }
 
     @Test

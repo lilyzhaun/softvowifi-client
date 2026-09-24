@@ -23,7 +23,7 @@ import kotlinx.serialization.json.put
 
 class EngineMessageSourceConnectTest {
     @Test
-    fun attachingSingleRunningEngineConnectsWithoutRequest() = runTest(UnconfinedTestDispatcher()) {
+    fun attachingSingleRunningEngineConnectsAndReadsRegistrationWithoutSending() = runTest(UnconfinedTestDispatcher()) {
         // Given: exactly one RUNNING instance and a recording transport
         val transport = RecordingTransport()
 
@@ -32,7 +32,7 @@ class EngineMessageSourceConnectTest {
 
         // Then: connect is called once, no request is sent, state is Ready
         assertEquals(1, transport.connectCalls)
-        assertTrue(transport.requests.isEmpty())
+        assertEquals(listOf("getStatus"), transport.requests.map { it.method })
         assertIs<MessageUiState.Inbox>(source.state.value)
         source.close()
     }
@@ -109,6 +109,7 @@ class EngineMessageSourceConnectTest {
             listInstances = { instances },
             transportFor = { transport },
             clock = { NOW_MS },
+            activeIccids = { instances.map { it.iccid } },
         ),
         parentContext = kotlin.coroutines.coroutineContext,
         repository = FakeMessageRepository(),
@@ -136,7 +137,7 @@ private class RecordingTransport(
         timeoutMillis: Long,
     ): EngineProtocolFrame.Response {
         requests += RecordedConnectRequest(method, timeoutMillis)
-        return EngineProtocolFrame.Response(id = 1, result = buildJsonObject {}, error = null)
+        return messageStatusResponse()
     }
 
     suspend fun emitReceived(smsId: String, number: String, text: String, timestampSeconds: Long) {

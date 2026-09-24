@@ -21,12 +21,12 @@ class HomePresentationStateTest {
     fun loadingEmptyNoConfigPermissionFailurePartialAndRegisteredRemainDistinct() {
         val cases = listOf(
             case(RegistrationUiState.Loading, SimControlUiState.Loading, EnvironmentDiagnosticsUiState.Loading, "正在汇总 VoWiFi 状态"),
-            case(RegistrationUiState.Empty, SimControlUiState.Ready(emptyList()), readyDiagnostics(), "尚无 IMS 注册事件"),
+            case(RegistrationUiState.Empty, SimControlUiState.Ready(emptyList()), readyDiagnostics(), "暂无活动 SIM"),
             case(RegistrationUiState.Empty, SimControlUiState.Ready(listOf(unconfigured())), readyDiagnostics(), "需要创建 SIM 配置"),
             case(RegistrationUiState.Empty, SimControlUiState.PermissionDenied("raw"), readyDiagnostics(), "无法确认引擎状态"),
             case(RegistrationUiState.ReadError("raw"), SimControlUiState.Failure("raw"), EnvironmentDiagnosticsUiState.Failure("raw"), "状态读取失败"),
-            case(registration("REGISTERED", "UNREGISTERED"), SimControlUiState.Ready(listOf(configured())), readyDiagnostics(), "部分 SIM 已注册"),
-            case(registration("REGISTERED"), SimControlUiState.Ready(listOf(configured())), readyDiagnostics(), "IMS 已注册"),
+            case(registration("REGISTERED", "UNREGISTERED"), SimControlUiState.Ready(listOf(configured().copy(lifecycle = EngineLifecycle.RUNNING, runtime = runtime()), configured(handle = SimHandle("sim-2")))), readyDiagnostics(), "部分 SIM 已注册"),
+            case(registration("REGISTERED"), SimControlUiState.Ready(listOf(configured().copy(lifecycle = EngineLifecycle.RUNNING, runtime = runtime()))), readyDiagnostics(), "IMS 已就绪"),
         )
 
         assertEquals(
@@ -87,7 +87,7 @@ class HomePresentationStateTest {
 
         assertEquals("SIM 未\u2060配\u2060置", unconfiguredText.title)
         assertEquals(listOf("活动 SIM 尚无配\u2060置", "创建后才可启动引擎"), unconfiguredText.summaryLines)
-        assertEquals("VoWiFi 可\u2060用", availableText.title)
+        assertEquals("IMS 已\u2060就\u2060绪", availableText.title)
         assertEquals(listOf("IMS 已\u2060注\u2060册", "隧道已\u2060连\u2060接", "环境检查通过"), availableText.summaryLines)
         val orphanTokens = setOf("配置", "可用", "注册", "连接")
         assertTrue((unconfiguredText.visibleLines + availableText.visibleLines).none { it.replace("\u2060", "") in orphanTokens })
@@ -122,9 +122,9 @@ class HomePresentationStateTest {
             NOW_MS,
         ) { "8月25日" }
 
-        assertEquals(listOf("1", "1"), presentation.metrics.map { it.value })
+        assertEquals(listOf("未知", "1"), presentation.metrics.map { it.value })
         assertEquals(listOf(SemanticTone.WARNING, SemanticTone.NEUTRAL), presentation.actions.map { it.tone })
-        assertEquals(SemanticTone.SUCCESS, presentation.metrics.first().tone)
+        assertEquals(SemanticTone.WARNING, presentation.metrics.first().tone)
         assertEquals(SemanticTone.SUCCESS, presentation.metrics.last().tone)
     }
 
@@ -138,7 +138,8 @@ class HomePresentationStateTest {
         ) { "8月25日" }
 
         assertEquals(2, presentation.actions.size)
-        assertTrue(presentation.hero.summary.contains("2 张 SIM"))
+        assertEquals("0 / 2 张活动 SIM 已注册", presentation.facts.first().value)
+        assertEquals(SemanticTone.NEUTRAL, presentation.hero.tone)
         assertTrue(presentation.visibleStrings.none { "双卡 VoWiFi" in it || "双卡VoWiFi" in it || "已验证" in it })
     }
 

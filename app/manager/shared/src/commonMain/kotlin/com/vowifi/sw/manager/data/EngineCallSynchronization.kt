@@ -8,13 +8,36 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.buildJsonObject
 
-internal suspend fun EngineCallSource.refreshConnection() {
+internal suspend fun EngineCallSource.refreshConnection(recovering: Boolean = false) =
+    withConnectionWork(recovering) { refreshSelectedConnection(recovering) }
+
+internal fun EngineCallSource.refreshAvailability() = launch {
+    val claimed = mutex.withLock {
+        if (closed || connectionWork != 0 || recoveryAttempt || recoveryJob?.isActive == true ||
+            dialOperation != null || controlOperation != null ||
+            session.phase != CallPhase.Idle && sync == CallSyncState.Ready) false
+        else { recoveryAttempt = true; true }
+    }
+    if (claimed) {
+        try { refreshConnection(recovering = true) }
+        finally { finishRecoveryAttempt() }
+    }
+}
+
+private suspend fun EngineCallSource.refreshSelectedConnection(recovering: Boolean) {
     val ticket = mutex.withLock { ++refreshRequest }
     val instances = try { runtime.listInstances() }
     catch (error: CancellationException) { throw error }
     catch (_: MessagePermissionException) {
-        apply(mutex.withLock { unavailable(permissionFailure()) }); return
+        apply(mutex.withLock { cancelRecovery(); unavailable(permissionFailure()) }); return
     } catch (_: Exception) {
+        if (recovering) {
+            apply(mutex.withLock {
+                loseConnection(CallSyncState.Unavailable, CallFailureMessages.LIST)
+                CallEffects(stopAudio = true, stopSession = audioSession())
+            })
+            return
+        }
         apply(mutex.withLock { unavailable(listFailure()) }); return
     }
     var refresh: EngineMessageTransport? = null
@@ -26,7 +49,8 @@ internal suspend fun EngineCallSource.refreshConnection() {
             is ActiveEngineSelection.Single -> {
                 if (activeIccid != null && activeIccid != selection.iccid && session.phase != CallPhase.Idle) {
                     loseConnection(CallSyncState.OwnerChanged, CallFailureMessages.OWNER_CHANGED)
-                    return@withLock CallEffects(stopAudio = true)
+                    cancelRecovery()
+                    return@withLock CallEffects(stopAudio = true, stopSession = audioSession())
                 }
                 if (activeIccid == selection.iccid && activeTransport != null) {
                     refresh = activeTransport
@@ -38,50 +62,58 @@ internal suspend fun EngineCallSource.refreshConnection() {
                 activeTransport = transport
                 sync = CallSyncState.Recovering
                 publish()
-                eventJob = scope.launch { subscribeCalls(transport) }
+                eventJob = scope.launch { subscribeCalls(transport, recovering) }
                 old.copy(historyOwner = recorder.ownerFor(selection.iccid))
             }
         }
     }
     apply(effects)
-    refresh?.let { fetchSnapshot(it) }
+    refresh?.let { fetchSnapshot(it, recovering) }
 }
 
-private suspend fun EngineCallSource.subscribeCalls(transport: EngineMessageTransport) {
+private suspend fun EngineCallSource.subscribeCalls(transport: EngineMessageTransport, recovering: Boolean) {
     if (transport is CallEventTransport) failureJob = scope.launch(start = CoroutineStart.UNDISPATCHED) {
         transport.disconnected.collect {
             apply(mutex.withLock {
                 if (closed || activeTransport !== transport) return@withLock CallEffects()
                 loseConnection(CallSyncState.Recovering, CallFailureMessages.RECOVERING)
-                CallEffects(stopAudio = true)
+                scheduleRecovery(transport)
+                CallEffects(stopAudio = true, stopSession = audioSession())
             })
         }
     }
     try {
         transport.events.onSubscription {
-            fetchSnapshot(transport)
+            fetchRequiredSnapshot(transport, recovering)
         }.collect { frame -> receiveCallFrame(transport, frame) }
     } catch (error: CancellationException) { throw error }
     catch (_: Exception) { connectionFailed(transport) }
 }
 
-private suspend fun EngineCallSource.connectionFailed(transport: EngineMessageTransport) {
+private suspend fun EngineCallSource.connectionFailed(transport: EngineMessageTransport, retry: Boolean = true) {
     apply(mutex.withLock {
         if (closed || activeTransport !== transport) return@withLock CallEffects()
-        if (session.phase == CallPhase.Idle) return@withLock unavailable(connectFailure())
+        if (session.phase == CallPhase.Idle && transport !is CallEventTransport) return@withLock unavailable(connectFailure())
         loseConnection(CallSyncState.Recovering, CallFailureMessages.RECOVERING)
-        CallEffects(stopAudio = true)
+        if (retry) scheduleRecovery(transport)
+        CallEffects(stopAudio = true, stopSession = audioSession())
     })
 }
 
-internal suspend fun EngineCallSource.fetchSnapshot(transport: EngineMessageTransport) {
+internal suspend fun EngineCallSource.fetchSnapshot(transport: EngineMessageTransport, recovering: Boolean = false) =
+    withConnectionWork(recovering) { readSnapshot(transport, recovering) }
+
+private suspend fun EngineCallSource.fetchRequiredSnapshot(transport: EngineMessageTransport, background: Boolean = false) =
+    withConnectionWork(recovering = false, required = transport) { readSnapshot(transport, background) }
+
+private suspend fun EngineCallSource.readSnapshot(transport: EngineMessageTransport, recovering: Boolean) {
     val request = mutex.withLock {
         if (closed || activeTransport !== transport) return
         SnapshotRequest(activeIccid ?: return, connectionGeneration, ++snapshotRequest, bindingGeneration)
     }
     try { transport.connect() }
     catch (error: CancellationException) { throw error }
-    catch (_: Exception) { connectionFailed(transport); return }
+    catch (_: Exception) { connectionFailed(transport, retry = !recovering); return }
     val response = try {
         control.request(request.owner, "getCallSnapshot", buildJsonObject {}, CallProtocolCodec.CONTROL_TIMEOUT_MILLIS)
     } catch (error: CancellationException) { throw error }
@@ -97,24 +129,28 @@ internal suspend fun EngineCallSource.fetchSnapshot(transport: EngineMessageTran
             session = CallSessionReducer.audioFailed(session).copy(busy = false,
                 operationMessage = if (sync == CallSyncState.Unregistered) CallFailureMessages.IMS else CallFailureMessages.SNAPSHOT)
             publish()
-            return@withLock CallEffects(stopAudio = stop)
+            if (!recovering) scheduleRecovery(transport)
+            return@withLock CallEffects(stopAudio = stop, stopSession = audioSession())
         }
-        adoptSnapshot(snapshot)
+        adoptSnapshot(snapshot, readOnly = recovering)
     }
-    apply(effects)
-    dispatchPendingCancel()
+    apply(if (recovering) effects.copy(audio = null) else effects)
+    if (!recovering) dispatchPendingCancel()
 }
 
 private class SnapshotRequest(val owner: String, val connection: Long, val id: Long, val binding: Long)
 
-private fun EngineCallSource.adoptSnapshot(snapshot: CallSnapshot): CallEffects {
+private fun EngineCallSource.adoptSnapshot(snapshot: CallSnapshot, readOnly: Boolean): CallEffects {
     val previous = version
+    val previousAudio = audioSession()
     if (previous?.epoch == snapshot.version.epoch && previous.revision > snapshot.version.revision) return CallEffects()
+    if (previous == snapshot.version && snapshot.phase == CallPhase.Idle && dialOperation != null &&
+        session.token == null && session.phase in setOf(CallPhase.Dialing, CallPhase.Canceling)) return CallEffects()
     val epochChanged = previous != null && previous.epoch != snapshot.version.epoch
     val replaced = session.token != null && snapshot.token != null && session.token != snapshot.token
     var interrupted: CallHistoryEffect? = null
     if (epochChanged || replaced) {
-        interrupted = recorder.claimInterrupt()
+        interrupted = recorder.claimInterrupt(activeIccid, generation, session.token)
         session.token?.let(retiredTokens::add)
         session = CallSession()
         invalidateOperations()
@@ -124,8 +160,10 @@ private fun EngineCallSource.adoptSnapshot(snapshot: CallSnapshot): CallEffects 
             retiredEpochs.remove(snapshot.version.epoch)
         }
     }
+    val operationMessage = session.operationMessage.takeUnless { sync == CallSyncState.Unregistered }
     version = snapshot.version
     sync = CallSyncState.Ready
+    if (!recoveryAttempt) cancelRecovery()
     val continuing = session.token == snapshot.token && !epochChanged && !replaced
     val failedCancel = continuing && snapshot.phase == CallPhase.Dialing && session.cancelRequested &&
         cancelDispatched && controlOperation == null && session.operationMessage != null
@@ -133,13 +171,15 @@ private fun EngineCallSource.adoptSnapshot(snapshot: CallSnapshot): CallEffects 
     val cancel = snapshot.phase == CallPhase.Canceling || continuing && session.cancelRequested && !failedCancel && snapshot.phase == CallPhase.Dialing
     if (snapshot.phase == CallPhase.Canceling) cancelDispatched = true
     val phase = if (cancel) CallPhase.Canceling else snapshot.phase
-    val next = if (phase == CallPhase.Idle) CallSession(operationMessage = session.operationMessage) else CallSession(
+    val audioState = if (continuing) session.audio else CallAudioState.Idle
+    val next = if (phase == CallPhase.Idle) CallSession(operationMessage = operationMessage) else CallSession(
         token = snapshot.token, phase = phase,
-        audio = if (continuing) session.audio else CallAudioState.Idle,
+        audio = if (readOnly && phase == CallPhase.InCall && audioState == CallAudioState.Idle)
+            CallAudioState.Failed(CallFailureMessages.AUDIO_INTERRUPTED) else audioState,
         busy = controlOperation != null || dialOperation != null,
         peer = snapshot.peer ?: if (continuing) session.peer else null,
         direction = snapshot.direction, cancelRequested = cancel,
-        operationMessage = if (continuing) session.operationMessage?.takeUnless {
+        operationMessage = if (continuing) operationMessage?.takeUnless {
             it in setOf(CallFailureMessages.RECOVERING, CallFailureMessages.SNAPSHOT, CallFailureMessages.OWNER_CHANGED)
         } else null,
     )
@@ -151,7 +191,8 @@ private fun EngineCallSource.adoptSnapshot(snapshot: CallSnapshot): CallEffects 
     val cause = if (phase == CallPhase.Idle) pendingTerminalCause ?: CallHistoryCause.Session else CallHistoryCause.Session
     val result = commit(next, cause)
     interrupted?.let(recorder::enqueue)
-    return result.copy(stopAudio = result.stopAudio || epochChanged || replaced)
+    return result.copy(stopAudio = result.stopAudio || epochChanged || replaced,
+        stopSession = if (epochChanged || replaced) previousAudio else result.stopSession)
 }
 
 private suspend fun EngineCallSource.receiveCallFrame(transport: EngineMessageTransport, frame: EngineProtocolFrame.Event) {
@@ -167,7 +208,7 @@ private suspend fun EngineCallSource.receiveCallFrame(transport: EngineMessageTr
                 if (eventVersion.epoch in retiredEpochs) return@withLock CallEffects()
                 query = true
                 loseConnection(CallSyncState.Recovering, CallFailureMessages.RECOVERING)
-                return@withLock CallEffects(stopAudio = true)
+                return@withLock CallEffects(stopAudio = true, stopSession = audioSession())
             }
             if (eventVersion.revision <= current.revision) return@withLock CallEffects()
             version = eventVersion
@@ -189,5 +230,5 @@ private suspend fun EngineCallSource.receiveCallFrame(transport: EngineMessageTr
     }
     apply(effects)
     dispatchPendingCancel()
-    if (query) launch { fetchSnapshot(transport) }
+    if (query) launch { fetchRequiredSnapshot(transport) }
 }

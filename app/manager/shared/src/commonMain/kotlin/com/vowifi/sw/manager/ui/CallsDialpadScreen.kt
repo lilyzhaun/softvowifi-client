@@ -12,11 +12,17 @@ import com.vowifi.sw.manager.model.*
     onDial: (String) -> Unit,
     lineLabel: String = "当前绑定线路",
     onPermissions: (() -> Unit)? = null,
+    outgoingEnabled: Boolean? = null,
+    outgoingNotice: String? = null,
+    lineContent: (@Composable () -> Unit)? = null,
 ) {
     val ready = state as? CallUiState.Ready
     val back = LocalPhoneBack.current
+    val message = listOfNotNull(outgoingNotice, ready?.operationMessage,
+        callStatePanelSpec(state)?.description.takeIf { ready?.operationMessage == null && (outgoingNotice == null || ready == null) })
+        .distinct().joinToString("\n").ifEmpty { null }
     PhoneDialerScreen(draft, onDraftChange, lineLabel,
-        ready?.sync == CallSyncState.Ready && ready.phase == CallPhase.Idle && ready.origin == CallOrigin.ENGINE,
-        ready?.busy == true, ready?.operationMessage ?: callStatePanelSpec(state)?.description,
-        { onDial(draft) }, back, back, onPermissions)
+        outgoingEnabled ?: (ready?.sync == CallSyncState.Ready && ready.phase == CallPhase.Idle && ready.origin == CallOrigin.ENGINE),
+        ready?.busy == true, message,
+        { onDial(draft) }, back, back, onPermissions, lineContent)
 }

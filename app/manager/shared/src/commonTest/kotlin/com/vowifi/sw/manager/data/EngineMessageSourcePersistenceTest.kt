@@ -71,7 +71,7 @@ class EngineMessageSourcePersistenceTest {
         val multiple = sourceOf(listOf(running(ICCID_A), running(ICCID_B)), transport, repository)
         val ready = inspectInboxThreads(multiple)
         assertFalse(ready.composerEnabled)
-        assertEquals(ActiveEngineSelector.MULTIPLE_MESSAGE, ready.attachmentNotice)
+        assertEquals(MESSAGE_SELECT_OWNER, ready.attachmentNotice)
         assertEquals("msg-1", ready.records.single().id)
         multiple.sendSms(SYNTH_PEER, "synth-late")
         assertTrue(transport.requests.isEmpty())
@@ -92,6 +92,7 @@ class EngineMessageSourcePersistenceTest {
                 listInstances = { instances },
                 transportFor = { transport },
                 clock = { NOW_MS },
+                activeIccids = { instances.map { it.iccid } },
             ),
             parentContext = kotlin.coroutines.coroutineContext,
             repository = repository,
@@ -127,15 +128,16 @@ class EngineMessageSourcePersistenceTest {
     }
 
     @Test
-    fun noLastOwnerKeepsUnavailableAndMultipleEnginesStayUnsupported() = runTest(UnconfinedTestDispatcher()) {
+    fun noLastOwnerKeepsUnavailableAndMultipleEnginesExposeUnboundChoices() = runTest(UnconfinedTestDispatcher()) {
         val empty = sourceOf(listOf(stopped(ICCID_A)), FakeEngineMessageTransport())
         assertIs<MessageUiState.Unavailable>(empty.state.value)
         empty.close()
 
         val transport = FakeEngineMessageTransport()
         val multiple = sourceOf(listOf(running(ICCID_A), running(ICCID_B)), transport)
-        val failure = assertIs<MessageUiState.Failure>(multiple.state.value)
-        assertEquals(ActiveEngineSelector.MULTIPLE_MESSAGE, failure.message)
+        val unbound = assertIs<MessageUiState.Unavailable>(multiple.state.value)
+        assertEquals(MESSAGE_SELECT_OWNER, unbound.message)
+        assertEquals(2, multiple.historyChoices.value.lines.size)
         multiple.sendSms(SYNTH_NUMBER, SYNTH_TEXT)
         assertTrue(transport.requests.isEmpty())
         multiple.close()

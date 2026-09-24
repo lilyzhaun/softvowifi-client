@@ -24,7 +24,8 @@ internal fun rootBottomLayoutInsets(
 ): RootBottomLayoutInsets {
     val occupancy = when (mode) {
         BottomChromeMode.FLOATING -> {
-            val floatingOccupancy = NativeNavigationLayout.height + NativeNavigationLayout.bottomGap + navigationBarInset
+            val floatingContract = floatingBubbleBarContract()
+            val floatingOccupancy = floatingContract.outerHeightDp.dp + floatingContract.bottomPaddingDp.dp + navigationBarInset
             maxOf(scaffoldBottomInset, floatingOccupancy)
         }
         BottomChromeMode.NORMAL -> scaffoldBottomInset

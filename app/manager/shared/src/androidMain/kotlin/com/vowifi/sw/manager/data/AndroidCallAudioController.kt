@@ -68,6 +68,10 @@ internal class AndroidCallAudioController(
         }
         val next = Session(socket, devices, session)
         synchronized(lock) {
+            if (released.get() || !microphone.permits(session)) {
+                next.closeFromStop()
+                throw AndroidCallAudioException()
+            }
             this.session?.closeFromStop()
             this.session = next
         }
@@ -75,7 +79,7 @@ internal class AndroidCallAudioController(
             executor.execute { captureLoop(next) }
             executor.execute { playbackLoop(next) }
         } catch (_: RejectedExecutionException) {
-            stop()
+            stopIf(session)
             throw AndroidCallAudioException()
         }
     }
@@ -84,6 +88,14 @@ internal class AndroidCallAudioController(
         synchronized(lock) {
             session?.closeFromStop()
             session = null
+            mutableControls.value = CallAudioControls()
+        }
+    }
+    override fun stopIf(session: CallAudioSession) {
+        synchronized(lock) {
+            if (this.session?.owner?.sameSession(session) != true) return
+            this.session?.closeFromStop()
+            this.session = null
             mutableControls.value = CallAudioControls()
         }
     }
@@ -106,14 +118,14 @@ internal class AndroidCallAudioController(
     }
 
     fun release() {
-        stop()
         if (released.compareAndSet(false, true)) {
+            stop()
             executor.shutdownNow()
         }
     }
     fun interrupt(expected: CallAudioSession? = null) {
         val current = session ?: return
-        if (expected == null || current.owner == expected) onWorkerEnd(current)
+        if (expected == null || current.owner.sameSession(expected)) onWorkerEnd(current)
     }
 
     private fun captureLoop(current: Session) {

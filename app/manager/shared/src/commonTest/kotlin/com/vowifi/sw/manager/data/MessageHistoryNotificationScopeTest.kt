@@ -147,7 +147,7 @@ class MessageHistoryNotificationScopeTest {
         val transportA = FakeEngineMessageTransport()
         val transportB = FakeEngineMessageTransport()
         val source = EngineMessageSource(
-            EngineMessageRuntime({ listOf(instance) }, { if (it == "8986001") transportA else transportB }, { 1000 }),
+            EngineMessageRuntime({ listOf(instance) }, { if (it == "8986001") transportA else transportB }, { 1000 }, { listOf(instance.iccid) }),
             coroutineContext, repository, { if (it == "8986001") ownerA else ownerB }, { "must-not-insert" },
         )
         runCurrent()

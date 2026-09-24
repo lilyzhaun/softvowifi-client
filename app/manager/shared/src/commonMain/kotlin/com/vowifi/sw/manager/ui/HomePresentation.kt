@@ -5,8 +5,6 @@ import com.vowifi.sw.manager.model.CountryCatalogGenerated
 import com.vowifi.sw.manager.data.homeCarrierLabel
 import com.vowifi.sw.manager.model.EngineLifecycle
 import com.vowifi.sw.manager.model.EnvironmentDiagnosticsUiState
-import com.vowifi.sw.manager.model.RegistrationSnapshot
-import com.vowifi.sw.manager.model.RegistrationState
 import com.vowifi.sw.manager.model.RegistrationUiState
 import com.vowifi.sw.manager.model.SimControlInstance
 import com.vowifi.sw.manager.model.SimControlUiState
@@ -20,13 +18,16 @@ internal fun homeDashboardPresentation(
     diagnosticsState: EnvironmentDiagnosticsUiState,
     nowMs: Long,
     localDateLabel: (Long) -> String = { messageDateSpec(it).label },
-): HomeDashboardPresentation = HomeDashboardPresentation(
-    notices = homeNotices(registrationState, engineState, diagnosticsState),
-    hero = homeHeroPresentation(registrationState, engineState, diagnosticsState),
-    metrics = homeMetrics(registrationState, engineState),
-    actions = (engineState as? SimControlUiState.Ready)?.instances.orEmpty().map(::homeSimAction),
-    facts = homeFacts(registrationState, diagnosticsState, nowMs, localDateLabel),
-)
+): HomeDashboardPresentation {
+    val ims = homeSoftwareImsProjection(engineState)
+    return HomeDashboardPresentation(
+        notices = homeNotices(engineState, diagnosticsState),
+        hero = homeHeroPresentation(registrationState, engineState, diagnosticsState, ims),
+        metrics = homeMetrics(ims, engineState),
+        actions = (engineState as? SimControlUiState.Ready)?.instances.orEmpty().map(::homeSimAction),
+        facts = homeFacts(ims, diagnosticsState),
+    )
+}
 
 internal fun dispatchHomeAction(
     action: HomeActionPresentation,
@@ -45,33 +46,9 @@ internal fun homeEventTime(timestampMs: Long, nowMs: Long, localDateLabel: (Long
     formatCommunicationTime(timestampMs, nowMs, localDateLabel)
 
 private fun homeNotices(
-    registration: RegistrationUiState,
     engine: SimControlUiState,
     diagnostics: EnvironmentDiagnosticsUiState,
 ): List<HomeNoticePresentation> = buildList {
-    when (registration) {
-        is RegistrationUiState.ReadError -> add(
-            HomeNoticePresentation(
-                NoticeCardSpec(SemanticTone.ERROR, "无法读取 IMS 状态", "请刷新后重试。"),
-                AppRoute.SettingsDiagnostics,
-            ),
-        )
-        is RegistrationUiState.ParseError -> add(
-            HomeNoticePresentation(
-                NoticeCardSpec(SemanticTone.ERROR, "IMS 事件无法解析", "observer 输出未包含可用注册事件。"),
-                AppRoute.SettingsDiagnostics,
-            ),
-        )
-        is RegistrationUiState.Data -> if (registration.snapshot.issues.isNotEmpty()) {
-            add(
-                HomeNoticePresentation(
-                    NoticeCardSpec(SemanticTone.WARNING, "IMS 数据含告警", "部分 observer 行无法解析，已保留有效事件。"),
-                    AppRoute.SettingsDiagnostics,
-                ),
-            )
-        }
-        RegistrationUiState.Loading, RegistrationUiState.Empty -> Unit
-    }
     when (engine) {
         is SimControlUiState.Failure -> add(
             HomeNoticePresentation(
@@ -134,15 +111,13 @@ private fun homeNotices(
 }
 
 private fun homeMetrics(
-    registration: RegistrationUiState,
+    ims: HomeSoftwareImsProjection,
     engine: SimControlUiState,
 ): List<HomeMetricPresentation> {
-    val snapshot = (registration as? RegistrationUiState.Data)?.snapshot
-    val registered = snapshot?.latestBySubId?.count { it.normalizedState == RegistrationState.REGISTERED } ?: 0
     val instances = (engine as? SimControlUiState.Ready)?.instances.orEmpty()
     val running = instances.count { it.lifecycle == EngineLifecycle.RUNNING }
     return listOf(
-        HomeMetricPresentation(if (registration is RegistrationUiState.Data || registration is RegistrationUiState.Empty) registered.toString() else "未知", "已注册订阅", if (registered > 0) SemanticTone.SUCCESS else SemanticTone.NEUTRAL),
+        HomeMetricPresentation(ims.metric, "已注册 IMS", ims.tone),
         HomeMetricPresentation(
             if (engine is SimControlUiState.Ready) running.toString() else "未知",
             "运行中引擎",
@@ -205,20 +180,19 @@ private fun SimControlInstance.homeTone(): SemanticTone = when {
 }
 
 private fun homeFacts(
-    registration: RegistrationUiState,
+    ims: HomeSoftwareImsProjection,
     diagnostics: EnvironmentDiagnosticsUiState,
-    nowMs: Long,
-    localDateLabel: (Long) -> String,
 ): List<HomeFactPresentation> {
-    val snapshot = (registration as? RegistrationUiState.Data)?.snapshot
-    val registered = snapshot?.latestBySubId?.count { it.normalizedState == RegistrationState.REGISTERED } ?: 0
-    val total = snapshot?.latestBySubId?.size ?: 0
-    val lastEvent = snapshot?.events?.maxOfOrNull { it.timestampMs }
     return listOf(
-        HomeFactPresentation("Observer 注册概况", if (total == 0) "尚无可用事件" else "$registered / $total 张 SIM 已注册"),
-        HomeFactPresentation("最近注册事件", lastEvent?.let { homeEventTime(it, nowMs, localDateLabel) } ?: "时间未知"),
+        HomeFactPresentation("IMS 注册概况", ims.overview),
+        HomeFactPresentation("活动 SIM", if (ims.readable) "${ims.total} 张" else "未知"),
+        HomeFactPresentation("隧道连接", when {
+            !ims.readable -> "未知"
+            ims.total == 0 -> "暂无活动 SIM"
+            ims.active.any { it.lifecycle == EngineLifecycle.RUNNING && it.runtime == null } -> "未知"
+            else -> "${ims.connected} / ${ims.total} 张活动 SIM 已连接"
+        }),
         HomeFactPresentation("环境检查", diagnostics.homeDiagnosticFact()),
-        HomeFactPresentation("事件质量", snapshot?.let(::eventQuality) ?: "等待 observer 数据"),
     )
 }
 
@@ -229,9 +203,6 @@ private fun EnvironmentDiagnosticsUiState.homeDiagnosticFact(): String = when (t
     is EnvironmentDiagnosticsUiState.PermissionDenied -> "权限不足"
     is EnvironmentDiagnosticsUiState.Unavailable -> "不可用"
 }
-
-private fun eventQuality(snapshot: RegistrationSnapshot): String =
-    if (snapshot.issues.isEmpty()) "${snapshot.events.size} 个有效事件" else "${snapshot.events.size} 个有效事件 · ${snapshot.issues.size} 项告警"
 
 private fun homeSafeText(value: String?, fallback: String, limit: Int): String {
     val normalized = value?.replace(Regex("\\s+"), " ")?.trim()?.takeIf(String::isNotEmpty) ?: return fallback

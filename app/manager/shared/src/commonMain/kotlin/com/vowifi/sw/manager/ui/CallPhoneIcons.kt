@@ -26,6 +26,25 @@ internal object CallPhoneIcons {
         moveTo(12f, 18f); lineTo(12f, 21f); moveTo(9f, 21f); lineTo(15f, 21f)
     }
     val Minimize = glyph("Minimize call") { moveTo(6f, 9f); lineTo(12f, 15f); lineTo(18f, 9f) }
+    val Information = glyph("Call information") {
+        moveTo(12f, 3f); curveTo(24f, 3f, 24f, 21f, 12f, 21f)
+        curveTo(0f, 21f, 0f, 3f, 12f, 3f); close()
+        moveTo(12f, 7f); lineTo(12f, 7.1f)
+        moveTo(12f, 11f); lineTo(12f, 17f)
+    }
+    val Clock = glyph("Call duration") {
+        moveTo(12f, 3f); curveTo(24f, 3f, 24f, 21f, 12f, 21f)
+        curveTo(0f, 21f, 0f, 3f, 12f, 3f); close()
+        moveTo(12f, 7f); lineTo(12f, 12f); lineTo(16f, 14f)
+    }
+    val MicrophoneOff = glyph("Microphone off") {
+        moveTo(10f, 3f); curveTo(13f, 1f, 15f, 3f, 15f, 6f); lineTo(15f, 10f)
+        moveTo(9f, 9f); lineTo(9f, 11f); curveTo(9f, 14f, 12f, 15f, 14f, 13f)
+        moveTo(6f, 10f); curveTo(6f, 18f, 13f, 20f, 17f, 15f)
+        moveTo(18f, 10f); lineTo(18f, 11f)
+        moveTo(12f, 18f); lineTo(12f, 21f); moveTo(9f, 21f); lineTo(15f, 21f)
+        moveTo(3f, 3f); lineTo(21f, 21f)
+    }
     val Speaker = glyph("Speaker") {
         moveTo(3f, 9f); lineTo(7f, 9f); lineTo(12f, 5f); lineTo(12f, 19f)
         lineTo(7f, 15f); lineTo(3f, 15f); close()

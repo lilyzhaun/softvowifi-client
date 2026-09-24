@@ -25,11 +25,58 @@ class CallScreensRenderTest {
         render("dialer-light-390", false, 390, 844) { PhoneDialerScreen("+12025550123", {}, "SIM 2 · T-Mobile", true, false, null, {}, {}, {}) }
         render("incoming-dark-390", true, 390, 844) { phone(ready(CallPhase.Ringing)) }
         render("incall-dark-390", true, 390, 844) { phone(ready(CallPhase.InCall)) }
+        render("incall-light-390", false, 390, 844) { phone(ready(CallPhase.InCall)) }
+        render("dialer-dark-390", true, 390, 844) { PhoneDialerScreen("+12025550123", {}, "SIM 2 · T-Mobile", true, false, null, {}, {}, {}) }
+        render("incoming-light-390", false, 390, 844) { phone(ready(CallPhase.Ringing)) }
         render("incall-light-320", false, 320, 740) { phone(ready(CallPhase.InCall)) }
         render("incoming-dark-320-font200", true, 320, 740, 2f) { phone(ready(CallPhase.Ringing)) }
         render("dialer-light-320-font200", false, 320, 740, 2f) { PhoneDialerScreen("+12025550123", {}, "SIM 2 · T-Mobile", true, false, null, {}, {}, {}) }
         render("incall-dark-landscape", true, 800, 390) { phone(ready(CallPhase.InCall)) }
         render("ended-dark", true, 390, 844) { CallEndContent(null, {}) }
+        render("ended-reason-light", false, 390, 844) { CallEndContent("对方未接听", {}) }
+        render("loading-dark", true, 390, 844) { CallLoadingContent({}, {}) }
+        render("loading-error-light", false, 390, 844) { CallLoadingContent({}, {}, "暂时无法确认通话状态，请刷新重试") }
+    }
+
+    @Test fun unknownAndEndedLargeTextKeepSeparatedReachableRealActions() {
+        var refreshes = 0
+        var returns = 0
+        var ended by mutableStateOf(false)
+        val scene = scene(false, 320, 740, 2f) {
+            if (ended) CallEndContent("对方未接听", { returns++ })
+            else CallLoadingContent({ refreshes++ }, { returns++ }, "暂时无法确认通话状态，请刷新重试")
+        }
+        try {
+            frame(scene)
+            val scroll = nodes(scene).single { it.config.contains(SemanticsActions.ScrollBy) }
+            requireNotNull(scroll.config[SemanticsActions.ScrollBy].action).invoke(0f, 4000f); frame(scene)
+            assertTrue(button(scene, "返回").boundsInRoot.bottom <= 740)
+            assertTrue(button(scene, "刷新").boundsInRoot.bottom < button(scene, "返回").boundsInRoot.top)
+            assertTrue(nodes(scene).none { it.config.contains(SemanticsProperties.ProgressBarRangeInfo) })
+            click(scene, "刷新"); click(scene, "返回")
+            assertEquals(1, refreshes); assertEquals(1, returns)
+            screenshot(scene, "loading-error-light-320-font200")
+            ended = true; frame(scene)
+            assertTrue(button(scene, "返回通话记录").boundsInRoot.bottom <= 740)
+            click(scene, "返回通话记录")
+            assertEquals(2, returns)
+            screenshot(scene, "ended-reason-light-320-font200")
+        } finally { scene.close() }
+    }
+
+    @Test fun primaryActionsAreNotTogglesAndAudioReportsConfirmedState() {
+        var state by mutableStateOf(ready(CallPhase.Ringing))
+        val scene = scene(true, 390, 844) { phone(state) }
+        try {
+            frame(scene)
+            assertNull(button(scene, "接听").config.getOrNull(SemanticsProperties.StateDescription))
+            assertFalse(button(scene, "接听").config.contains(SemanticsProperties.Selected))
+            state = ready(CallPhase.InCall); frame(scene)
+            assertEquals(false, button(scene, "静音").config.getOrNull(SemanticsProperties.Selected))
+            assertEquals(true, button(scene, "免提").config.getOrNull(SemanticsProperties.Selected))
+            state = state.copy(audio = CallAudioState.Idle); frame(scene)
+            assertTrue(button(scene, "静音").config.contains(SemanticsProperties.Disabled))
+        } finally { scene.close() }
     }
 
     @Test fun dialerEditsLongZeroAndDeleteThenCallsExactDraft() {
@@ -181,7 +228,7 @@ class CallScreensRenderTest {
     }
     private fun screenshot(scene: ImageComposeScene, name: String) {
         scene.render(time).use { image -> requireNotNull(image.encodeToData()).use { data ->
-            Files.write(Path.of("/tmp/opencode/issue21-native-$name.png"), data.bytes)
+            Files.write(Path.of("/tmp/opencode/phone-polish-$name.png"), data.bytes)
         } }
     }
 }

@@ -19,7 +19,7 @@ internal val LocalSoftVoWiFiChromeEnvironment = staticCompositionLocalOf {
 
 @Composable
 internal fun rememberSoftVoWiFiBackdrop(spec: AppChromeSpec): LayerBackdrop? {
-    if (!spec.effectiveBlur) return null
+    if (!spec.effectiveBlur && !spec.effectiveLiquidGlass) return null
     val surface = LocalSoftVoWiFiColors.current.canvas.copy(alpha = 1f)
     return rememberLayerBackdrop {
         drawRect(surface)

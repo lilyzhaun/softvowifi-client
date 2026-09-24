@@ -1,6 +1,7 @@
 package com.vowifi.sw.manager.ui
 
 internal enum class RootShellChildAlignment { BottomCenter }
+internal enum class FloatingDragGestureOwner { Indicator }
 
 internal data class KsuRootShellLayoutContract(
     val floatingHostFullWidth: Boolean,
@@ -18,12 +19,40 @@ internal fun ksuRootShellLayoutContract(): KsuRootShellLayoutContract = KsuRootS
     floatingHostFullWidth = true,
     floatingHostTransparent = true,
     floatingChildAlignment = RootShellChildAlignment.BottomCenter,
-    floatingChildIntrinsicWidth = false,
+    floatingChildIntrinsicWidth = true,
     pagerConsumesBottomPadding = false,
     rootContentConsumesBottomPadding = true,
     contentUnderlaysFloatingHost = true,
     normalModeReservesBottomSpace = true,
     normalModeFullWidth = true,
+)
+
+internal data class FloatingRowLayoutContract(
+    val outerHeightDp: Int,
+    val innerPaddingDp: Int,
+    val baseInnerHeightDp: Int,
+    val indicatorHeightDp: Int,
+    val tabMinimumWidthDp: Int,
+    val tabMinimumHeightDp: Int,
+    val labelSizeSp: Int,
+    val labelLineHeightSp: Int,
+    val tabClickIndication: TabClickIndication,
+    val dragGestureOwner: FloatingDragGestureOwner,
+    val baseRowDraggable: Boolean,
+)
+
+internal fun floatingRowLayoutContract(): FloatingRowLayoutContract = FloatingRowLayoutContract(
+    outerHeightDp = 64,
+    innerPaddingDp = 4,
+    baseInnerHeightDp = 56,
+    indicatorHeightDp = 56,
+    tabMinimumWidthDp = 76,
+    tabMinimumHeightDp = 48,
+    labelSizeSp = 11,
+    labelLineHeightSp = 14,
+    tabClickIndication = TabClickIndication.NONE,
+    dragGestureOwner = FloatingDragGestureOwner.Indicator,
+    baseRowDraggable = false,
 )
 
 internal data class SettingsCardStructureContract(
@@ -47,4 +76,32 @@ internal fun settingsCardStructureContract(): SettingsCardStructureContract = Se
     horizontalInsetDp = 12,
     topAndCardGapDp = 12,
     topBarStyle = SettingsRootTopBarStyle.LARGE_COLLAPSIBLE,
+)
+
+internal data class SafeBackdropContract(
+    val pagerCaptureCount: Int,
+    val bottomBarConsumerCount: Int,
+    val bottomBarLocalCaptureCount: Int,
+    val bottomBarLocalConsumerCount: Int,
+    val bottomBarDrawBackdropCallCount: Int,
+    val rootTopBarConsumerCount: Int,
+    val pageLocalCaptureCount: Int,
+    val pageTopBarConsumerCount: Int,
+    val usesDrawBackdrop: Boolean,
+    val usesTextureBlur: Boolean,
+    val opaqueFallback: Boolean,
+)
+
+internal fun safeBackdropContract(effectiveBlur: Boolean): SafeBackdropContract = SafeBackdropContract(
+    pagerCaptureCount = if (effectiveBlur) 1 else 0,
+    bottomBarConsumerCount = if (effectiveBlur) 3 else 0,
+    bottomBarLocalCaptureCount = if (effectiveBlur) 1 else 0,
+    bottomBarLocalConsumerCount = if (effectiveBlur) 1 else 0,
+    bottomBarDrawBackdropCallCount = if (effectiveBlur) 3 else 0,
+    rootTopBarConsumerCount = 0,
+    pageLocalCaptureCount = if (effectiveBlur) 1 else 0,
+    pageTopBarConsumerCount = if (effectiveBlur) 1 else 0,
+    usesDrawBackdrop = effectiveBlur,
+    usesTextureBlur = false,
+    opaqueFallback = !effectiveBlur,
 )

@@ -49,8 +49,7 @@ class ObserverSettingsRenderTest {
                 assertTrue(header.boundsInRoot.top >= 0f)
                 assertTrue(header.boundsInRoot.bottom < 120f)
                 scene.render(1_200_000_000L).use { image -> requireNotNull(image.encodeToData()).use {
-                    val directory = Files.createDirectories(Path.of("build/reports/observer-settings-render"))
-                    Files.write(directory.resolve("settings-${status.name.lowercase()}.png"), it.bytes)
+                    Files.write(Path.of("/tmp/opencode/issue27-native-settings-${status.name.lowercase()}.png"), it.bytes)
                 } }
                 val row = scene.semanticsOwners.flatMap { descend(it.rootSemanticsNode) }.single {
                     it.config.getOrNull(SemanticsProperties.Text)?.any { text -> text.text == "后台常驻通知" } == true &&

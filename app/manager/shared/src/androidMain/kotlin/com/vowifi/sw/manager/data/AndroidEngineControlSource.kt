@@ -1,34 +1,57 @@
 package com.vowifi.sw.manager.data
 
+import com.vowifi.sw.manager.model.ClientCapabilitiesResult
 import com.vowifi.sw.manager.model.EngineControlUiState
 import com.vowifi.sw.manager.model.EngineInstanceState
 import com.vowifi.sw.manager.model.EngineLifecycle
-import com.vowifi.sw.manager.model.ClientCapabilitiesResult
+import com.vowifi.sw.manager.model.EngineProtocolFrame
 import java.io.IOException
 import java.util.concurrent.TimeUnit
-import kotlinx.coroutines.CoroutineScope
+import kotlin.coroutines.CoroutineContext
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
-class AndroidEngineControlSource private constructor(
-    private val pool: AndroidEngineClientPool,
-    private val ownsPool: Boolean,
-    private val controlCommand: (suspend (String, String?) -> String)? = null,
+class AndroidEngineControlSource internal constructor(
+    private val runControl: suspend (String, String?) -> String,
+    private val request: suspend (String, String) -> EngineProtocolFrame.Response,
+    private val removeClient: (String) -> Unit,
+    private val closeBackend: () -> Unit,
+    private val queryCapabilities: suspend (String) -> ClientCapabilitiesResult,
+    parentContext: CoroutineContext,
 ) : EngineControlSource {
     constructor() : this(AndroidEngineClientPool(), ownsPool = true)
     constructor(pool: AndroidEngineClientPool) : this(pool, ownsPool = false)
     constructor(pool: AndroidEngineClientPool, controlCommand: suspend (String, String?) -> String) :
         this(pool, ownsPool = false, controlCommand = controlCommand)
+    private constructor(
+        pool: AndroidEngineClientPool,
+        ownsPool: Boolean,
+        controlCommand: suspend (String, String?) -> String = ::runEngineControlScript,
+    ) : this(
+        controlCommand,
+        { owner, method -> pool.clientFor(owner).request(method) },
+        { owner -> pool.remove(owner)?.close() },
+        { if (ownsPool) pool.close() },
+        pool::clientCapabilities,
+        Dispatchers.IO,
+    )
 
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    private val operationGate = EngineOperationGate()
+    private val scope = CoroutineScope(parentContext.minusKey(Job) + SupervisorJob())
+    private val operations = Mutex()
+    private val pendingOwners = mutableSetOf<String>()
     @Volatile
     private var closed = false
     private val mutableState = MutableStateFlow<EngineControlUiState>(EngineControlUiState.Loading)
@@ -40,55 +63,71 @@ class AndroidEngineControlSource private constructor(
     }
 
     override fun refresh() {
-        launchOperation { refreshLocked() }
+        if (closed || !operations.tryLock()) return
+        scope.launch { refreshLocked() }.invokeOnCompletion { operations.unlock() }
     }
 
     override fun start(iccid: String) {
-        launchOperation {
+        launchOperation(iccid, EngineLifecycle.STOPPED) {
             updateInstance(iccid) { it.copy(lifecycle = EngineLifecycle.STARTING, message = null) }
             runCatching { runControl("start", iccid) }
                 .onSuccess { refreshLocked() }
-                .onFailure { error -> updateFailure(iccid, error) }
+                .onFailure { error ->
+                    if (error is CancellationException) throw error
+                    updateFailure(iccid, error)
+                }
         }
     }
 
     override fun stop(iccid: String) {
-        launchOperation {
+        launchOperation(iccid, EngineLifecycle.RUNNING) {
             updateInstance(iccid) { it.copy(lifecycle = EngineLifecycle.STOPPING, message = null) }
-            runCatching {
-                val client = clientFor(iccid)
-                val response = client.request("stop")
+            var failure: Exception? = null
+            try {
+                val response = request(iccid, "stop")
                 response.error?.let { error -> throw EngineControlException(error.message) }
-                removeClient(iccid)?.close()
-                runControl("stop", iccid)
-            }.onSuccess {
-                refreshLocked()
-            }.onFailure { error ->
-                runCatching {
-                    runControl("stop", iccid)
-                }
-                removeClient(iccid)?.close()
-                refreshLocked()
-                updateInstance(iccid) { it.copy(message = error.message ?: "引擎停止失败") }
+                removeClient(iccid)
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                failure = error
             }
+            try {
+                runControl("stop", iccid)
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                failure = error
+            }
+            if (failure != null) removeClient(iccid)
+            refreshLocked()
+            failure?.let { error -> updateInstance(iccid) { it.copy(message = error.message ?: "引擎停止失败") } }
         }
     }
 
-    private fun launchOperation(operation: suspend () -> Unit) {
-        if (isClosed() || !operationGate.tryEnter()) return
-        scope.launch { operation() }
-            .invokeOnCompletion { operationGate.release() }
+    private fun launchOperation(owner: String, eligible: EngineLifecycle, operation: suspend () -> Unit) {
+        synchronized(pendingOwners) {
+            if (closed || !pendingOwners.add(owner)) return
+        }
+        scope.launch {
+            operations.withLock {
+                if (closed) return@withLock
+                val current = mutableState.value as? EngineControlUiState.Ready
+                if (current != null && current.instances.none { it.iccid == owner && it.lifecycle == eligible }) return@withLock
+                operation()
+            }
+        }.invokeOnCompletion { synchronized(pendingOwners) { pendingOwners.remove(owner) } }
     }
 
     private suspend fun refreshLocked() {
-        mutableState.value = try {
-            val listed = EngineControlScriptCodec.instances(runControl("list"))
+        val refreshed = try {
+            val listed = EngineControlScriptCodec.instances(runControl("list", null))
             val running = listed.map { instance ->
                 if (instance.lifecycle == EngineLifecycle.RUNNING) status(instance) else instance
             }
             EngineControlUiState.Ready(running)
-        } catch (cancelled: CancellationException) {
-            throw cancelled
+        } catch (error: CancellationException) {
+            throw error
         } catch (error: RootCommandException) {
             if (error.failure != null) {
                 EngineControlUiState.Failure(error.failure.message)
@@ -106,40 +145,29 @@ class AndroidEngineControlSource private constructor(
         } catch (error: Exception) {
             EngineControlUiState.Failure(error.message ?: "无法读取引擎状态")
         }
+        synchronized(pendingOwners) {
+            if (!closed) mutableState.value = refreshed
+        }
     }
 
     private suspend fun status(instance: EngineInstanceState): EngineInstanceState = try {
-        val client = clientFor(instance.iccid)
-        val response = client.request("getStatus")
+        val response = request(instance.iccid, "getStatus")
         response.error?.let { error -> throw EngineControlException(error.message) }
         val runtime = EngineProtocolCodec.status(response)
-        val capabilities = EngineClientCapabilitiesSource { method, params ->
-            client.request(method, params, EngineClientCapabilitiesSource.TIMEOUT_MILLIS)
-        }.query()
-        instance.copy(runtime = runtime, message = null, capabilities = when (capabilities) {
-            is ClientCapabilitiesResult.Ready -> capabilities.capabilities
-            is ClientCapabilitiesResult.Unavailable -> null
-        })
-    } catch (cancelled: CancellationException) {
-        throw cancelled
+        val capabilities = queryCapabilities(instance.iccid)
+        currentCoroutineContext().ensureActive()
+        instance.copy(runtime = runtime, message = null, clientCapabilities = capabilities)
+    } catch (error: CancellationException) {
+        throw error
     } catch (error: Exception) {
-        removeClient(instance.iccid)?.close()
+        removeClient(instance.iccid)
         val message = if (error is IOException && error.message.isSocketPermissionDenied()) {
             "控制 socket 权限被拒绝，请检查模块 SELinux 与 socket 权限"
         } else {
             error.message ?: "控制 socket 不可用"
         }
-        instance.copy(message = message, capabilities = null)
+        instance.copy(message = message, clientCapabilities = null)
     }
-
-    private fun clientFor(iccid: String): LocalSocketEngineClient {
-        check(!closed) { "engine control source is closed" }
-        return pool.clientFor(iccid)
-    }
-
-    private fun removeClient(iccid: String): LocalSocketEngineClient? = pool.remove(iccid)
-
-    private fun isClosed(): Boolean = closed
 
     private fun updateFailure(iccid: String, error: Throwable) {
         val failure = (error as? RootCommandException)?.failure
@@ -162,46 +190,46 @@ class AndroidEngineControlSource private constructor(
         )
     }
 
-    private suspend fun runControl(command: String, iccid: String? = null): String = withContext(Dispatchers.IO) {
-        controlCommand?.let { return@withContext it(command, iccid) }
-        val invocation = buildString {
-            append(CONTROL_SCRIPT)
-            append(' ')
-            append(command)
-            if (iccid != null) {
-                require(iccid.all(Char::isDigit)) { "invalid ICCID" }
-                append(' ')
-                append(iccid)
-            }
-        }
-        val process = ProcessBuilder("su", "-c", invocation)
-            .redirectErrorStream(true)
-            .start()
-        if (!process.waitFor(20, TimeUnit.SECONDS)) {
-            process.destroyForcibly()
-            throw RootCommandException("su command timed out")
-        }
-        val output = process.inputStream.bufferedReader().use { it.readText() }.trim()
-        val exitCode = process.exitValue()
-        if (exitCode != 0) {
-            throw RootCommandException(
-                output.ifBlank { "su exited $exitCode" },
-                EngineControlScriptCodec.failure(output),
-            )
-        }
-        output
-    }
-
     override fun close() {
-        closed = true
+        synchronized(pendingOwners) {
+            if (closed) return
+            closed = true
+        }
         scope.cancel()
-        if (ownsPool) pool.close()
-    }
-
-    private companion object {
-        const val CONTROL_SCRIPT = "/data/adb/modules/vowifi_sw/control.sh"
+        closeBackend()
     }
 }
+
+private suspend fun runEngineControlScript(command: String, iccid: String?): String = withContext(Dispatchers.IO) {
+    val invocation = buildString {
+        append(CONTROL_SCRIPT)
+        append(' ')
+        append(command)
+        if (iccid != null) {
+            require(iccid.all(Char::isDigit)) { "invalid ICCID" }
+            append(' ')
+            append(iccid)
+        }
+    }
+    val process = ProcessBuilder("su", "-c", invocation)
+        .redirectErrorStream(true)
+        .start()
+    if (!process.waitFor(20, TimeUnit.SECONDS)) {
+        process.destroyForcibly()
+        throw RootCommandException("su command timed out")
+    }
+    val output = process.inputStream.bufferedReader().use { it.readText() }.trim()
+    val exitCode = process.exitValue()
+    if (exitCode != 0) {
+        throw RootCommandException(
+            output.ifBlank { "su exited $exitCode" },
+            EngineControlScriptCodec.failure(output),
+        )
+    }
+    output
+}
+
+private const val CONTROL_SCRIPT = "/data/adb/modules/vowifi_sw/control.sh"
 
 private fun String?.isSocketPermissionDenied(): Boolean =
     this.orEmpty().contains("EACCES", ignoreCase = true) ||

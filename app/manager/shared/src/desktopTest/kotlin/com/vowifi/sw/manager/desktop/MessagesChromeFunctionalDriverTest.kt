@@ -18,7 +18,10 @@ import com.vowifi.sw.manager.ui.bottomChromeTransitionContract
 import com.vowifi.sw.manager.ui.messageContentAnimationContract
 import com.vowifi.sw.manager.ui.settingsRouteMap
 import com.vowifi.sw.manager.ui.appSubpageSceneContract
+import com.vowifi.sw.manager.ui.SlidingBottomBarModel
 import com.vowifi.sw.manager.ui.backdropOwnershipContract
+import com.vowifi.sw.manager.ui.bubbleTranslationPx
+import com.vowifi.sw.manager.ui.floatingBubbleBarContract
 import com.vowifi.sw.manager.ui.settingsIconGrammar
 import com.vowifi.sw.manager.ui.settingsCatalog
 import com.vowifi.sw.manager.ui.navigation.AppNavigationState
@@ -77,6 +80,17 @@ class MessagesChromeFunctionalDriverTest {
         assertEquals(AppRoute.Home, rootBack.currentRoot)
         assertEquals(6, settingsRouteMap().size)
         assertTrue(appSubpageSceneContract().opaqueContainer)
+        val bubble = SlidingBottomBarModel(0, 4)
+        bubble.beginDrag()
+        bubble.dragBy(182.4f, 76f, rtl = false)
+        assertEquals(2.4f, bubble.position, 0.0001f)
+        assertEquals(2, bubble.endDrag())
+        bubble.externalSelection(3)
+        assertEquals(3f, bubble.targetPosition)
+        bubble.beginDrag()
+        bubble.cancelDrag()
+        assertEquals(-152f, bubbleTranslationPx(2f, 76f, rtl = true))
+        assertEquals(3, floatingBubbleBarContract().renderLayerCount)
         assertEquals(1, backdropOwnershipContract(true, false).rootPagerLayerBackdropAttachments)
         assertEquals(1, backdropOwnershipContract(true, true).privateSubpageBackdropAttachments)
         assertEquals(0, backdropOwnershipContract(false, true).textureEffectCount)
@@ -104,6 +118,7 @@ class MessagesChromeFunctionalDriverTest {
         println("DRIVER motion=pager:300,bottom-mode:220,item:180,message:fade-only-no-placement")
         println("DRIVER routes=messages>thread>messages>new")
         println("DRIVER composer=blank:blocked,first:accepted,duplicate:blocked,settled:accepted")
+        println("DRIVER bubble=drag:indicator-only,0>2.4>settle:2,external:3,cancel:3,rtl:2=-152px,layers:3,semantics:base-only")
         println("DRIVER backdrop=root-attachments:1,page-local:1,subpage-private:1,blur-off-effects:0")
         println("DRIVER settings=icons:all,card-gap:12,root-topbar:large-collapse,subpage:small-leading-back")
         source.close()

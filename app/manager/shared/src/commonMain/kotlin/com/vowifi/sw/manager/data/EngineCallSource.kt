@@ -8,20 +8,23 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
-class EngineCallSource internal constructor(
+class EngineCallSource @JvmOverloads internal constructor(
     internal val runtime: EngineMessageRuntime,
-    internal val audio: CallAudioController,
+    audio: CallAudioController,
     parentContext: CoroutineContext,
     history: CallHistoryBinding? = null,
     internal val control: CallControlTransport,
     internal val monotonicNow: () -> Long = CallSessionClock.monotonic(),
+    sharedRecorder: CallHistoryRecorder? = null,
 ) : CallSource {
+    internal val audio = if (audio is CallSessionAudio.Scoped) audio else CallSessionAudio(audio).child()
     internal val scope = CoroutineScope(parentContext.minusKey(Job) + SupervisorJob())
     internal val mutex = Mutex()
     private val audioMutex = Mutex()
     private val mutableState = MutableStateFlow<CallUiState>(CallUiState.Loading)
     override val state = mutableState.asStateFlow()
-    internal val recorder = CallHistoryRecorder(history, runtime.clock, parentContext)
+    private val ownsRecorder = sharedRecorder == null
+    internal val recorder = sharedRecorder ?: CallHistoryRecorder(history, runtime.clock, parentContext)
     override val history = recorder.state
     override val historyOwners get() = recorder.owners
     @Volatile internal var closed = false
@@ -29,6 +32,10 @@ class EngineCallSource internal constructor(
     internal var activeTransport: EngineMessageTransport? = null
     internal var eventJob: Job? = null
     internal var failureJob: Job? = null
+    internal var recoveryJob: Job? = null
+    internal var connectionWork = 0
+    internal var recoveryAttempt = false
+    internal var requiredSnapshot: EngineMessageTransport? = null
     internal var session = CallSession()
     internal var generation = 0L
     internal var connectionGeneration = 0L
@@ -62,7 +69,7 @@ class EngineCallSource internal constructor(
     override fun reject() = actCurrent(CallAction.Reject)
     override fun hangup() = actCurrent(CallAction.Hangup)
     override fun cancel() = actCurrent(CallAction.Cancel)
-    private fun actCurrent(action: CallAction) { (state.value as? CallUiState.Ready)?.binding?.let { act(it, action) } }
+    private fun actCurrent(action: CallAction) = launch { performCurrentControl(action) }
     override fun act(expected: CallBinding, action: CallAction) = launch { performControl(expected, action) }
     override fun sendDtmf(expected: CallBinding, digit: Char) = launch { performDtmf(expected, digit) }
     override fun dial(number: String) { (state.value as? CallUiState.Ready)?.binding?.let { dial(it, number) } }
@@ -79,12 +86,12 @@ class EngineCallSource internal constructor(
             }
         }
         effect?.history?.let(recorder::enqueue)
-        audio.stop()
-        recorder.close()
+        audio.retire()
+        if (ownsRecorder) recorder.close()
         scope.cancel()
     }
     internal fun launch(block: suspend () -> Unit) { if (!closed) scope.launch { block() } }
-    internal fun owns(expected: CallBinding): Boolean = !closed && sync == CallSyncState.Ready &&
+    internal fun owns(expected: CallBinding): Boolean = !closed && binding === expected && sync == CallSyncState.Ready &&
         activeIccid == expected.owner && bindingGeneration == expected.generation &&
         (session.token == expected.token || expected.token == null && session.phase in setOf(CallPhase.Dialing, CallPhase.Canceling))
 
@@ -106,6 +113,7 @@ class EngineCallSource internal constructor(
         publish()
         return CallEffects(
             stopAudio = leaving,
+            stopSession = if (leaving) audioSession(before) else null,
             audio = activeTransport?.let { pendingCallAudio(before, session, it, activeIccid, generation) },
             history = history,
         )
@@ -121,12 +129,15 @@ class EngineCallSource internal constructor(
         pendingTerminalCause = null
     }
     internal fun detach(): CallEffects {
+        requiredSnapshot = null
+        cancelRecovery()
         eventJob?.cancel()
         failureJob?.cancel()
         eventJob = null
         failureJob = null
         (activeTransport as? CallEventTransport)?.close()
-        val effects = CallEffects(stopAudio = needsAudioStop(session), history = recorder.claimInterrupt())
+        val effects = CallEffects(stopAudio = needsAudioStop(session), stopSession = audioSession(),
+            history = recorder.claimInterrupt(activeIccid, generation, session.token))
         activeIccid = null
         activeTransport = null
         session = CallSession()
@@ -143,7 +154,7 @@ class EngineCallSource internal constructor(
     internal fun unavailable(state: CallUiState): CallEffects {
         if (session.phase != CallPhase.Idle) {
             loseConnection(CallSyncState.Unavailable, CallFailureMessages.SNAPSHOT)
-            return CallEffects(stopAudio = true)
+            return CallEffects(stopAudio = true, stopSession = audioSession())
         }
         return detach().also { mutableState.value = state }
     }
@@ -157,9 +168,9 @@ class EngineCallSource internal constructor(
         publish()
     }
     internal suspend fun apply(effects: CallEffects) {
-        if (effects.stopAudio) audio.stop()
+        if (effects.stopAudio) effects.stopSession?.let(audio::stopIf)
         effects.history?.let(recorder::enqueue)
-        effects.historyOwner?.let(recorder::refreshOwner)
+        if (ownsRecorder) effects.historyOwner?.let(recorder::refreshOwner)
         effects.audio?.let { pending ->
             startOwnedAudio(audio, audioMutex, mutex, pending,
                 owns = { !closed && sync == CallSyncState.Ready && activeTransport === pending.transport && pending.isLive(session, generation) },
@@ -171,13 +182,19 @@ class EngineCallSource internal constructor(
     private suspend fun collectAudioEvents() {
         collectOwnedAudioEnded(audio, onEnded = { event ->
             mutex.withLock {
+                if (event.session.iccid != activeIccid || event.session.transport !== activeTransport) return@withLock CallEffects()
                 audioEndedEffects(closed, session, generation, event) {
                     session = CallSessionReducer.audioFailed(session, CallFailureMessages.AUDIO_INTERRUPTED)
                     publish()
-                    CallEffects(stopAudio = true)
+                    CallEffects(stopAudio = true, stopSession = event.session)
                 }
             }
         }, apply = ::apply)
+    }
+    internal fun audioSession(current: CallSession = session): CallAudioSession? {
+        val owner = activeIccid ?: return null
+        val transport = activeTransport ?: return null
+        return current.token?.let { CallAudioSession(owner, it, generation, transport) }
     }
     internal fun publish() {
         val owner = activeIccid

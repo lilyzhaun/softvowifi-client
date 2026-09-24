@@ -12,6 +12,8 @@ import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -60,7 +62,9 @@ fun AppShell(
             )
         }
     }
-    LaunchedEffect(rootPager.pagerState, navigationState.topRoute) {
+    val latestNavigationState by rememberUpdatedState(navigationState)
+    val latestOnNavigationStateChange by rememberUpdatedState(onNavigationStateChange)
+    LaunchedEffect(rootPager.pagerState) {
         snapshotFlow {
             Triple(
                 rootPager.pagerState.targetPage,
@@ -69,10 +73,11 @@ fun AppShell(
             )
         }.distinctUntilChanged().collect { (targetPage, settledPage, scrollInProgress) ->
             rootPager.observePager(targetPage, settledPage, scrollInProgress)
-            if (navigationState.topRoute is AppRoute.Root) {
+            val currentNavigationState = latestNavigationState
+            if (currentNavigationState.topRoute is AppRoute.Root) {
                 val root = rootForPagerPage(rootPager.selectedPage)
-                if (root != navigationState.currentRoot) {
-                    onNavigationStateChange(AppNavigator.selectRoot(navigationState, root))
+                if (root != currentNavigationState.currentRoot) {
+                    latestOnNavigationStateChange(AppNavigator.selectRoot(currentNavigationState, root))
                 }
             }
         }

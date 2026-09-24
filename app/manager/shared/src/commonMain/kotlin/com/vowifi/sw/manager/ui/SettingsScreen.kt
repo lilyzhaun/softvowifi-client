@@ -47,13 +47,18 @@ internal fun appearanceSectionSpecs(
         settings.blurRequested,
     )
     if (settings.floatingNavigation) {
-        val summary = "已改用原生静态导航，不再提供液态折射"
+        val liquidSummary = appearanceLiquidGlassSummary(settings, blurSupported)
+        val availability = if (blurSupported) {
+            ManagerPreferenceAvailability.Enabled
+        } else {
+            ManagerPreferenceAvailability.Disabled(liquidSummary.text)
+        }
         navSpecs += AppearancePreferenceSpec(
             AppearancePreferenceKey.LIQUID_GLASS_ENABLED,
             "液态玻璃",
-            summary,
-            false,
-            availability = ManagerPreferenceAvailability.Disabled(summary),
+            liquidSummary.text,
+            settings.liquidGlassRequested,
+            availability = availability,
         )
     }
 

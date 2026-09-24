@@ -235,16 +235,19 @@ class AppNavigationTest {
 
         assertEquals(BottomChromeMode.FLOATING, floating.bottomMode)
         assertTrue(floating.effectiveBlur)
+        assertTrue(floating.effectiveLiquidGlass)
         assertTrue(floating.predictiveBackEnabled)
         assertFalse(floating.hapticsEnabled)
 
         assertEquals(BottomChromeMode.NORMAL, normal.bottomMode)
         assertTrue(normal.effectiveBlur)
+        assertFalse(normal.effectiveLiquidGlass)
         assertFalse(normal.predictiveBackEnabled)
         assertTrue(normal.hapticsEnabled)
 
         assertEquals(BottomChromeMode.FLOATING, fallback.bottomMode)
         assertFalse(fallback.effectiveBlur)
+        assertFalse(fallback.effectiveLiquidGlass)
         assertTrue(fallback.opaqueFallback)
         assertEquals(25f, floating.blurRadius)
         assertEquals(180, floating.motionDurationMillis)

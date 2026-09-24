@@ -20,7 +20,7 @@ class MessagePagingSourceTest {
         val transport = FakeEngineMessageTransport()
         val source = EngineMessageSource(EngineMessageRuntime(
             { if (running) listOf(EngineInstanceState("synthetic", EngineLifecycle.RUNNING, pid = 7)) else emptyList() },
-            { transport }, { 1L }), coroutineContext, repository, { ownerB }, { "outgoing" })
+            { transport }, { 1L }, { listOf("synthetic") }), coroutineContext, repository, { ownerB }, { "outgoing" })
         source.watchAttachment()
         runCurrent()
         val initial = repository.listByOwnerCalls

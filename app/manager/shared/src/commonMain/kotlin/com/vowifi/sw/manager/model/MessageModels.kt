@@ -64,6 +64,8 @@ data class MessageHistoryLine(
     val conversationCount: Int,
     val connected: Boolean,
     val label: com.vowifi.sw.manager.data.MessageOwnerLabel? = null,
+    val active: Boolean? = null,
+    val sendable: Boolean = connected,
 ) {
     override fun toString(): String = "MessageHistoryLine(conversationCount=$conversationCount)"
 }
@@ -74,6 +76,7 @@ data class MessageHistoryChoices(
     val storageAvailable: Boolean = false,
     val labelsLoading: Boolean = false,
     val labelsFailed: Boolean = false,
+    val activeRosterComplete: Boolean = false,
 )
 
 sealed interface MessageUiState {
@@ -96,6 +99,7 @@ sealed interface MessageUiState {
         override val ownerId: com.vowifi.sw.manager.data.SimOwnerId? = null,
         override val sendAttempt: MessageSendAttempt? = null,
         val window: MessageThreadWindow? = null,
+        val sessionConnected: Boolean = composerEnabled,
     ) : Available
     data class Inbox(
         override val ownerId: com.vowifi.sw.manager.data.SimOwnerId,

@@ -1,0 +1,28 @@
+Copyright (C) 2006 The Android Open Source Project
+
+This directory retains the original AOSP MccTable.java (Apache License
+2.0) and derived MCC-to-ISO 3166-1 alpha-2 table data generated from
+that file.
+
+Pinned source:
+https://android.googlesource.com/platform/frameworks/opt/telephony/+/307806916047d68377ff74674f95ca499243e068/src/java/com/android/internal/telephony/MccTable.java
+Commit: 307806916047d68377ff74674f95ca499243e068
+Raw SHA-256: 68a2ed822151f0cdacc023fb924c1dff9bc7e913bcad5220dd1f42503e715840
+Size: 29630 bytes / 585 lines
+
+Upstream LICENSE and NOTICE at that telephony snapshot returned HTTP 404.
+The full Apache License, Version 2.0 text is included as LICENSE in this
+directory. The original file copyright header is preserved in MccTable.java.
+
+Derived-data modification: CountryCatalogGenerated.kt contains only MCC
+and lowercase ISO 3166-1 alpha-2 pairs extracted from anchored
+sTable.add(new MccEntry(mcc, "iso", digits)) records. AOSP Java
+implementation helpers (locale fallbacks, timezone lookup, configuration
+updates, and MNC-width behavior) are not copied. This is a data
+extraction, not a relicensing of the AOSP implementation.
+
+A later MIT license choice for client-owned files does not relicense
+this AOSP table or its derived MCC-to-ISO2 data.
+
+This NOTICE is attribution, not a per-file legal approval or a
+redistribution guarantee.

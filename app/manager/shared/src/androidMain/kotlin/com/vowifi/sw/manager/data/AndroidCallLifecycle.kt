@@ -14,10 +14,11 @@ enum class MicrophoneCallAction { Dial, Answer, Restore }
 
 class AndroidCallLifecycle(
     context: Context,
-    private val source: EngineCallSource,
+    private val source: CallSource,
     private val microphone: CallMicrophoneLease,
     private val interruptAudio: () -> Unit,
     private val audioControls: StateFlow<CallAudioControls>,
+    private val interruptOwnedAudio: ((CallAudioSession) -> Unit)? = null,
 ) {
     private val context = context.applicationContext
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
@@ -29,22 +30,30 @@ class AndroidCallLifecycle(
     private var serviceStop: (() -> Unit)? = null
     @Volatile private var leaseKey: String? = null
     @Volatile private var boundGeneration: Long? = null
+    @Volatile private var boundChild: EngineCallSource? = null
+    @Volatile private var boundTransport: EngineMessageTransport? = null
+    @Volatile private var boundAudioGeneration: Long? = null
     val feedback = MutableStateFlow<String?>(null)
     val busy = MutableStateFlow(false)
     val microphoneDenied = MutableStateFlow(false)
     val lineLabel = MutableStateFlow("当前绑定线路")
     private var lineOwner: String? = null
-    private val subscriptionWatch = AndroidSubscriptionInventory(context).startWatching { scope.launch { refreshLine() } }
+    private val subscriptionWatch = AndroidSubscriptionInventory(context).startWatching { scope.launch { refreshLine(); source.refresh() } }
 
     init {
         scope.launch { source.state.collect { state ->
             val ready = state as? CallUiState.Ready
             if (ready?.binding?.owner != lineOwner) { lineOwner = ready?.binding?.owner; refreshLine() }
-            if (pending == null && leaseKey != null && (ready == null || ready.phase == CallPhase.Idle ||
-                    ready.sync != CallSyncState.Ready || ready.binding?.generation != boundGeneration || ready.audio is CallAudioState.Failed)) release()
+            val owned = boundChild?.state?.value as? CallUiState.Ready
+            if (pending == null && leaseKey != null && (owned == null || owned.phase == CallPhase.Idle ||
+                    owned.sync != CallSyncState.Ready || owned.binding?.generation != boundGeneration ||
+                    boundChild?.closed == true || boundChild?.activeTransport !== boundTransport || owned.audio is CallAudioState.Failed)) release()
             updateProximity()
         } }
         scope.launch { audioControls.collect { updateProximity() } }
+        if (source is CallSourceAggregate) scope.launch {
+            while (isActive) { delay(3_000); source.refreshRoster() }
+        }
     }
 
     fun setVisible(activity: Activity, resumed: Boolean, isCall: Boolean = false) {
@@ -71,7 +80,8 @@ class AndroidCallLifecycle(
     suspend fun perform(activity: Activity, binding: CallBinding, action: MicrophoneCallAction, number: String? = null): Boolean {
         if (busy.value) return false
         feedback.value = null
-        val ready = source.state.value as? CallUiState.Ready
+        val child = source.resolveCallChild(binding)
+        val ready = child?.state?.value as? CallUiState.Ready
         if (ready?.binding !== binding || ready.sync != CallSyncState.Ready) {
             feedback.value = "通话状态已变化，请重试"; return false
         }
@@ -88,6 +98,8 @@ class AndroidCallLifecycle(
         if (action == MicrophoneCallAction.Answer && ready.phase != CallPhase.Ringing ||
             action == MicrophoneCallAction.Restore && ready.phase != CallPhase.InCall) return false
         if (action == MicrophoneCallAction.Restore && ready.audio !is CallAudioState.Failed) return false
+        val aggregate = source as? CallSourceAggregate
+        if (aggregate != null && aggregate.prepare(binding, action == MicrophoneCallAction.Dial) !== child) return false
         busy.value = true
         release()
         val key = UUID.randomUUID().toString()
@@ -101,18 +113,23 @@ class AndroidCallLifecycle(
             }
             val started = CompletableDeferred<Boolean>()
             val grant: (String, Long) -> Boolean = { owner, generation ->
-                val allowed = leaseKey == key && microphone.foreground
+                val transport = child.activeTransport
+                val allowed = leaseKey == key && transport != null &&
+                    (aggregate == null || aggregate.permitsPrepared(binding, child, dial = action == MicrophoneCallAction.Dial)) &&
+                    microphone.bind(key, owner, generation, transport, child.session.token)
                 if (allowed) {
-                    boundGeneration = source.bindingGeneration
-                    microphone.bind(owner, generation)
+                    boundChild = child
+                    boundTransport = transport
+                    boundGeneration = child.bindingGeneration
+                    boundAudioGeneration = generation
                 }
                 started.complete(allowed)
                 allowed
             }
             when (action) {
-                MicrophoneCallAction.Dial -> source.dialPrepared(binding, number!!, grant)
-                MicrophoneCallAction.Answer -> source.answerPrepared(binding, grant)
-                MicrophoneCallAction.Restore -> source.resumePreparedAudio(binding, grant)
+                MicrophoneCallAction.Dial -> child.dialPrepared(binding, number!!, grant)
+                MicrophoneCallAction.Answer -> child.answerPrepared(binding, grant)
+                MicrophoneCallAction.Restore -> child.resumePreparedAudio(binding, grant)
             }
             if (withTimeoutOrNull(3_000) { started.await() } != true) {
                 feedback.value = "通话状态已变化，请重试"; release(); return false
@@ -128,16 +145,17 @@ class AndroidCallLifecycle(
         } finally {
             pending = null
             busy.value = false
-            val current = source.state.value as? CallUiState.Ready
+            aggregate?.finishPreparation(binding)
+            val current = child.state.value as? CallUiState.Ready
             if (current?.phase == CallPhase.Idle && current.binding?.generation != binding.generation) release()
         }
     }
 
-    fun acceptsService(key: String?): Boolean = key != null && key == leaseKey && pending != null
+    fun acceptsService(key: String?): Boolean = key != null && key == leaseKey && pending?.isCompleted == false
     fun serviceStarted(key: String, stop: () -> Unit): Boolean {
         if (!acceptsService(key)) return false
         serviceStop = stop
-        microphone.serviceReady()
+        microphone.serviceReady(key)
         pending?.complete(true)
         return true
     }
@@ -145,21 +163,24 @@ class AndroidCallLifecycle(
     fun serviceDestroyed(key: String?) {
         if (key != null && key == leaseKey) {
             serviceStop = null
-            microphone.clear()
-            interruptAudio()
+            release()
             feedback.value = "麦克风服务已中断，请在前台恢复音频"
-            leaseKey = null
-            boundGeneration = null
-            proximity.close()
         }
     }
     private fun release() {
-        microphone.clear()
-        interruptAudio()
+        val key = leaseKey
+        val session = boundChild?.audioSession()?.takeIf { it.transport === boundTransport && it.generation == boundAudioGeneration }
+        if (key != null) microphone.clear(key)
         val stop = serviceStop
         serviceStop = null
         leaseKey = null
         boundGeneration = null
+        boundChild = null
+        boundTransport = null
+        boundAudioGeneration = null
+        if (key != null && session != null) {
+            if (interruptOwnedAudio != null) interruptOwnedAudio.invoke(session) else interruptAudio()
+        }
         stop?.invoke()
         proximity.close()
     }

@@ -10,6 +10,49 @@ class RegistrationLogParserTest {
     private val parser = RegistrationLogParser()
 
     @Test
+    fun recoversAdjacentCompleteRecordsWithoutFinalNewline() {
+        val data = assertIs<RegistrationUiState.Data>(parser.parse(event(1) + event(2)))
+        assertEquals(listOf(1L, 2L), data.snapshot.events.map { it.timestampMs })
+        assertEquals(2L, data.snapshot.latestBySubId.single().timestampMs)
+        assertEquals(emptyList(), data.snapshot.issues)
+    }
+
+    @Test
+    fun framingDoesNotSplitBracesOrEscapedQuotesInsideStrings() {
+        val first = """{"timestampMs":1,"subId":555,"state":"UNREGISTERED","extraMessage":"quoted \" }{ \\ end","unknown":{"nested":[{}]}}"""
+        val data = assertIs<RegistrationUiState.Data>(parser.parse(first + event(2)))
+        assertEquals(2, data.snapshot.events.size)
+        assertEquals(emptyList(), data.snapshot.issues)
+    }
+
+    @Test
+    fun corruptionRemainsVisibleWithoutLeakingInput() {
+        for (broken in listOf("synthetic-secret" + event(1), event(1) + "synthetic-secret",
+            """{"timestampMs":"synthetic-secret","subId":555,"state":"UNREGISTERED"}""",
+            """{"timestampMs":1,"subId":555,"state":"synthetic-secret""")) {
+            val state = parser.parse(broken)
+            val issues = when (state) {
+                is RegistrationUiState.Data -> state.snapshot.issues
+                is RegistrationUiState.ParseError -> state.issues
+                else -> error("corruption was hidden")
+            }
+            assertEquals(1, issues.size)
+            assertEquals("IMS 观测记录格式无效", issues.single().message)
+        }
+    }
+
+    @Test
+    fun limitsLatestLogicalRecordsEvenWhenRowsAreJoined() {
+        val content = (1..100).joinToString("") { event(it) }
+        val data = assertIs<RegistrationUiState.Data>(parser.parse(content))
+        assertEquals((51L..100L).toList(), data.snapshot.events.map { it.timestampMs })
+        assertEquals(emptyList(), data.snapshot.issues)
+    }
+
+    private fun event(timestamp: Int) =
+        """{"timestampMs":$timestamp,"subId":555,"state":"UNREGISTERED"}"""
+
+    @Test
     fun keepsLatestEventPerSubscription() {
         val state = parser.parse(
             """{"timestampMs":1,"subId":1,"state":"REGISTERING","transportType":2,"featureTags":[]}

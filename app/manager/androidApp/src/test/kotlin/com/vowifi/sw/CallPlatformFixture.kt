@@ -10,6 +10,7 @@ import kotlinx.serialization.json.*
 import org.robolectric.util.ReflectionHelpers
 
 internal class CallPlatformFixture(var stage: String = "IDLE") {
+    var direction = "INCOMING"
     var token = "synthetic-call"
     var epoch = "synthetic-epoch"
     var revision = 1
@@ -42,7 +43,7 @@ internal class CallPlatformFixture(var stage: String = "IDLE") {
     fun snapshot() = EngineProtocolFrame.Response(1, buildJsonObject {
         put("epoch", epoch); put("revision", revision); put("stage", stage)
         put("confirmedElapsedMs", if (stage == "IN_CALL") 12000 else 0); put("dtmfSupported", stage == "IN_CALL")
-        if (stage != "IDLE") { put("callId", token); put("direction", "INCOMING"); put("peer", "+12025550123") }
+        if (stage != "IDLE") { put("callId", token); put("direction", direction); put("peer", "+12025550123") }
     }, null)
     fun facade(context: Context): AndroidCallSource = shell(AndroidCallSource::class.java).also {
         ReflectionHelpers.setField(it, "delegate", source)

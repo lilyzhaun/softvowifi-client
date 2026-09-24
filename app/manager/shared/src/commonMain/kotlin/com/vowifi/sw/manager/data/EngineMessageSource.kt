@@ -40,7 +40,8 @@ class EngineMessageSource(
     override fun sendFromDisplayedOwner(owner: SimOwnerId?, number: String, text: String) {
         val displayed = state.value as? MessageUiState.Available ?: return
         if (session.closed || owner == null || displayed.ownerId != owner || !displayed.composerEnabled) return
-        scope.launch { sendMessage(session, number, text, owner) }
+        val line = session.sessions[owner] ?: return
+        scope.launch { sendMessage(session, line, number, text) }
     }
 
     init {
@@ -73,6 +74,7 @@ class EngineMessageSource(
 
     override fun close() {
         session.closed = true
+        session.sessions.values.forEach { it.transport.retireMessages() }
         session.selection.close()
         scope.cancel()
     }

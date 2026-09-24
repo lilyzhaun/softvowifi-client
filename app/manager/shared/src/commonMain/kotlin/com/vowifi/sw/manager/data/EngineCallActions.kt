@@ -62,9 +62,16 @@ internal suspend fun EngineCallSource.performDial(expected: CallBinding, number:
     if (query) fetchSnapshot(planned.transport)
 }
 
-internal suspend fun EngineCallSource.performControl(expected: CallBinding, action: CallAction, started: () -> Boolean = { true }) {
+internal suspend fun EngineCallSource.performControl(expected: CallBinding, action: CallAction, started: () -> Boolean = { true }) =
+    performResolvedControl(action, started) { expected }
+
+internal suspend fun EngineCallSource.performCurrentControl(action: CallAction) =
+    performResolvedControl(action, { true }) { binding }
+
+private suspend fun EngineCallSource.performResolvedControl(action: CallAction, started: () -> Boolean, resolve: () -> CallBinding?) {
     var pendingOnly = false
     val request = mutex.withLock {
+        val expected = resolve() ?: return
         val supersedes = action == CallAction.Hangup && session.phase in setOf(CallPhase.Connecting, CallPhase.InCall) ||
             action == CallAction.Reject && session.phase == CallPhase.Ringing && pendingAction == CallAction.Answer
         if (!owns(expected) || controlOperation != null && !supersedes) return

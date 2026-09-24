@@ -63,8 +63,8 @@ class HomeScreenTest {
             listOf(HomeSectionId.NOTICES, HomeSectionId.HERO, HomeSectionId.ACTIONS, HomeSectionId.FACTS),
             presentation.sections,
         )
-        assertEquals(listOf("无法读取 IMS 状态", "无法读取 SIM 与引擎状态", "环境检查权限不足"), presentation.notices.map { it.title })
-        assertEquals(listOf(SemanticTone.ERROR, SemanticTone.ERROR, SemanticTone.WARNING), presentation.notices.map { it.tone })
+        assertEquals(listOf("无法读取 SIM 与引擎状态", "环境检查权限不足"), presentation.notices.map { it.title })
+        assertEquals(listOf(SemanticTone.ERROR, SemanticTone.WARNING), presentation.notices.map { it.tone })
 
         val warnPresentation = homeDashboardPresentation(
             registrationState = RegistrationUiState.Empty,
@@ -93,8 +93,8 @@ class HomeScreenTest {
         )
 
         assertEquals(listOf("1", "1"), presentation.metrics.map { it.value })
-        assertEquals(listOf("已注册订阅", "运行中引擎"), presentation.metrics.map { it.label })
-        assertEquals(listOf(SemanticTone.SUCCESS, SemanticTone.SUCCESS), presentation.metrics.map { it.tone })
+        assertEquals(listOf("已注册 IMS", "运行中引擎"), presentation.metrics.map { it.label })
+        assertEquals(listOf(SemanticTone.WARNING, SemanticTone.SUCCESS), presentation.metrics.map { it.tone })
     }
 
     @Test
@@ -131,14 +131,14 @@ class HomeScreenTest {
         )
 
         assertEquals(SemanticTone.SUCCESS, ready.hero.tone)
-        assertEquals("VoWiFi 已就绪", ready.hero.title)
+        assertEquals("IMS 已就绪", ready.hero.title)
         assertEquals("IMS 已注册，隧道已连接，环境检查通过。", ready.hero.summary)
         assertEquals(SemanticTone.WARNING, stale.hero.tone)
         assertEquals("IMS 尚\u2060未\u2060注\u2060册", stale.hero.title)
-        assertEquals("引擎正在运行，但 observer 尚未报告 IMS 注册。", stale.hero.summary)
+        assertEquals("引擎正在运行，软件 IMS 尚未注册。", stale.hero.summary)
         assertEquals(SemanticTone.SUCCESS, observerLagging.hero.tone)
-        assertEquals("VoWiFi 已就绪", observerLagging.hero.title)
-        assertEquals("引擎报告 IMS 已注册，隧道已连接，环境检查通过。", observerLagging.hero.summary)
+        assertEquals("IMS 已就绪", observerLagging.hero.title)
+        assertEquals("IMS 已注册，隧道已连接，环境检查通过。", observerLagging.hero.summary)
     }
 
     @Test
@@ -152,7 +152,7 @@ class HomeScreenTest {
         )
         val running = homeDashboardPresentation(
             registrationState = registration("UNREGISTERED"),
-            engineState = SimControlUiState.Ready(listOf(instance(EngineLifecycle.RUNNING))),
+            engineState = SimControlUiState.Ready(listOf(instance(EngineLifecycle.RUNNING, runtime = runtime("CONNECTED", "UNREGISTERED")))),
             diagnosticsState = diagnostics(DiagnosticCheckStatus.PASS),
             nowMs = NOW_MS,
             localDateLabel = { "2026-08-25" },
@@ -209,7 +209,7 @@ class HomeScreenTest {
     }
 
     @Test
-    fun factsAreBoundedAndEventTimeIsRelativeOrLocalized() {
+    fun factsAreBoundedAndDoNotUseObserverEventTime() {
         val relative = homeDashboardPresentation(
             registrationState = registration("REGISTERED", NOW_MS - 5 * 60_000),
             engineState = SimControlUiState.Ready(listOf(instance(EngineLifecycle.RUNNING))),
@@ -220,7 +220,8 @@ class HomeScreenTest {
         val localized = homeEventTime(NOW_MS - 2 * 24 * 60 * 60_000, NOW_MS) { "8月23日" }
 
         assertTrue(relative.facts.size <= 4)
-        assertEquals("5 分钟前", relative.facts.single { it.label == "最近注册事件" }.value)
+        assertEquals(listOf("IMS 注册概况", "活动 SIM", "隧道连接", "环境检查"), relative.facts.map { it.label })
+        assertEquals("0 / 1 张活动 SIM 已注册 · 1 张未知", relative.facts.first().value)
         assertEquals("8月23日", localized)
         assertTrue(relative.facts.all { it.flow.softWrap && it.flow.stackAtLargeFont })
     }

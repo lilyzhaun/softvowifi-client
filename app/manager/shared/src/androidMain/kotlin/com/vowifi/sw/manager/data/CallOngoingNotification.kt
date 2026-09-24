@@ -16,6 +16,8 @@ object CallOngoingNotification {
         val text = when {
             state?.sync != null && state.sync != CallSyncState.Ready -> "通话状态待确认"
             state?.phase == CallPhase.InCall -> "通话中"
+            state?.phase == CallPhase.Ringing -> "来电"
+            state?.phase == CallPhase.Connecting -> "正在接通"
             state?.phase == CallPhase.Canceling -> "正在取消"
             state?.phase == CallPhase.Ending -> "正在挂断"
             state?.phase == CallPhase.Dialing -> "正在拨号"
@@ -24,8 +26,14 @@ object CallOngoingNotification {
         val public = Notification.Builder(context, CHANNEL).setSmallIcon(android.R.drawable.ic_menu_call)
             .setContentTitle("SoftVoWiFi").setContentText("有进行中的通话").build()
         val builder = Notification.Builder(context, CHANNEL).setSmallIcon(android.R.drawable.ic_menu_call)
-            .setContentTitle("SoftVoWiFi").setContentText(text).setOnlyAlertOnce(true).setOngoing(true)
+            .setContentTitle(state?.peer?.text() ?: "未知号码").setContentText(text).setOnlyAlertOnce(true).setOngoing(true)
             .setCategory(Notification.CATEGORY_CALL).setVisibility(Notification.VISIBILITY_PRIVATE).setPublicVersion(public)
+            .setShowWhen(false)
+        if (state?.phase == CallPhase.InCall && state.sync == CallSyncState.Ready) {
+            state.clock?.let { clock ->
+                builder.setWhen(System.currentTimeMillis() - clock.elapsedMs()).setUsesChronometer(true).setShowWhen(true)
+            }
+        }
         if (key != null) {
             val open = Intent().setClassName(context, "com.vowifi.sw.CallActivity")
                 .setData(Uri.parse("softvowifi-call:$key"))

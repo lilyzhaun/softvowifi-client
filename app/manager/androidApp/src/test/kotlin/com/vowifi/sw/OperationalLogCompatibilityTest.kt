@@ -18,6 +18,24 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class OperationalLogCompatibilityTest {
+    @Test fun oldModuleWindowsAreLimitedToLatest50ForBothRoutes() = runBlocking {
+        for (legacy in listOf(true, false)) {
+            val id = if (legacy) "f1" else "a".repeat(64)
+            val field = if (legacy) "id" else "key"
+            val lines = (1..200).joinToString(",") {
+                "\"2026-01-01 00:00:00.000 [INFO] [ims] [anonymous] event $it\""
+            }
+            val reader = OperationalLogReader(LogCommand {
+                result("""{"ok":true,"$field":"$id","truncated":false,"lines":[$lines]}""")
+            })
+            val tail = reader.read(id, legacy)
+            assertEquals(50, tail.lines.size)
+            assertTrue(tail.truncated)
+            assertEquals("event 151", tail.lines.first().safeDetail)
+            assertEquals("event 200", tail.lines.last().safeDetail)
+        }
+    }
+
     @Test fun onlyTypedUsageFallsBackAndLegacySwitchNeverUsesCache() = runBlocking {
         val commands = mutableListOf<String>()
         val source = AndroidOperationalLogSource(LogCommand { text ->

@@ -8,7 +8,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import top.yukonga.miuix.kmp.basic.Card
-import top.yukonga.miuix.kmp.basic.BasicComponent
 import top.yukonga.miuix.kmp.basic.SmallTitle
 
 data class AppearanceSettingsActions(
@@ -47,10 +46,6 @@ internal fun SettingsAppearanceScreen(
                 ) {
                     Column {
                         section.specs.forEach { spec ->
-                            if (spec.key == AppearancePreferenceKey.LIQUID_GLASS_ENABLED) {
-                                BasicComponent(title = spec.title, summary = spec.summary)
-                                return@forEach
-                            }
                             val toggleRow = appearanceSpecToTogglePreference(spec)
                             val onCheckedChange: (Boolean) -> Unit = when (spec.key) {
                                 AppearancePreferenceKey.FLOATING_NAV -> actions.onFloatingNavigationChange

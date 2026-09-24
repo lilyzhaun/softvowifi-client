@@ -7,8 +7,12 @@ import com.vowifi.sw.manager.model.OperationalLogKind
 import com.vowifi.sw.manager.model.OperationalLogLevel
 import com.vowifi.sw.manager.model.OperationalLogMessage
 import com.vowifi.sw.manager.model.OperationalLogUiState
+import com.vowifi.sw.manager.model.OperationalLogParseIssue
+import com.vowifi.sw.manager.model.OperationalLogLoadInfo
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertTrue
 
 class DiagnosticsScreenTest {
     @Test
@@ -109,11 +113,44 @@ class DiagnosticsScreenTest {
             assertEquals(copy.first, spec.title)
             assertEquals(copy.second, spec.description)
         }
-        assertEquals(StatePanelTone.WARNING, operationalLogWarningSpec().tone)
-        assertEquals("日志可能不完整", operationalLogWarningSpec().title)
-        assertEquals("已显示可用的运行事件；部分来源暂时不可用。", operationalLogWarningSpec().description)
+        val warning = operationalLogWarningSpec(OperationalLogUiState.Warning(
+            emptyList(), false, listOf(OperationalLogParseIssue(1)),
+        ))
+        assertEquals(StatePanelTone.WARNING, warning.tone)
+        assertEquals("部分日志无法解析", warning.title)
+        assertEquals("已显示可用的运行事件。有1处日志格式无法解析。", warning.description)
         assertEquals("暂无运行日志", operationalLogFilteredEmptySpec().title)
         assertEquals("当前筛选条件下没有可显示的事件。", operationalLogFilteredEmptySpec().description)
+    }
+
+    @Test fun parseIssuesStayWarningsWithOrWithoutTruncationAndNeverExposePayload() {
+        for (truncated in listOf(false, true)) {
+            val state = OperationalLogUiState.Warning(emptyList(), truncated,
+                listOf(OperationalLogParseIssue(1, "synthetic-private-detail"), OperationalLogParseIssue(2)))
+            val spec = operationalLogWarningSpec(state)
+            assertEquals(StatePanelTone.WARNING, spec.tone)
+            assertEquals("部分日志无法解析", spec.title)
+            assertTrue(spec.description.contains("有2处日志格式无法解析。"))
+            assertEquals(truncated, spec.description.contains("最多显示最近50条"))
+            assertFalse(spec.description.contains("来源暂时不可用"))
+            assertFalse(spec.description.contains("synthetic-private"))
+            assertFalse(spec.loading)
+        }
+    }
+
+    @Test fun windowPresentationRetainsEntriesFiltersAndReadyReadFailureMetadata() {
+        val entry = OperationalLogEntry("12:00", OperationalLogLevel.INFO, OperationalLogKind.ENGINE,
+            "合成实例", OperationalLogMessage.EVENT, "synthetic event")
+        val state = OperationalLogUiState.Warning(listOf(entry), true, emptyList(), filteredEntries = emptyList())
+        assertEquals(StatePanelTone.NEUTRAL, operationalLogWarningSpec(state).tone)
+        assertEquals(listOf(entry), state.entries)
+        assertTrue(state.filteredEntries.isEmpty())
+        val ready = OperationalLogUiState.Ready(state.entries,
+            loadInfo = OperationalLogLoadInfo(cached = true, issue = "日志读取超时"))
+        assertEquals("日志读取超时", ready.loadInfo.issue)
+        assertEquals(state.entries, ready.entries)
+        assertEquals(StatePanelTone.ERROR, operationalLogStateSpec(OperationalLogUiState.Failure("raw")).tone)
+        assertEquals(StatePanelTone.ERROR, operationalLogStateSpec(OperationalLogUiState.PermissionDenied("raw")).tone)
     }
 
     @Test

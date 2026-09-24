@@ -47,7 +47,7 @@ data class EngineInstanceState(
     val pid: Long? = null,
     val runtime: EngineRuntimeStatus? = null,
     val message: String? = null,
-    val capabilities: EngineClientCapabilities? = null,
+    val clientCapabilities: ClientCapabilitiesResult? = null,
 )
 
 sealed interface EngineControlUiState {

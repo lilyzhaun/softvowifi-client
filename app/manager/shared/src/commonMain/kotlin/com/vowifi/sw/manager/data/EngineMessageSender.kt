@@ -5,26 +5,23 @@ import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.sync.withLock
 
-internal suspend fun sendMessage(session: EngineMessageSession, number: String, text: String, expectedOwner: SimOwnerId) {
+internal suspend fun sendMessage(session: EngineMessageSession, line: MessageLiveSession, number: String, text: String) {
     val planned = session.mutex.withLock {
-        val transport = session.activeTransport ?: return@withLock null
-        val owner = session.activeOwner ?: return@withLock null
-        if (owner != expectedOwner) return@withLock null
-        if (!session.selection.allowsSend(owner)) return@withLock null
-        if (session.sendBusy || !session.storageHealthy) return@withLock null
-        val messageId = session.nextMessageId()
-        session.sendBusy = true
-        session.attachmentNotice = null
-        session.publishRecords()
-        PlannedMessageSend(messageId, owner, transport, number, text).also { session.submitted = it }
-    } ?: return
-    if (!persistQueuedMessage(session, planned)) return
+        if (!session.isCurrent(line) || !session.isAvailable(line.owner) || !line.connected || !line.registered || line.sendBusy || !line.storageHealthy) return
+        val send = PlannedMessageSend(session.nextMessageId(), line, number, text)
+        line.submitted = send
+        line.sendBusy = true
+        line.attachmentNotice = null
+        session.publishRecords(line)
+        if (!persistQueuedMessage(session, send)) return
+        send
+    }
+    if (!session.isCurrent(line)) return
     try {
         val response = planned.transport.request("sendSms", SmsProtocolCodec.params(planned.number, planned.text))
         session.mutex.withLock {
-            if (session.activeTransport !== planned.transport) return
-            persistSendOutcome(session) { applySendResponse(session, planned, response) }
-            session.finishSend()
+            if (!session.isCurrent(line)) return
+            persistSendOutcome(session, line) { applySendResponse(session, planned, response) }
         }
     } catch (_: TimeoutCancellationException) {
         persistUnknownOutcome(session, planned)
@@ -35,101 +32,64 @@ internal suspend fun sendMessage(session: EngineMessageSession, number: String, 
     }
 }
 
-private suspend fun persistQueuedMessage(
-    session: EngineMessageSession,
-    planned: PlannedMessageSend,
-): Boolean {
+private suspend fun persistQueuedMessage(session: EngineMessageSession, planned: PlannedMessageSend): Boolean {
+    val line = planned.line
     try {
-        session.repository.insertQueued(
-            ownerId = planned.owner,
-            messageId = planned.messageId,
-            peerAddress = planned.number,
-            body = planned.text,
-            nowMs = session.runtime.clock(),
-        )
-    } catch (error: CancellationException) {
-        throw error
+        session.repository.insertQueued(planned.owner, planned.messageId, planned.number, planned.text, session.runtime.clock())
+    } catch (error: CancellationException) { throw error
     } catch (_: Exception) {
-        session.mutex.withLock {
-            if (session.activeTransport !== planned.transport) return false
-            session.sendBusy = false
-            session.attachmentNotice = STORAGE_NOTICE
-            session.publishRecords()
-        }
+        line.sendBusy = false
+        line.attachmentNotice = STORAGE_NOTICE
+        session.publishRecords(line)
         return false
     }
-    session.mutex.withLock {
-        if (session.activeTransport !== planned.transport) return false
-        try {
-            session.records = session.repository.listByOwner(planned.owner)
-        } catch (error: CancellationException) {
-            throw error
-        } catch (_: Exception) {
-            session.sendBusy = false
-            session.storageHealthy = false
-            session.attachmentNotice = STORAGE_NOTICE
-            session.publishRecords()
-            return false
-        }
-        session.publishRecords()
+    try {
+        line.records = session.repository.listByOwner(planned.owner)
+    } catch (error: CancellationException) { throw error
+    } catch (_: Exception) {
+        line.sendBusy = false
+        line.storageHealthy = false
+        line.attachmentNotice = STORAGE_NOTICE
+        session.publishRecords(line)
+        return false
     }
+    session.publishRecords(line)
     return true
 }
 
-private suspend fun applySendResponse(
-    session: EngineMessageSession,
-    planned: PlannedMessageSend,
-    response: EngineProtocolFrame.Response,
-) {
-    if (response.error != null) {
-        session.repository.markFailed(planned.owner, planned.messageId, session.runtime.clock())
-        session.pendingSent = emptyList()
-        session.records = session.repository.listByOwner(planned.owner)
-        return
-    }
-    val sendResult = runCatching { SmsProtocolCodec.sendResult(response) }.getOrNull()
+private suspend fun applySendResponse(session: EngineMessageSession, planned: PlannedMessageSend, response: EngineProtocolFrame.Response) {
+    val line = planned.line
+    val sendResult = if (response.error == null) runCatching { SmsProtocolCodec.sendResult(response) }.getOrNull() else null
     when {
-        sendResult != null && SmsProtocolCodec.isAcceptedStatusCode(sendResult.statusCode) -> {
-            session.repository.bindAccepted(
-                planned.owner,
-                planned.messageId,
-                sendResult.smsId,
-                session.runtime.clock(),
-            )
-            replayPendingSent(session)
-        }
-        sendResult != null -> {
+        response.error != null || sendResult != null && !SmsProtocolCodec.isAcceptedStatusCode(sendResult.statusCode) ->
             session.repository.markFailed(planned.owner, planned.messageId, session.runtime.clock())
-            session.pendingSent = emptyList()
+        sendResult != null -> {
+            session.repository.bindAccepted(planned.owner, planned.messageId, sendResult.smsId, session.runtime.clock())
+            replayPendingSent(session, line)
         }
-        else -> {
-            session.repository.markUnknown(planned.owner, planned.messageId, session.runtime.clock())
-            session.pendingSent = emptyList()
-        }
+        else -> session.repository.markUnknown(planned.owner, planned.messageId, session.runtime.clock())
     }
-    session.records = session.repository.listByOwner(planned.owner)
+    line.records = session.repository.listByOwner(planned.owner)
 }
 
 private suspend fun persistUnknownOutcome(session: EngineMessageSession, planned: PlannedMessageSend) {
     session.mutex.withLock {
-        if (session.activeTransport !== planned.transport) return
-        persistSendOutcome(session) {
+        if (!session.isCurrent(planned.line)) return
+        persistSendOutcome(session, planned.line) {
             session.repository.markUnknown(planned.owner, planned.messageId, session.runtime.clock())
-            session.pendingSent = emptyList()
-            session.records = session.repository.listByOwner(planned.owner)
+            planned.line.records = session.repository.listByOwner(planned.owner)
         }
-        session.pendingSent = emptyList()
-        session.finishSend()
     }
 }
 
-private suspend fun persistSendOutcome(session: EngineMessageSession, block: suspend () -> Unit) {
-    try {
-        block()
-    } catch (error: CancellationException) {
-        throw error
+private suspend fun persistSendOutcome(session: EngineMessageSession, line: MessageLiveSession, block: suspend () -> Unit) {
+    try { block()
+    } catch (error: CancellationException) { throw error
     } catch (_: Exception) {
-        session.storageHealthy = false
-        session.attachmentNotice = STORAGE_SYNC_NOTICE
+        line.storageHealthy = false
+        line.attachmentNotice = STORAGE_SYNC_NOTICE
     }
+    line.pendingSent = emptyList()
+    line.sendBusy = false
+    session.publishRecords(line)
 }

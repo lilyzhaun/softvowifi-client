@@ -8,6 +8,7 @@ enum class BottomChromeMode {
 internal data class AppChromeSpec(
     val bottomMode: BottomChromeMode,
     val effectiveBlur: Boolean,
+    val effectiveLiquidGlass: Boolean,
     val predictiveBackEnabled: Boolean,
     val hapticsEnabled: Boolean,
     val opaqueFallback: Boolean,
@@ -21,9 +22,11 @@ internal fun appChromeSpec(
     blurSupported: Boolean,
 ): AppChromeSpec {
     val blur = effectiveBlur(settings, blurSupported)
+    val liquid = effectiveLiquidGlass(settings, blurSupported)
     return AppChromeSpec(
         bottomMode = if (settings.floatingNavigation) BottomChromeMode.FLOATING else BottomChromeMode.NORMAL,
         effectiveBlur = blur,
+        effectiveLiquidGlass = liquid,
         predictiveBackEnabled = settings.predictiveBackRequested,
         hapticsEnabled = settings.hapticsEnabled,
         opaqueFallback = !blur,

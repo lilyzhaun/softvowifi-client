@@ -25,6 +25,7 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestCoroutineScheduler
+import kotlin.coroutines.ContinuationInterceptor
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -89,7 +90,29 @@ class MessagePagingRenderTest {
         }
         try {
             frame(scene)
-            assertTrue(nodes(scene).any { text(it, "synthetic 120") })
+            val initialLatestVisible = nodes(scene).any { text(it, "synthetic 120") }
+            assertTrue(initialLatestVisible, if (initialLatestVisible) null else buildString {
+                val state = selection.state.value
+                val ready = state as? MessageUiState.Ready
+                val renderedNodes = nodes(scene)
+                val messages = renderedNodes.mapNotNull { node ->
+                    val label = node.config.getOrNull(SemanticsProperties.Text).orEmpty()
+                        .firstOrNull { it.text.startsWith("synthetic ") }?.text
+                    label?.let { "$it@${node.boundsInRoot}" }
+                }
+                val scrollRanges = renderedNodes.mapNotNull { it.config.getOrNull(SemanticsProperties.VerticalScrollAxisRange) }
+                    .map { "${it.value()}/${it.maxValue()}" }
+                val thread = Thread.currentThread()
+                val dispatcher = coroutineContext[ContinuationInterceptor]
+                append("Initial synthetic 120 missing; state=${state::class.simpleName}")
+                append(" records=${ready?.records?.size} first=${ready?.records?.firstOrNull()?.id} last=${ready?.records?.lastOrNull()?.id}")
+                append(" loading=${ready?.window?.loading} failed=${ready?.window?.failed}")
+                append(" olderId=${ready?.window?.older?.messageId} olderTimestamp=${ready?.window?.older?.timestampMs}")
+                append(" messages=$messages scroll=$scrollRanges invalidations=${scene.hasInvalidations()}")
+                append(" frameTime=$time schedulerTime=${scheduler.currentTime}")
+                append(" thread=${thread.name}#${thread.id} context=${System.identityHashCode(coroutineContext)}")
+                append(" dispatcher=${dispatcher?.javaClass?.name}#${System.identityHashCode(dispatcher)}")
+            })
             scroll(scene, 0); frame(scene)
             val before = nodes(scene).first { text(it, "synthetic 71") }.boundsInRoot.top
             click(scene, "加载更早消息"); frame(scene)

@@ -95,6 +95,7 @@ class EngineMessageSourcePersistenceReadTest {
                 listInstances = { instances },
                 transportFor = { transport },
                 clock = { NOW_MS },
+                activeIccids = { instances.map { it.iccid } },
             ),
             parentContext = kotlin.coroutines.coroutineContext,
             repository = repository,

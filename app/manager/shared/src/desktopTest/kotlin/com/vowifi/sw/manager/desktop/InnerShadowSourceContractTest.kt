@@ -7,18 +7,20 @@ import kotlin.test.assertTrue
 
 class InnerShadowSourceContractTest {
     @Test
-    fun nativeReplacementDoesNotRetainRetiredShadowOrShaderSources() {
-        val ui = locate("shared/src/commonMain/kotlin/com/vowifi/sw/manager/ui/AppBottomChrome.kt").parentFile
-        listOf(
-            "SlidingFloatingBottomBar.kt", "SlidingFloatingBottomBarLayers.kt", "SlidingFloatingBottomBarVisuals.kt",
-            "DampedDragAnimation.kt", "InspectDragGestures.kt", "liquid/CombinedBackdrop.kt",
-            "liquid/InnerShadow.kt", "liquid/Vibrancy.kt", "liquid/InteractiveHighlight.kt", "liquid/Lens.kt",
-        ).forEach { assertFalse(File(ui, it).exists(), "Retired implementation remains: $it") }
-        val source = readRequired("shared/src/commonMain/kotlin/com/vowifi/sw/manager/ui/NativeFloatingNavigation.kt")
-        assertTrue(source.contains("import top.yukonga.miuix.kmp.basic.NavigationBar"))
-        listOf("RuntimeShader", "drawBackdrop", "DampedDrag", "ui.liquid", "pointerInput").forEach {
-            assertFalse(source.contains(it), "Native adapter must not implement liquid/drag effects: $it")
-        }
+    fun sourceResolvesInnerShadowPixelsBeforeRecordingGraphicsLayer() {
+        val source = readRequired("shared/src/commonMain/kotlin/com/vowifi/sw/manager/ui/liquid/InnerShadow.kt")
+        val recordStart = source.indexOf("layer.record {")
+        val recordBlock = source.substring(recordStart, source.indexOf("\n        }", recordStart) + 10)
+        val radius = source.indexOf("val radius = shadow.radius.toPx()")
+        val offsetX = source.indexOf("val offsetX = shadow.offset.x.toPx()")
+        val offsetY = source.indexOf("val offsetY = shadow.offset.y.toPx()")
+
+        assertTrue(recordStart >= 0)
+        assertTrue(radius in 0 until recordStart)
+        assertTrue(offsetX in 0 until recordStart)
+        assertTrue(offsetY in 0 until recordStart)
+        assertTrue(recordBlock.contains("drawContext.canvas.translate(offsetX, offsetY)"))
+        assertFalse(recordBlock.contains(".toPx()"))
     }
 
     private fun readRequired(relativeFromManager: String): String {

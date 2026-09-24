@@ -18,16 +18,55 @@ class AppearanceSettingsTest {
     }
 
     @Test
-    fun legacyLiquidPreferenceCannotChangeChromeInEitherNavigationMode() {
-        for (floating in listOf(false, true)) {
-            for (supported in listOf(false, true)) {
-                val settings = AppearanceSettings.Default.copy(floatingNavigation = floating)
-                assertEquals(
-                    appChromeSpec(settings.copy(liquidGlassRequested = false), supported),
-                    appChromeSpec(settings.copy(liquidGlassRequested = true), supported),
-                )
-            }
-        }
+    fun effectiveLiquidGlassRequiresRequestAndFloatingAndRuntimeSupport() {
+        assertTrue(
+            effectiveLiquidGlass(
+                AppearanceSettings(
+                    floatingNavigation = true,
+                    blurRequested = true,
+                    liquidGlassRequested = true,
+                    predictiveBackRequested = false,
+                    hapticsEnabled = true,
+                ),
+                blurSupported = true,
+            ),
+        )
+        assertFalse(
+            effectiveLiquidGlass(
+                AppearanceSettings(
+                    floatingNavigation = false,
+                    blurRequested = true,
+                    liquidGlassRequested = true,
+                    predictiveBackRequested = false,
+                    hapticsEnabled = true,
+                ),
+                blurSupported = true,
+            ),
+        )
+        assertFalse(
+            effectiveLiquidGlass(
+                AppearanceSettings(
+                    floatingNavigation = true,
+                    blurRequested = true,
+                    liquidGlassRequested = true,
+                    predictiveBackRequested = false,
+                    hapticsEnabled = true,
+                ),
+                blurSupported = false,
+            ),
+        )
+        assertFalse(
+            effectiveLiquidGlass(
+                AppearanceSettings(
+                    floatingNavigation = true,
+                    blurRequested = true,
+                    liquidGlassRequested = false,
+                    predictiveBackRequested = false,
+                    hapticsEnabled = true,
+                ),
+                blurSupported = true,
+            ),
+        )
     }
 
     @Test
@@ -114,16 +153,22 @@ class AppearanceSettingsTest {
     }
 
     @Test
-    fun legacyLiquidStorageRemainsReadableWithoutWritingOrActivatingAnEffect() {
-        val persistence = RecordingAppearancePersistence(mutableMapOf("liquid_glass_enabled" to true))
-        val source = PersistentAppearanceSettingsSource(persistence)
-        assertTrue(source.state.value.liquidGlassRequested)
-        assertTrue(persistence.writes.isEmpty())
-        val spec = appearancePreferenceSpecs(source.state.value, blurSupported = true)
-            .single { it.key == AppearancePreferenceKey.LIQUID_GLASS_ENABLED }
-        assertEquals("已改用原生静态导航，不再提供液态折射", spec.summary)
-        assertFalse(spec.checked)
-        assertFalse(appearanceSpecToTogglePreference(spec).actionable)
+    fun liquidGlassSummariesAreHonest() {
+        assertEquals(
+            AppearanceLiquidGlassSummary.UNSUPPORTED_FALLBACK,
+            appearanceLiquidGlassSummary(AppearanceSettings.Default.copy(liquidGlassRequested = true), blurSupported = false),
+        )
+        assertEquals(
+            AppearanceLiquidGlassSummary.DISABLED,
+            appearanceLiquidGlassSummary(AppearanceSettings.Default.copy(liquidGlassRequested = false), blurSupported = true),
+        )
+        assertEquals(
+            AppearanceLiquidGlassSummary.ENABLED,
+            appearanceLiquidGlassSummary(AppearanceSettings.Default.copy(liquidGlassRequested = true), blurSupported = true),
+        )
+        assertEquals("悬浮底栏使用液态折射", AppearanceLiquidGlassSummary.ENABLED.text)
+        assertEquals("悬浮底栏使用不透明指示器", AppearanceLiquidGlassSummary.DISABLED.text)
+        assertEquals("当前设备不支持模糊，使用不透明指示器", AppearanceLiquidGlassSummary.UNSUPPORTED_FALLBACK.text)
     }
 
     @Test

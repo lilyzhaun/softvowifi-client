@@ -116,6 +116,7 @@ fun SoftVoWiFiApp(
     val messageState by sources.messages.state.collectAsState()
     val messageUnreadSummary by sources.messages.unreadSummary.collectAsState()
     val callState by sources.calls.state.collectAsState()
+    val callLines by sources.calls.lines.collectAsState()
     val callHistory by sources.calls.history.collectAsState()
     val callAudioControls by sources.calls.audioControls.collectAsState()
     val appearanceSettings by appearanceSource.state.collectAsState()
@@ -160,10 +161,10 @@ fun SoftVoWiFiApp(
     }
     var previousCallPhase by remember { mutableStateOf<CallPhase?>(null) }
     var rootSnapRequestId by rememberSaveable { mutableLongStateOf(0L) }
-    val messageDraft = com.vowifi.sw.manager.ui.rememberMessageOwnerDraft(
-        (messageState as? com.vowifi.sw.manager.model.MessageUiState.Available)?.ownerId,
+    val messageDraft = com.vowifi.sw.manager.ui.rememberBoundMessageDraft(
+        messageState, navigationState.topRoute == AppRoute.NewMessage, sources.messages::selectHistoryOwner,
     )
-    var callDraft by rememberSaveable { mutableStateOf("") }
+    val callDraft = com.vowifi.sw.manager.ui.rememberCallDialDraft(callLines)
     val callPhase = (callState as? CallUiState.Ready)?.phase
     LaunchedEffect(callPhase) {
         val routed = AppNavigator.forCallTransition(navigationState, previousCallPhase, callPhase)
@@ -191,6 +192,7 @@ fun SoftVoWiFiApp(
         logs = operationalLogState,
         messages = messageState,
         calls = callState,
+        callLines = callLines,
         callHistory = callHistory,
         callAudio = callAudioControls,
         appearance = appearanceSettings,
@@ -208,13 +210,9 @@ fun SoftVoWiFiApp(
         exportBusy = exportBusy,
         appVersion = appVersion,
         refreshHome = refreshHome,
-        messageDraftRecipient = messageDraft.recipient,
-        messageDraftBody = messageDraft.body,
+        messageDraft = messageDraft,
         callDraft = callDraft,
-        onCallDraftChange = { callDraft = it },
-        onMessageDraftRecipientChange = messageDraft.updateRecipient,
-        onMessageDraftBodyChange = messageDraft.updateBody,
-        onClearMessageDraft = messageDraft.clear,
+        onCallDraftChange = { callDraft.number = it },
         onNavigate = { subpage ->
             navigate(AppNavigator.push(navigationState, subpage))
         },

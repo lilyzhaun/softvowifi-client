@@ -11,18 +11,10 @@ import kotlin.test.assertTrue
 
 class RootPageLayoutContractTest {
     @Test
-    fun bottomChromeVisibilityUnmountsHitTestLayerWithoutExitAnimation() {
-        assertEquals(BottomChromeComposition.PRESENT, bottomChromeComposition(visible = true))
-        assertEquals(BottomChromeComposition.ABSENT, bottomChromeComposition(visible = false))
-        val contract = bottomChromeVisibilityContract()
-        assertFalse(contract.hiddenHitTestLayer)
-        assertFalse(contract.hiddenExitAnimation)
-    }
-
-    @Test
     fun floatingModeReservesMinimumBarOccupancyWhenScaffoldReportsZeroOrInsufficient() {
+        val floatingContract = floatingBubbleBarContract()
         val navigationBarInset = 24.dp
-        val expectedMinOccupancy = NativeNavigationLayout.height + NativeNavigationLayout.bottomGap + navigationBarInset
+        val expectedMinOccupancy = floatingContract.outerHeightDp.dp + floatingContract.bottomPaddingDp.dp + navigationBarInset
 
         assertEquals(100.dp, expectedMinOccupancy)
 
@@ -84,9 +76,10 @@ class RootPageLayoutContractTest {
             val insets = rootBottomLayoutInsets(mode, scaffoldInset, navInset)
             val expectedOccupancy = when (mode) {
                 BottomChromeMode.FLOATING -> {
+                    val floatingContract = floatingBubbleBarContract()
                     maxOf(
                         scaffoldInset,
-                        NativeNavigationLayout.height + NativeNavigationLayout.bottomGap + navInset,
+                        floatingContract.outerHeightDp.dp + floatingContract.bottomPaddingDp.dp + navInset,
                     )
                 }
                 BottomChromeMode.NORMAL -> scaffoldInset

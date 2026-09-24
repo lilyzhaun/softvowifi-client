@@ -71,4 +71,5 @@ internal data class CallEffects(
     val audio: PendingCallAudio? = null,
     val history: CallHistoryEffect? = null,
     val historyOwner: SimOwnerId? = null,
+    val stopSession: CallAudioSession? = null,
 )

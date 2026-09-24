@@ -10,8 +10,12 @@ import com.vowifi.sw.manager.model.*
 import java.security.MessageDigest
 import java.util.Base64
 import java.util.UUID
+import java.util.concurrent.CopyOnWriteArrayList
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.first
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import org.junit.Assert.*
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -49,13 +53,17 @@ class MessageColdRouteRoomTest {
             repository.close()
         }
         val repository = open()
-        var sends = 0
+        val requests = CopyOnWriteArrayList<String>()
         val transport = object : EngineMessageTransport {
             override val events = kotlinx.coroutines.flow.MutableSharedFlow<EngineProtocolFrame.Event>()
             override suspend fun connect() = Unit
             override suspend fun request(method: String, params: kotlinx.serialization.json.JsonObject, timeoutMillis: Long): EngineProtocolFrame.Response {
-                sends++
-                error("Must not send through B")
+                requests += method
+                check(method == "getStatus") { "Unexpected request through B: $method" }
+                return EngineProtocolFrame.Response(1, buildJsonObject {
+                    put("tunnel", "CONNECTED"); put("reconnects", 0); put("ims", "REGISTERED")
+                    put("call", "IDLE"); put("transport", "UDP"); put("pcscf", JsonArray(emptyList()))
+                }, null)
             }
         }
         val source = EngineMessageSource(
@@ -66,8 +74,10 @@ class MessageColdRouteRoomTest {
         try {
             withTimeout(3000) { source.state.first { it is MessageUiState.Inbox && !it.page.loading } }
             source.selectHistoryOwner(ownerB)
-            val initial = withTimeout(3000) { source.state.first { it is MessageUiState.Inbox && it.ownerId == ownerB && !it.page.loading } } as MessageUiState.Inbox
+            val initial = withTimeout(3000) { source.state.first { it is MessageUiState.Inbox && it.ownerId == ownerB && !it.page.loading && (!warm || it.composerEnabled) } } as MessageUiState.Inbox
             assertEquals(listOf("b-one"), initial.page.items.map { it.latestMessageId })
+            assertEquals(warm, initial.composerEnabled)
+            assertEquals(warm, requests.contains("getStatus"))
             val digest = Base64.getUrlEncoder().withoutPadding().encodeToString(MessageDigest.getInstance("SHA-256").digest((wireA + "\u0000" + "155501").toByteArray()))
             val handle = "conversation-$digest"
             val tap = Intent(AndroidMessageNotifications.ACTION).setData(Uri.parse("softvowifi-message:$handle"))
@@ -81,7 +91,10 @@ class MessageColdRouteRoomTest {
                 assertEquals(listOf("a-one"), ready.records.map { it.id })
                 assertFalse(ready.composerEnabled)
                 source.sendSms("155501", "must not send")
-                assertEquals(0, sends)
+                assertEquals(0, requests.count { it == "sendSms" })
+                assertTrue("Only read-only status requests are allowed: $requests", requests.all { it == "getStatus" })
+                assertTrue(repository.listByOwner(ownerA).none { it is MessageRecord.Outgoing })
+                assertTrue(repository.listByOwner(ownerB).none { it is MessageRecord.Outgoing })
                 assertEquals(2L, repository.countUnreadIncoming())
                 assertEquals(2, repository.listConversations().size)
                 repository.insertIncomingIfAbsent(ownerA, "future-a", "future-mt", "155501", "synthetic future", 2, 2)
@@ -97,9 +110,14 @@ class MessageColdRouteRoomTest {
                 withTimeout(3000) { source.state.first { it is MessageUiState.Unavailable } }
                 assertEquals(2L, repository.countUnreadIncoming())
                 controller.newIntent(Intent().putExtra("destination", "messages"))
-                assertEquals(ownerB, (source.state.value as MessageUiState.Inbox).ownerId)
+                val inbox = source.state.value as MessageUiState.Inbox
+                assertEquals(ownerB, inbox.ownerId)
+                assertEquals(warm, inbox.composerEnabled)
                 source.sendFromDisplayedOwner(ownerA, "155501", "stale UI must not send through B")
-                assertEquals(0, sends)
+                assertEquals(0, requests.count { it == "sendSms" })
+                assertTrue("Only read-only status requests are allowed: $requests", requests.all { it == "getStatus" })
+                assertTrue(repository.listByOwner(ownerA).none { it is MessageRecord.Outgoing })
+                assertTrue(repository.listByOwner(ownerB).none { it is MessageRecord.Outgoing })
                 controller.pause().stop().destroy()
             }
         } finally {

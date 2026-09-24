@@ -20,6 +20,7 @@ internal class CallHistoryStore(
     private val repository: CallHistoryRepository?,
     parentContext: CoroutineContext,
     clock: () -> Long = { Clock.System.now().toEpochMilliseconds() },
+    private val canClear: () -> Boolean = { true },
 ) {
     private val job = SupervisorJob()
     private val scope = CoroutineScope(parentContext.minusKey(Job) + job)
@@ -110,8 +111,13 @@ internal class CallHistoryStore(
                 false
             } else {
                 repository?.upsert(effect.owner, effect.write)
-                val selected = owner
-                if (selected?.owner == effect.owner) publish(selected)
+                if (owner == null && snapshot.value.selection == null) {
+                    val selected = CallHistorySelection(effect.owner)
+                    snapshot.update { if (it.selection == null) it.copy(selection = selected) else it }
+                    owner = snapshot.value.selection
+                    owner?.let { repository?.selectOwner(it.owner) }
+                }
+                owner?.let { publish(it) }
                 true
             }
         }
@@ -128,7 +134,7 @@ internal class CallHistoryStore(
         clears.onReceive { expected ->
             val current = snapshot.value
             val selected = owner?.takeIf { current.selection === it && current.view === expected }
-            if (selected != null) {
+            if (selected != null && canClear()) {
                 repository?.clearByOwner(selected.owner)
                 publish(selected)
             }

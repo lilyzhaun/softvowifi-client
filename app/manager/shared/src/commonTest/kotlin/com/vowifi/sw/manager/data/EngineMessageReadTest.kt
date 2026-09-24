@@ -104,6 +104,7 @@ private suspend fun readFixture(): ReadFixture {
             listInstances = { listOf(EngineInstanceState(fixture.iccid, EngineLifecycle.RUNNING, pid = 7)) },
             transportFor = { fixture.transport },
             clock = { 9000L },
+            activeIccids = { listOf(fixture.iccid) },
         ),
         parentContext = coroutineContext,
         repository = fixture.repository,

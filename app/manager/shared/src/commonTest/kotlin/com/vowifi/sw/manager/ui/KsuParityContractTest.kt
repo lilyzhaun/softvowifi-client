@@ -13,12 +13,29 @@ class KsuParityContractTest {
         assertTrue(contract.floatingHostFullWidth)
         assertTrue(contract.floatingHostTransparent)
         assertEquals(RootShellChildAlignment.BottomCenter, contract.floatingChildAlignment)
-        assertFalse(contract.floatingChildIntrinsicWidth)
+        assertTrue(contract.floatingChildIntrinsicWidth)
         assertFalse(contract.pagerConsumesBottomPadding)
         assertTrue(contract.rootContentConsumesBottomPadding)
         assertTrue(contract.contentUnderlaysFloatingHost)
         assertTrue(contract.normalModeReservesBottomSpace)
         assertTrue(contract.normalModeFullWidth)
+    }
+
+    @Test
+    fun baseAndIndicatorUseTheSame56DpInnerLayout() {
+        val contract = floatingRowLayoutContract()
+
+        assertEquals(64, contract.outerHeightDp)
+        assertEquals(4, contract.innerPaddingDp)
+        assertEquals(56, contract.baseInnerHeightDp)
+        assertEquals(56, contract.indicatorHeightDp)
+        assertEquals(76, contract.tabMinimumWidthDp)
+        assertTrue(contract.tabMinimumHeightDp >= 48)
+        assertEquals(11, contract.labelSizeSp)
+        assertEquals(14, contract.labelLineHeightSp)
+        assertEquals(TabClickIndication.NONE, contract.tabClickIndication)
+        assertEquals(FloatingDragGestureOwner.Indicator, contract.dragGestureOwner)
+        assertFalse(contract.baseRowDraggable)
     }
 
     @Test
@@ -43,19 +60,21 @@ class KsuParityContractTest {
 
     @Test
     fun backdropOwnershipUsesDrawBackdropWithoutTextureCycles() {
-        val supported = backdropOwnershipContract(effectiveBlur = true, subpageVisible = false)
-        val fallback = backdropOwnershipContract(effectiveBlur = false, subpageVisible = false)
+        val supported = safeBackdropContract(effectiveBlur = true)
+        val fallback = safeBackdropContract(effectiveBlur = false)
 
-        assertEquals(1, supported.rootPagerLayerBackdropAttachments)
-        assertEquals(0, supported.rootPagerBottomBarConsumers)
-        assertEquals(0, supported.bottomBarLocalBackdropAttachments)
-        assertEquals(0, supported.bottomBarLocalBackdropConsumers)
-        assertEquals(0, supported.bottomBarDrawBackdropCallCount)
-        assertEquals(0, supported.rootPagerOtherConsumers)
-        assertEquals(1, supported.rootPageLocalBackdropAttachments)
-        assertEquals(1, supported.rootPageTopBarConsumers)
-        assertEquals(0, supported.textureEffectCount)
-        assertEquals(0, fallback.drawBackdropConsumerCount)
-        assertEquals(0, fallback.bottomBarLocalBackdropAttachments)
+        assertEquals(1, supported.pagerCaptureCount)
+        assertEquals(3, supported.bottomBarConsumerCount)
+        assertEquals(1, supported.bottomBarLocalCaptureCount)
+        assertEquals(1, supported.bottomBarLocalConsumerCount)
+        assertEquals(3, supported.bottomBarDrawBackdropCallCount)
+        assertEquals(0, supported.rootTopBarConsumerCount)
+        assertEquals(1, supported.pageLocalCaptureCount)
+        assertEquals(1, supported.pageTopBarConsumerCount)
+        assertTrue(supported.usesDrawBackdrop)
+        assertFalse(supported.usesTextureBlur)
+        assertFalse(fallback.usesDrawBackdrop)
+        assertTrue(fallback.opaqueFallback)
+        assertEquals(0, fallback.bottomBarLocalCaptureCount)
     }
 }

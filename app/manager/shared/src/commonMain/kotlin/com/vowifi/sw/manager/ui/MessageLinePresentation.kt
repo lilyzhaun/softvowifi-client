@@ -11,8 +11,15 @@ internal fun MessageHistoryLine.lineTitle(): String = label?.let {
     it.remark.ifBlank { "本地线路 ${it.ordinal}" }
 } ?: "正在读取线路"
 
-internal fun MessageHistoryLine.lineSummary(): String =
-    "${label?.let { "本地线路 ${it.ordinal} · " }.orEmpty()}$conversationCount 个会话 · ${if (connected) "当前连接" else "只读"}"
+internal fun MessageHistoryLine.lineSummary(): String {
+    val activity = when (active) {
+        true -> "SIM 已启用"
+        false -> "SIM 未启用"
+        null -> "SIM 状态未知"
+    }
+    return "${label?.let { "本地线路 ${it.ordinal} · " }.orEmpty()}$conversationCount 个会话 · $activity · " +
+        "${if (connected) "已连接" else "未连接"} · ${if (sendable) "可发送" else "暂不可发送"}"
+}
 
 internal fun filterMessageLines(lines: List<MessageHistoryLine>, query: String): List<MessageHistoryLine> {
     val term = query.trim()

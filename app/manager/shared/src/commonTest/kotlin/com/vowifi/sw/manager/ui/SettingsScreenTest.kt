@@ -103,8 +103,7 @@ class SettingsScreenTest {
         )
 
         val unsupportedLiquidSpec = unsupportedBlurSections[0].specs.first { it.key == AppearancePreferenceKey.LIQUID_GLASS_ENABLED }
-        assertEquals("已改用原生静态导航，不再提供液态折射", unsupportedLiquidSpec.summary)
-        assertFalse(unsupportedLiquidSpec.checked)
+        assertEquals("当前设备不支持模糊，使用不透明指示器", unsupportedLiquidSpec.summary)
         val toggleRow = appearanceSpecToTogglePreference(unsupportedLiquidSpec)
         assertFalse(toggleRow.actionable)
         assertFalse(toggleRow.isVisuallyEnabled)
@@ -120,7 +119,7 @@ class SettingsScreenTest {
     }
 
     @Test
-    fun appearanceContainsFourControlsAndALegacyExplanation() {
+    fun appearanceIsFirstAndContainsAllTogglePreferences() {
         val defaultSections = appearanceSectionSpecs(AppearanceSettings.Default, blurSupported = true)
         val allSpecs = defaultSections.flatMap { it.specs }
 
@@ -136,10 +135,9 @@ class SettingsScreenTest {
             allSpecs.map { it.key },
         )
 
-        val toggleRows = allSpecs.filter { it.key != AppearancePreferenceKey.LIQUID_GLASS_ENABLED }
-            .map { appearanceSpecToTogglePreference(it) }
+        val toggleRows = allSpecs.map { appearanceSpecToTogglePreference(it) }
         assertEquals(
-            List(4) { ManagerPreferenceComponent.SwitchPreference },
+            List(5) { ManagerPreferenceComponent.SwitchPreference },
             toggleRows.map { it.renderedComponent },
         )
         assertTrue(toggleRows.all { it.actionable })

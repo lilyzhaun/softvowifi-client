@@ -9,6 +9,8 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -32,21 +34,29 @@ internal val LocalPhoneBack = staticCompositionLocalOf<() -> Unit> { error("Phon
     enabled: Boolean, busy: Boolean, message: String?, onDial: () -> Unit,
     onBack: () -> Unit, onHistory: () -> Unit,
     onPermissions: (() -> Unit)? = null,
+    lineContent: (@Composable () -> Unit)? = null,
 ) {
     val palette = phoneColors()
-    Column(Modifier.fillMaxSize().background(palette.canvas).safeDrawingPadding().verticalScroll(rememberScrollState())
+    Column(Modifier.fillMaxSize().background(palette.canvas).safeDrawingPadding()
         .padding(horizontal = 24.dp, vertical = 12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
             Box(Modifier.weight(1f)) { PhoneNavigation("返回", onBack, CallPhoneIcons.Back, false) }
             PhoneText("拨号", size = 24)
             Box(Modifier.weight(1f), contentAlignment = Alignment.CenterEnd) { PhoneNavigation("历史", onHistory) }
         }
-        PhoneDialerContent(number, onNumber, line, enabled, busy, message, onDial, onPermissions)
+        BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
+            val contentHeight = maxHeight
+            Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).heightIn(min = contentHeight),
+                horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Bottom) {
+                PhoneDialerContent(number, onNumber, line, enabled, busy, message, onDial, onPermissions, lineContent)
+            }
+        }
     }
 }
 
 @Composable internal fun PhoneDialerContent(number: String, onNumber: (String) -> Unit, line: String,
-    enabled: Boolean, busy: Boolean, message: String?, onDial: () -> Unit, onPermissions: (() -> Unit)? = null) {
+    enabled: Boolean, busy: Boolean, message: String?, onDial: () -> Unit, onPermissions: (() -> Unit)? = null,
+    lineContent: (@Composable () -> Unit)? = null) {
     val palette = phoneColors()
     var editor by remember { mutableStateOf(TextFieldValue(number, TextRange(number.length))) }
     val feedbackNumber = remember(message) { number }
@@ -65,14 +75,15 @@ internal val LocalPhoneBack = staticCompositionLocalOf<() -> Unit> { error("Phon
     }
     Column(Modifier.widthIn(max = 420.dp).fillMaxWidth().padding(vertical = 24.dp),
         horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(24.dp)) {
-        PhoneText(line, secondary = true)
-        Row(Modifier.fillMaxWidth().padding(vertical = 24.dp), verticalAlignment = Alignment.CenterVertically) {
+        if (lineContent != null) lineContent() else PhoneText(line, secondary = true, size = 14)
+        Row(Modifier.fillMaxWidth().padding(vertical = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+            Spacer(Modifier.width(48.dp))
             BasicTextField(editor, ::update, Modifier.weight(1f).heightIn(min = 64.dp).semantics { contentDescription = "电话号码" },
-                enabled = !busy, textStyle = TextStyle(color = palette.text, fontSize = 28.sp, lineHeight = 36.sp,
-                    fontFamily = FontFamily.SansSerif, fontWeight = FontWeight.Normal, textAlign = TextAlign.Center),
+                enabled = !busy, singleLine = true, textStyle = TextStyle(color = palette.text, fontSize = 28.sp, lineHeight = 36.sp,
+                    fontFamily = FontFamily.SansSerif, fontWeight = FontWeight.Medium, fontFeatureSettings = "tnum", textAlign = TextAlign.Center),
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone, showKeyboardOnFocus = false),
                 decorationBox = { inner -> Box(contentAlignment = Alignment.Center) {
-                    if (number.isEmpty()) PhoneText("输入号码", secondary = true, size = 24)
+                    PhoneText("输入号码", if (number.isEmpty()) Modifier else Modifier.alpha(0f).clearAndSetSemantics {}, secondary = true, size = 24)
                     inner()
                 } })
             PhoneButton("删除号码", ::delete, icon = CallPhoneIcons.Delete, compact = true, showLabel = false,
@@ -84,8 +95,17 @@ internal val LocalPhoneBack = staticCompositionLocalOf<() -> Unit> { error("Phon
         })
         PhoneButton(if (busy) "正在准备" else "拨打", onDial, Modifier.fillMaxWidth(), icon = CallPhoneIcons.Phone,
             selected = true, wide = true, busy = busy, enabled = enabled && CallProtocolCodec.isValidDialNumber(number))
-        if (number.isNotEmpty() && !CallProtocolCodec.isValidDialNumber(number)) PhoneText("请输入电话号码，暂不支持 USSD", secondary = true)
-        message?.takeIf { !enabled || feedbackNumber == number }?.let { PhoneText(it, secondary = true) }
+        Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.TopCenter) {
+            Column(Modifier.alpha(0f).clearAndSetSemantics {}, horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                PhoneText("请输入电话号码，暂不支持 USSD", secondary = true)
+                message?.let { PhoneText(it, secondary = true) }
+            }
+            Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (number.isNotEmpty() && !CallProtocolCodec.isValidDialNumber(number)) PhoneText("请输入电话号码，暂不支持 USSD", secondary = true)
+                message?.takeIf { !enabled || feedbackNumber == number }?.let { PhoneText(it, secondary = true) }
+            }
+        }
         onPermissions?.let { PhoneNavigation("应用权限", it) }
     }
 }

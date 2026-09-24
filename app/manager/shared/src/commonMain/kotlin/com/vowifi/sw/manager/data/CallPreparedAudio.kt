@@ -3,6 +3,12 @@ package com.vowifi.sw.manager.data
 import com.vowifi.sw.manager.model.*
 import kotlinx.coroutines.sync.withLock
 
+internal fun CallSource.resolveCallChild(expected: CallBinding): EngineCallSource? = when (this) {
+    is EngineCallSource -> takeIf { !closed && (state.value as? CallUiState.Ready)?.binding === expected }
+    is CallSourceAggregate -> resolve(expected)
+    else -> null
+}
+
 internal fun EngineCallSource.dialPrepared(expected: CallBinding, number: String, grant: (String, Long) -> Boolean) = launch {
     performDial(expected, number) { grant(expected.owner, generation) }
 }

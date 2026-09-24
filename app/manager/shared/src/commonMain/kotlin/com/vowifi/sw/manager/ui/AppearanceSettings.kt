@@ -36,6 +36,12 @@ enum class AppearanceBlurSummary(val text: String) {
     UNSUPPORTED_OPAQUE_FALLBACK("当前设备不支持模糊，使用不透明背景"),
 }
 
+enum class AppearanceLiquidGlassSummary(val text: String) {
+    ENABLED("悬浮底栏使用液态折射"),
+    DISABLED("悬浮底栏使用不透明指示器"),
+    UNSUPPORTED_FALLBACK("当前设备不支持模糊，使用不透明指示器"),
+}
+
 fun predictiveBackSummary(enabled: Boolean): String =
     if (enabled) "返回时预览上一页" else "使用普通返回动画"
 
@@ -165,4 +171,16 @@ internal fun appearanceBlurSummary(
     !settings.blurRequested -> AppearanceBlurSummary.DISABLED
     !blurSupported -> AppearanceBlurSummary.UNSUPPORTED_OPAQUE_FALLBACK
     else -> AppearanceBlurSummary.ENABLED
+}
+
+internal fun effectiveLiquidGlass(settings: AppearanceSettings, blurSupported: Boolean): Boolean =
+    settings.liquidGlassRequested && settings.floatingNavigation && blurSupported
+
+internal fun appearanceLiquidGlassSummary(
+    settings: AppearanceSettings,
+    blurSupported: Boolean,
+): AppearanceLiquidGlassSummary = when {
+    !blurSupported -> AppearanceLiquidGlassSummary.UNSUPPORTED_FALLBACK
+    !settings.liquidGlassRequested -> AppearanceLiquidGlassSummary.DISABLED
+    else -> AppearanceLiquidGlassSummary.ENABLED
 }

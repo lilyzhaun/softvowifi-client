@@ -14,6 +14,8 @@ internal val IdleCallAudioControls: StateFlow<CallAudioControls> =
 interface CallSource {
     val state: StateFlow<CallUiState>
     val history: StateFlow<CallHistoryState>
+    val lines: StateFlow<CallLineState> get() = EmptyCallLines
+    fun selectLine(owner: SimOwnerId) = Unit
     val historyOwners: StateFlow<List<CallHistoryOwnerChoice>>
         get() = EmptyCallHistoryOwners
     fun selectHistoryOwner(choice: CallHistoryOwnerChoice) = Unit
@@ -42,6 +44,7 @@ interface CallAudioController {
         get() = IdleCallAudioControls
     suspend fun start(session: CallAudioSession)
     fun stop()
+    fun stopIf(session: CallAudioSession) = stop()
     fun toggleMuted() = Unit
     fun toggleSpeaker() = Unit
 }

@@ -48,6 +48,8 @@ fun CallsScreen(
     historyOwners: List<com.vowifi.sw.manager.data.CallHistoryOwnerChoice> = emptyList(),
     onSelectHistoryOwner: (com.vowifi.sw.manager.data.CallHistoryOwnerChoice) -> Unit = {},
     onOpenCall: (() -> Unit)? = null,
+    lineContent: (@Composable () -> Unit)? = null,
+    currentLineLabel: String? = null,
 ) {
     var clearConfirmation by remember { mutableStateOf<CallHistoryState.Ready?>(null) }
     var showHistoryActions by remember { mutableStateOf(false) }
@@ -71,6 +73,7 @@ fun CallsScreen(
             }
         }
     }) {
+             lineContent?.let { item(key = "outgoing-line") { it() } }
             if (state is CallUiState.Ready && state.origin == CallOrigin.DESKTOP_FIXTURE) {
                 item(key = "fixture-disclosure") { CallsFixtureDisclosureBand() }
             }
@@ -79,6 +82,7 @@ fun CallsScreen(
             }
             if (state is CallUiState.Ready && active) {
                 item(key = "calls-session") {
+                    currentLineLabel?.let { PhoneText("当前通话 · $it", size = 14, secondary = true) }
                     if (onOpenCall != null) OngoingCallAffordance("${callPhaseTitle(state.phase)} · 返回通话", onOpenCall)
                     else {
                     CallSessionCard(

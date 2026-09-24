@@ -17,6 +17,8 @@ class EngineClientCapabilitiesSource(private val transport: ClientCapabilitiesTr
             EngineClientCapabilitiesCodec.decode(transport.request("getClientCapabilities", EngineClientCapabilitiesCodec.params()))
         } catch (cancelled: CancellationException) {
             throw cancelled
+        } catch (_: EngineRequestTimeoutException) {
+            ClientCapabilitiesResult.Unavailable(ClientCapabilitiesFailure.Timeout)
         } catch (_: Exception) {
             ClientCapabilitiesResult.Unavailable(ClientCapabilitiesFailure.Transport)
         }

@@ -7,6 +7,7 @@ import com.vowifi.sw.manager.model.MessageUiState
 import com.vowifi.sw.manager.ui.boundedMessageSearchQuery
 import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
@@ -17,6 +18,8 @@ internal class MessageInboxSelection(
     private val changed: () -> Unit,
 ) {
     private val lock = Any()
+    var initialOwners = CompletableDeferred<List<SimOwnerId>>()
+        private set
     val choices = MutableStateFlow(MessageHistoryChoices())
     private var owners: List<MessageOwnerSummary>? = null
     private var labels = emptyMap<SimOwnerId, MessageOwnerLabel>()
@@ -25,6 +28,7 @@ internal class MessageInboxSelection(
     private var target: SimOwnerId? = null
     private var query = ""
     private var page = MessageInboxPage()
+    private var requestedItemCount = MESSAGE_HISTORY_PAGE_SIZE
     private var retryAppend = false
     private var indexRevision = 0L
     private var pageRevision = 0L
@@ -33,6 +37,8 @@ internal class MessageInboxSelection(
     private var indexLoading = false
     private var indexFailed = false
     private var live: MessageUiState = MessageUiState.Loading
+    private var liveOwners = emptyMap<SimOwnerId, MessageUiState.Ready>()
+    private var activeOwners: Set<SimOwnerId>? = null
 
     suspend fun saveRemark(owner: SimOwnerId, input: String): MessageRemarkSaveResult {
         val remark = try { MessageOwnerRemark.parse(input) } catch (_: InvalidMessageOwnerRemark) { return MessageRemarkSaveResult.Invalid }
@@ -47,6 +53,7 @@ internal class MessageInboxSelection(
 
     fun refresh() {
       synchronized(lock) {
+        if (initialOwners.isCancelled) initialOwners = CompletableDeferred()
         val token = ++indexRevision
         val remarkToken = remarkRevision
         indexJob?.cancel()
@@ -61,8 +68,8 @@ internal class MessageInboxSelection(
                     rows.addAll(result.items)
                     cursor = result.next
                 } while (cursor != null)
-                val current = synchronized(lock) { (live as? MessageUiState.Ready)?.ownerId }
-                val names = repository.ownerLabels((rows.map { it.owner } + listOfNotNull(current)).distinct())
+                val current = synchronized(lock) { liveOwners.keys + activeOwners.orEmpty() + listOfNotNull((live as? MessageUiState.Ready)?.ownerId) }
+                val names = repository.ownerLabels((rows.map { it.owner } + current).distinct())
                 synchronized(lock) {
                     if (token != indexRevision) return@launch
                     owners = rows
@@ -70,6 +77,7 @@ internal class MessageInboxSelection(
                     indexLoading = false
                     target?.let { load(it, append = false) }
                 }
+                initialOwners.complete(rows.map { it.owner })
             } catch (cancelled: CancellationException) { throw cancelled
             } catch (_: MessageStorageException) {
                 synchronized(lock) {
@@ -77,6 +85,7 @@ internal class MessageInboxSelection(
                     indexLoading = false
                     indexFailed = true
                 }
+                initialOwners.completeExceptionally(MessageStorageException())
             }
             changed()
         }
@@ -98,6 +107,7 @@ internal class MessageInboxSelection(
         if (bounded == query) return
         query = bounded
         page = MessageInboxPage(query)
+        requestedItemCount = MESSAGE_HISTORY_PAGE_SIZE
         target?.let { load(it, append = false) }
       }
       changed()
@@ -111,29 +121,51 @@ internal class MessageInboxSelection(
       changed()
     }
 
-    fun render(value: MessageUiState): MessageUiState = synchronized(lock) {
+    fun refreshPage() {
+        synchronized(lock) { target?.let { load(it, append = false) } }
+        changed()
+    }
+
+    fun render(
+        value: MessageUiState,
+        sessions: Map<SimOwnerId, MessageUiState.Ready> = (value as? MessageUiState.Ready)?.let { ready ->
+            ready.ownerId?.let { mapOf(it to ready) }
+        }.orEmpty(),
+        availableOwners: Set<SimOwnerId>? = null,
+        automaticOwner: SimOwnerId? = (value as? MessageUiState.Ready)?.takeIf { it.composerEnabled }?.ownerId,
+        availableOwnersComplete: Boolean = availableOwners != null,
+    ): MessageUiState = synchronized(lock) {
         live = value
+        liveOwners = sessions
+        activeOwners = availableOwners
         val current = value as? MessageUiState.Ready
-        if (current?.ownerId != null && current.ownerId !in labels && !indexLoading && !indexFailed) refresh()
         val rows = owners.orEmpty()
-        val owner = selected ?: current?.takeIf { it.composerEnabled }?.ownerId ?: rows.firstOrNull()?.owner ?: current?.ownerId
+        val ids = (rows.map { it.owner } + sessions.keys + availableOwners.orEmpty() + listOfNotNull(current?.ownerId)).distinct()
+        if (ids.any { it !in labels } && !indexLoading && !indexFailed) refresh()
+        val owner = selected ?: automaticOwner?.takeIf { it in sessions } ?: rows.firstOrNull()?.owner ?: current?.ownerId
         choices.value = MessageHistoryChoices(
-            (rows.map { it.owner } + listOfNotNull(current?.ownerId)).distinct().map { id ->
+            ids.map { id ->
+                val active = if (id in availableOwners.orEmpty()) true else if (availableOwnersComplete) false else null
                 MessageHistoryLine(id, rows.firstOrNull { it.owner == id }?.conversationCount?.coerceAtMost(Int.MAX_VALUE.toLong())?.toInt() ?: 0,
-                    id == current?.ownerId && current.composerEnabled, labels[id])
+                    sessions[id]?.sessionConnected == true, labels[id], active, sessions[id]?.composerEnabled == true)
             }.sortedBy { it.label?.ordinal ?: Long.MAX_VALUE }, owner,
             storageAvailable = owners != null && !indexFailed, labelsLoading = indexLoading, labelsFailed = indexFailed,
+            activeRosterComplete = availableOwnersComplete,
         )
         if (owners == null) return@synchronized if (indexFailed) MessageUiState.Failure(STORAGE_OPEN_NOTICE) else MessageUiState.Loading
-        if (owner == null) return@synchronized live
+        if (owner == null || selected == null && rows.isEmpty() && live is MessageUiState.Failure &&
+            sessions.values.none { it.composerEnabled }) return@synchronized live
         if (target != owner) {
             target = owner
             page = MessageInboxPage(query)
+            requestedItemCount = MESSAGE_HISTORY_PAGE_SIZE
             load(owner, append = false)
         }
-        val connected = current?.takeIf { it.ownerId == owner }
-        MessageUiState.Inbox(owner, page, connected?.sendBusy == true, connected?.composerEnabled == true,
-            connected?.attachmentNotice ?: if (connected?.composerEnabled == true) null else HISTORY_READ_ONLY,
+        val connected = sessions[owner] ?: current?.takeIf { it.ownerId == owner }
+        val bound = selected == owner || automaticOwner == owner
+        MessageUiState.Inbox(owner, page, connected?.sendBusy == true, bound && connected?.composerEnabled == true,
+            if (!bound && connected?.composerEnabled == true) MESSAGE_SELECT_OWNER else
+                connected?.attachmentNotice ?: if (connected?.composerEnabled == true) null else HISTORY_READ_ONLY,
             connected?.sendAttempt)
     }
 
@@ -152,7 +184,8 @@ internal class MessageInboxSelection(
         val token = ++pageRevision
         pageJob?.cancel()
         val request = MessageSummaryRequest(owner, query, if (append) page.next else null)
-        val count = if (append) MESSAGE_HISTORY_PAGE_SIZE else maxOf(MESSAGE_HISTORY_PAGE_SIZE, page.items.size)
+        if (append) requestedItemCount = maxOf(requestedItemCount, page.items.size + MESSAGE_HISTORY_PAGE_SIZE)
+        val count = if (append) MESSAGE_HISTORY_PAGE_SIZE else maxOf(requestedItemCount, page.items.size)
         page = page.copy(loading = true, failed = false)
         pageJob = scope.launch {
             try {

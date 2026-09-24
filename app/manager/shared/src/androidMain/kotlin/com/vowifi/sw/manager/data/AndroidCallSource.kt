@@ -23,36 +23,38 @@ class AndroidCallSource(
     private val microphone = CallMicrophoneLease()
     private val audio = AndroidCallAudioController(context, microphone)
     private val hmac = AndroidSimOwnerHmac()
-    private val delegate = EngineCallSource(
+    private val delegate: CallSource = CallSourceAggregate(
         runtime = EngineMessageRuntime(
             listInstances = ::listInstances,
             transportFor = { iccid -> AndroidCallEventTransport(iccid) },
             clock = clock,
+            activeIccids = { activeCallIccids(context) },
         ),
         audio = audio,
         control = AndroidCallControlTransport(),
         parentContext = parentContext,
-        history = CallHistoryBinding(
-            repository = history,
-            ownerIdFor = { iccid ->
+        repository = history,
+        ownerIdFor = { iccid ->
                 try {
                     hmac.ensureKey()
                     hmac.ownerIdFor(iccid)
                 } catch (_: Exception) {
                     null
                 }
-            },
-            nextCorrelation = { UUID.randomUUID().toString() },
-        ),
+        },
+        nextCorrelation = { UUID.randomUUID().toString() },
+        lineLabel = { callLineLabel(context, it) },
     )
 
-    val lifecycle = AndroidCallLifecycle(context, delegate, microphone, { audio.interrupt() }, audio.controls)
+    val lifecycle = AndroidCallLifecycle(context, delegate, microphone, { audio.interrupt() }, audio.controls, audio::interrupt)
     private val uiScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + Dispatchers.Main.immediate)
     override val state: StateFlow<CallUiState> = kotlinx.coroutines.flow.combine(delegate.state, lifecycle.feedback, lifecycle.busy) { state, feedback, preparing ->
         if (state is CallUiState.Ready) state.copy(operationMessage = feedback ?: state.operationMessage, busy = state.busy || preparing) else state
     }.stateIn(uiScope, kotlinx.coroutines.flow.SharingStarted.Eagerly, CallUiState.Loading)
     override val history: StateFlow<CallHistoryState> = delegate.history
     override val historyOwners get() = delegate.historyOwners
+    override val lines get() = delegate.lines
+    override fun selectLine(owner: SimOwnerId) = delegate.selectLine(owner)
     override fun selectHistoryOwner(choice: CallHistoryOwnerChoice) = delegate.selectHistoryOwner(choice)
     override val audioControls = audio.controls
 
@@ -69,7 +71,9 @@ class AndroidCallSource(
     }
     override fun act(expected: com.vowifi.sw.manager.model.CallBinding, action: com.vowifi.sw.manager.model.CallAction) {
         if (action == com.vowifi.sw.manager.model.CallAction.Answer) answer()
-        else delegate.launch { delegate.performControl(expected, action) { lifecycle.feedback.value = null; true } }
+        else delegate.resolveCallChild(expected)?.let { child ->
+            child.launch { child.performControl(expected, action) { lifecycle.feedback.value = null; true } }
+        }
     }
     override fun sendDtmf(expected: com.vowifi.sw.manager.model.CallBinding, digit: Char) = delegate.sendDtmf(expected, digit)
 
