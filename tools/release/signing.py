@@ -18,6 +18,12 @@ def prepare():
     if not keystore or not password or b"\n" in password or b"\r" in password:
         raise ValueError("invalid signing material")
     KEYSTORE.parent.mkdir(mode=0o700, exist_ok=True)
+    if any(path.exists() or path.is_symlink() for path in (KEYSTORE, PASSWORD)):
+        raise ValueError("refusing to replace existing signing files")
+    # A failed prepare must not make always() cleanup remove local signing keys.
+    marker = KEYSTORE.with_suffix(".actions-owned")
+    with marker.open("x") as ownership:
+        ownership.write("ephemeral-actions-signing-v1\n")
     for path, raw in ((KEYSTORE, keystore), (PASSWORD, password)):
         with path.open("xb") as output:
             os.fchmod(output.fileno(), 0o600)
@@ -25,8 +31,12 @@ def prepare():
 
 
 def cleanup():
+    marker = KEYSTORE.with_suffix(".actions-owned")
+    if not marker.is_file():
+        return
     for path in (KEYSTORE, PASSWORD):
         path.unlink(missing_ok=True)
+    marker.unlink()
 
 
 def verify(apk):
