@@ -46,6 +46,12 @@ jobs:
           mkdir dist
           timeout 180s gh release download "$RELEASE_TAG" --repo lilyzhaun/softvowifi-client --pattern "$MODULE_NAME" --dir dist
           timeout 30s python3 tools/release/verify.py module "dist/$MODULE_NAME"
+      - name: 安装 Android SDK 命令行工具
+        uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd # v4
+        timeout-minutes: 10
+        with:
+          packages: platform-tools cmdline-tools;latest
+          log-accepted-android-sdk-licenses: false
       - name: 准备 Android 工具链
         run: |
           timeout 600s sdkmanager 'platforms;android-37.0' 'build-tools;36.0.0'

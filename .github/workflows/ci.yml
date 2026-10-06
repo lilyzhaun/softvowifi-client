@@ -21,6 +21,12 @@ jobs:
         with:
           distribution: temurin
           java-version: '21'
+      - name: 安装 Android SDK 命令行工具
+        uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd # v4
+        timeout-minutes: 10
+        with:
+          packages: platform-tools cmdline-tools;latest
+          log-accepted-android-sdk-licenses: false
       - run: timeout 600s sdkmanager 'platforms;android-37.0' 'build-tools;36.0.0'
       - run: timeout 120s sudo apt-get update -qq
       - run: timeout 180s sudo apt-get install -y libfontconfig1 fonts-noto-cjk
