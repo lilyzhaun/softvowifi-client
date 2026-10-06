@@ -1,0 +1,96 @@
+name: 自动发布客户端 APK
+run-name: 发布客户端 ${{ inputs.tag }}
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 主仓自动传入的客户端版本标签
+        required: true
+        type: string
+permissions:
+  contents: read
+concurrency:
+  group: client-release-${{ inputs.tag }}
+  cancel-in-progress: false
+env:
+  GIT_MASTER: '1'
+jobs:
+  build:
+    if: github.repository_id == '1373788867' && github.ref == 'refs/heads/master' && github.event.repository.private
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    outputs:
+      artifact: ${{ steps.upload.outputs.artifact-id }}
+    steps:
+      - run: echo "TMPDIR=$RUNNER_TEMP" >> "$GITHUB_ENV"
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ inputs.tag }}
+          persist-credentials: false
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: 校验版本与模块交接
+        id: metadata
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: timeout 30s python3 tools/release/verify.py metadata "$RELEASE_TAG"
+      - name: 下载本仓库的同版本模块
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.tag }}
+          MODULE_NAME: ${{ steps.metadata.outputs.module_name }}
+        run: |
+          mkdir dist
+          timeout 180s gh release download "$RELEASE_TAG" --repo lilyzhaun/softvowifi-client --pattern "$MODULE_NAME" --dir dist
+          timeout 30s python3 tools/release/verify.py module "dist/$MODULE_NAME"
+      - name: 准备 Android 工具链
+        run: timeout 600s sdkmanager 'platforms;android-37.0' 'build-tools;36.0.0'
+      - name: 从本仓源码独立构建 APK
+        run: timeout 1800s bash tools/release/build-apk.sh
+      - name: 准备临时签名材料
+        env:
+          APK_KEYSTORE_BASE64: ${{ secrets.APK_KEYSTORE_BASE64 }}
+          APK_KEYSTORE_PASSWORD: ${{ secrets.APK_KEYSTORE_PASSWORD }}
+        run: timeout 30s python3 tools/release/signing.py prepare
+      - name: 签名并核对 APK
+        env:
+          APK_SIGNING_CERT_SHA256: ${{ vars.APK_SIGNING_CERT_SHA256 }}
+          APK_NAME: ${{ steps.metadata.outputs.apk_name }}
+        run: |
+          timeout 60s "$ANDROID_HOME/build-tools/36.0.0/apksigner" sign --ks .secrets/vowifi-observer.keystore --ks-pass file:.secrets/vowifi-signing.password --v1-signing-enabled false --v2-signing-enabled true --v3-signing-enabled true --out "dist/$APK_NAME" app/manager/androidApp/build/outputs/apk/release/androidApp-release-unsigned.apk
+          timeout 60s python3 tools/release/signing.py verify "dist/$APK_NAME"
+          timeout 60s python3 tools/release/verify.py apk "dist/$APK_NAME"
+          timeout 30s python3 tools/release/verify.py checksums dist
+      - name: 清理签名材料
+        if: always()
+        run: timeout 30s python3 tools/release/signing.py cleanup
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        id: upload
+        with:
+          name: client-release
+          path: dist/
+          if-no-files-found: error
+          retention-days: 3
+  publish:
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ inputs.tag }}
+          sparse-checkout: tools/release
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          artifact-ids: ${{ needs.build.outputs.artifact }}
+          path: dist
+      - name: 发布 APK 与同字节模块 ZIP
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: timeout 300s python3 tools/release/github.py dist
