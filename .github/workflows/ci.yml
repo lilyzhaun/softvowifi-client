@@ -28,6 +28,5 @@ jobs:
           packages: platform-tools cmdline-tools;latest
           log-accepted-android-sdk-licenses: false
       - run: timeout 600s sdkmanager 'platforms;android-37.0' 'build-tools;36.0.0'
-      - run: timeout 120s sudo apt-get update -qq
-      - run: timeout 180s sudo apt-get install -y libfontconfig1 fonts-noto-cjk
+      - run: timeout 500s bash tools/release/linux-tools.sh
       - run: timeout 1800s bash tools/release/build-apk.sh
