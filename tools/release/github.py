@@ -101,7 +101,9 @@ def finish_client(dist):
     if release is None:
         raise ValueError("source release handoff is missing")
     expected = {"RELEASE.json", "SHA256SUMS", metadata["module_name"], f"SoftVoWiFi-{metadata['tag']}.apk"}
-    if {path.name for path in directory.iterdir() if path.is_file()} != expected:
+    present = {path.name for path in directory.iterdir() if path.is_file()}
+    optional = {f"SoftVoWiFi-{metadata['tag']}.apk.idsig"}
+    if not expected <= present or present - expected - optional:
         raise ValueError("unexpected release artifact inventory")
     module = directory / metadata["module_name"]
     if module.stat().st_size != metadata["module_size"] or hashlib.sha256(module.read_bytes()).hexdigest() != metadata["module_sha256"]:
