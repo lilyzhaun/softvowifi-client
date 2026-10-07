@@ -16,10 +16,48 @@ concurrency:
 env:
   GIT_MASTER: '1'
 jobs:
+  module:
+    if: github.repository_id == '1373788867' && github.ref == 'refs/heads/master' && github.event.repository.private
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    outputs:
+      artifact: ${{ steps.upload.outputs.artifact-id }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ inputs.tag }}
+          persist-credentials: false
+      - name: 校验版本与模块交接
+        id: metadata
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: timeout 30s python3 tools/release/verify.py metadata "$RELEASE_TAG"
+      - name: 下载并核对本仓 draft 模块
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.tag }}
+          MODULE_NAME: ${{ steps.metadata.outputs.module_name }}
+        run: |
+          mkdir dist
+          timeout 180s gh release download "$RELEASE_TAG" --repo lilyzhaun/softvowifi-client --pattern "$MODULE_NAME" --dir dist
+          timeout 30s python3 tools/release/verify.py module "dist/$MODULE_NAME"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        id: upload
+        with:
+          name: module-handoff
+          path: dist/
+          retention-days: 3
+          if-no-files-found: error
   build:
+    needs: module
     if: github.repository_id == '1373788867' && github.ref == 'refs/heads/master' && github.event.repository.private
     runs-on: ubuntu-24.04
     timeout-minutes: 45
+    permissions:
+      contents: read
+      actions: read
     outputs:
       artifact: ${{ steps.upload.outputs.artifact-id }}
     steps:
@@ -37,15 +75,15 @@ jobs:
         env:
           RELEASE_TAG: ${{ inputs.tag }}
         run: timeout 30s python3 tools/release/verify.py metadata "$RELEASE_TAG"
-      - name: 下载本仓库的同版本模块
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          artifact-ids: ${{ needs.module.outputs.artifact }}
+          merge-multiple: true
+          path: dist
+      - name: 核对本次 run 的模块 artifact
         env:
-          GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ inputs.tag }}
           MODULE_NAME: ${{ steps.metadata.outputs.module_name }}
-        run: |
-          mkdir dist
-          timeout 180s gh release download "$RELEASE_TAG" --repo lilyzhaun/softvowifi-client --pattern "$MODULE_NAME" --dir dist
-          timeout 30s python3 tools/release/verify.py module "dist/$MODULE_NAME"
+        run: timeout 30s python3 tools/release/verify.py module "dist/$MODULE_NAME"
       - name: 安装 Android SDK 命令行工具
         uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd # v4
         timeout-minutes: 10
