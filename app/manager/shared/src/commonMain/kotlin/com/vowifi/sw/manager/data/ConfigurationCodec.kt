@@ -55,7 +55,7 @@ object ConfigurationCodec {
                 ?: ConfigurationIdentitySource.UNKNOWN,
             imsPolicy = ConfigurationImsPolicy(
                 security = sipSecurityValue(wire.imsSipSecurity).ifEmpty { "tcp_ipsec_3gpp" },
-                securitySource = policySource(wire.imsSipSecuritySource, setOf("user", "carrier", "default"), "default"),
+                securitySource = policySource(wire.imsSipSecuritySource, setOf("user", "carrier", "catalog", "default"), "default"),
                 initial = paniInitialValue(wire.paniInitial),
                 initialSource = policySource(wire.paniInitialSource, setOf("user", "carrier", "catalog", "default"), "default"),
                 country = paniCountryValue(wire.paniCountry),

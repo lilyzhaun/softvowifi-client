@@ -25,6 +25,16 @@ class ConfigurationCarrierPolicyTest {
         assertEquals(listOf("", "", ""), listOf(policy.securityOverride, policy.initialOverride, policy.countryOverride))
     }
 
+    @Test fun unifiedCatalogSecurityIsReportedWithoutBecomingUserOverride() {
+        val current = instance(mapOf("imsSipSecuritySource" to "catalog", "paniInitialSource" to "catalog", "paniCountrySource" to "home_mcc"))
+        assertEquals("catalog", current.imsPolicy.securitySource)
+        assertEquals("catalog", current.imsPolicy.initialSource)
+        assertEquals("home_mcc", current.imsPolicy.countrySource)
+        val draft = ConfigurationEditorDraft(current)
+        assertEquals("", draft.overrides().imsSipSecurity)
+        assertEquals("{}", ConfigurationCodec.encodeChanges(draft.overrides(), draft.overrides()))
+    }
+
     @Test fun untouchedCarrierDraftProducesNoPatchAndDnsSaveDoesNotPersistPolicies() {
         val original = instance()
         val draft = ConfigurationEditorDraft(original)
