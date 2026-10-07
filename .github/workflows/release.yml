@@ -95,7 +95,9 @@ jobs:
           timeout 600s sdkmanager 'platforms;android-37.0' 'build-tools;36.0.0'
           timeout 500s bash tools/release/linux-tools.sh
       - name: 从本仓源码独立构建 APK
-        run: timeout 1800s bash tools/release/build-apk.sh
+        run: |
+          mkdir -p /tmp/opencode
+          timeout 1800s bash tools/release/build-apk.sh
       - name: 准备临时签名材料
         env:
           APK_KEYSTORE_BASE64: ${{ secrets.APK_KEYSTORE_BASE64 }}
