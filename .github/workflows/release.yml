@@ -7,6 +7,14 @@ on:
         description: 主仓自动传入的客户端版本标签
         required: true
         type: string
+      artifact_id:
+        description: 仅重试发布时填写已成功签名的制品ID；正常自动发版留空
+        required: false
+        type: string
+      artifact_run_id:
+        description: 上述签名制品所属的成功build作业run ID
+        required: false
+        type: string
 permissions:
   contents: read
 concurrency:
@@ -17,7 +25,7 @@ env:
   GIT_MASTER: '1'
 jobs:
   module:
-    if: github.repository_id == '1373788867' && github.ref == 'refs/heads/master' && github.event.repository.private
+    if: github.repository_id == '1373788867' && github.ref == 'refs/heads/master' && github.event.repository.private && inputs.artifact_id == ''
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
@@ -52,7 +60,7 @@ jobs:
           if-no-files-found: error
   build:
     needs: module
-    if: github.repository_id == '1373788867' && github.ref == 'refs/heads/master' && github.event.repository.private
+    if: github.repository_id == '1373788867' && github.ref == 'refs/heads/master' && github.event.repository.private && inputs.artifact_id == ''
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     permissions:
@@ -124,6 +132,7 @@ jobs:
           retention-days: 3
   publish:
     needs: build
+    if: always() && github.repository_id == '1373788867' && github.ref == 'refs/heads/master' && github.event.repository.private && (needs.build.result == 'success' || inputs.artifact_id != '')
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
@@ -132,13 +141,23 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
-          ref: ${{ inputs.tag }}
+          ref: ${{ github.sha }}
           sparse-checkout: tools/release
           persist-credentials: false
+      - name: 校验仅发布重试制品来源
+        if: inputs.artifact_id != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_ID: ${{ inputs.artifact_id }}
+          ARTIFACT_RUN_ID: ${{ inputs.artifact_run_id }}
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: timeout 120s python3 tools/release/github.py verify-recovery "$ARTIFACT_RUN_ID" "$ARTIFACT_ID" "$RELEASE_TAG"
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
-          artifact-ids: ${{ needs.build.outputs.artifact }}
+          artifact-ids: ${{ inputs.artifact_id || needs.build.outputs.artifact }}
           merge-multiple: true
+          github-token: ${{ github.token }}
+          run-id: ${{ inputs.artifact_run_id || github.run_id }}
           path: dist
       - name: 发布 APK 与同字节模块 ZIP
         env:

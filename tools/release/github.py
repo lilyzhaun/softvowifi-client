@@ -53,13 +53,22 @@ class GitHub:
             raise ValueError("existing tag does not match release commit")
 
     def release(self, tag, commit, prerelease, body):
-        release = self.api(f"releases/tags/{tag}", optional=True)
+        release = self.find_release(tag)
         if release is None:
             release = self.api("releases", {
                 "tag_name": tag, "target_commitish": commit, "name": f"SoftVoWiFi {tag}",
                 "body": body, "draft": True, "prerelease": prerelease,
             })
         return release
+
+    def find_release(self, tag):
+        release = self.api(f"releases/tags/{tag}", optional=True)
+        if release is not None:
+            return release
+        # The by-tag endpoint only returns published releases. Write identities
+        # can find the newest draft through the releases list instead.
+        return next((item for item in self.api("releases?per_page=100")
+                     if item["tag_name"] == tag), None)
 
     def upload(self, release, path):
         path = Path(path)
@@ -88,7 +97,7 @@ def finish_client(dist):
     metadata = json.loads((directory / "RELEASE.json").read_text())
     github = GitHub("lilyzhaun/softvowifi-client")
     github.check_repo(1373788867)
-    release = github.api(f"releases/tags/{metadata['tag']}")
+    release = github.find_release(metadata["tag"])
     if release is None:
         raise ValueError("source release handoff is missing")
     expected = {"RELEASE.json", "SHA256SUMS", metadata["module_name"], f"SoftVoWiFi-{metadata['tag']}.apk"}
@@ -107,6 +116,27 @@ def finish_client(dist):
     github.finish(release)
 
 
+def verify_recovery(run_id, artifact_id, tag):
+    if not run_id.isdigit() or not artifact_id.isdigit():
+        raise ValueError("recovery IDs must be numeric")
+    github = GitHub("lilyzhaun/softvowifi-client")
+    github.check_repo(1373788867)
+    run = github.api(f"actions/runs/{run_id}")
+    artifact = github.api(f"actions/artifacts/{artifact_id}")
+    jobs = github.api(f"actions/runs/{run_id}/jobs?per_page=100")["jobs"]
+    if (run["event"] != "workflow_dispatch" or run["head_branch"] != "master"
+            or run["path"] != ".github/workflows/release.yml"
+            or run["display_title"] != f"发布客户端 {tag}"
+            or artifact["name"] != "client-release" or artifact["expired"]
+            or artifact["workflow_run"]["id"] != int(run_id)
+            or not any(job["name"] == "build" and job["conclusion"] == "success" for job in jobs)):
+        raise ValueError("artifact is not from a successful trusted release build")
+    print("Trusted signed release artifact verified; no rebuild requested")
+
+
 if __name__ == "__main__":
     import sys
-    finish_client(sys.argv[1])
+    if sys.argv[1] == "verify-recovery":
+        verify_recovery(*sys.argv[2:])
+    else:
+        finish_client(sys.argv[1])
