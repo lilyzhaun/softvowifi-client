@@ -47,4 +47,14 @@ class MessageVisibilityTest {
         visibility.observe(state, messageConversationHandle(other, "15550000001"), listOf("seen"))
         assertEquals(0, reads.size)
     }
+
+    @Test fun visibleAlreadyReadOrSentAnchorCanClearManualConversationReminder() {
+        val reads = mutableListOf<ObservedIncomingReadRequest>()
+        val visibility = MessageVisibility({}, reads::add)
+        visibility.setResumed(true)
+        val read = state.copy(records = listOf(MessageRecord.Incoming("read", "+15550000001", "synthetic", 1, isRead = true),
+            MessageRecord.Outgoing("sent", "+15550000001", "synthetic", 2, com.vowifi.sw.manager.model.OutgoingMessageStatus.FAILED)))
+        visibility.observe(read, handle, listOf("read", "sent", "unknown"))
+        assertEquals(listOf("read", "sent"), reads.single().observedMessageIds)
+    }
 }

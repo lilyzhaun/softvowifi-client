@@ -121,8 +121,8 @@ internal class MessageInboxSelection(
       changed()
     }
 
-    fun refreshPage() {
-        synchronized(lock) { target?.let { load(it, append = false) } }
+    fun refreshPage(showLoading: Boolean = true) {
+        synchronized(lock) { target?.let { load(it, append = false, showLoading = showLoading) } }
         changed()
     }
 
@@ -134,20 +134,26 @@ internal class MessageInboxSelection(
         availableOwners: Set<SimOwnerId>? = null,
         automaticOwner: SimOwnerId? = (value as? MessageUiState.Ready)?.takeIf { it.composerEnabled }?.ownerId,
         availableOwnersComplete: Boolean = availableOwners != null,
+        availableLineLabels: Map<SimOwnerId, String> = emptyMap(),
+        runningLineOwners: Set<SimOwnerId> = emptySet(),
     ): MessageUiState = synchronized(lock) {
         live = value
         liveOwners = sessions
         activeOwners = availableOwners
         val current = value as? MessageUiState.Ready
         val rows = owners.orEmpty()
-        val ids = (rows.map { it.owner } + sessions.keys + availableOwners.orEmpty() + listOfNotNull(current?.ownerId)).distinct()
+        val ids = (rows.map { it.owner } + sessions.keys + runningLineOwners + availableOwners.orEmpty() + listOfNotNull(current?.ownerId)).distinct()
         if (ids.any { it !in labels } && !indexLoading && !indexFailed) refresh()
-        val owner = selected ?: automaticOwner?.takeIf { it in sessions } ?: rows.firstOrNull()?.owner ?: current?.ownerId
+        val running = runningLineOwners.takeIf { it.isNotEmpty() }
+        val owner = selected ?: if (running != null) automaticOwner?.takeIf { it in running }
+            ?: availableOwners.orEmpty().firstOrNull { it in running } ?: running.first()
+            else automaticOwner?.takeIf { it in sessions } ?: rows.firstOrNull()?.owner ?: current?.ownerId
         choices.value = MessageHistoryChoices(
             ids.map { id ->
                 val active = if (id in availableOwners.orEmpty()) true else if (availableOwnersComplete) false else null
                 MessageHistoryLine(id, rows.firstOrNull { it.owner == id }?.conversationCount?.coerceAtMost(Int.MAX_VALUE.toLong())?.toInt() ?: 0,
-                    sessions[id]?.sessionConnected == true, labels[id], active, sessions[id]?.composerEnabled == true)
+                    sessions[id]?.sessionConnected == true, labels[id], active, sessions[id]?.composerEnabled == true,
+                    availableLineLabels[id], running = id in runningLineOwners)
             }.sortedBy { it.label?.ordinal ?: Long.MAX_VALUE }, owner,
             storageAvailable = owners != null && !indexFailed, labelsLoading = indexLoading, labelsFailed = indexFailed,
             activeRosterComplete = availableOwnersComplete,
@@ -170,7 +176,7 @@ internal class MessageInboxSelection(
     }
 
     fun read(owner: SimOwnerId, update: IncomingReadUpdate, nowMs: Long) {
-        if (update.updatedCount > 0) refresh()
+        if (update.updatedCount > 0 || update.manualUnreadCleared) refresh()
     }
 
     fun close() = synchronized(lock) {
@@ -180,13 +186,13 @@ internal class MessageInboxSelection(
         pageJob?.cancel()
     }
 
-    private fun load(owner: SimOwnerId, append: Boolean) {
+    private fun load(owner: SimOwnerId, append: Boolean, showLoading: Boolean = true) {
         val token = ++pageRevision
         pageJob?.cancel()
         val request = MessageSummaryRequest(owner, query, if (append) page.next else null)
         if (append) requestedItemCount = maxOf(requestedItemCount, page.items.size + MESSAGE_HISTORY_PAGE_SIZE)
         val count = if (append) MESSAGE_HISTORY_PAGE_SIZE else maxOf(requestedItemCount, page.items.size)
-        page = page.copy(loading = true, failed = false)
+        page = page.copy(loading = showLoading || page.items.isEmpty(), failed = false)
         pageJob = scope.launch {
             try {
                 var result = repository.history.summaries(request)

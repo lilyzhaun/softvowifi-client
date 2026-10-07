@@ -1,0 +1,153 @@
+package com.vowifi.sw
+
+import android.app.Application
+import android.database.sqlite.SQLiteDatabase
+import androidx.room3.Room
+import androidx.room3.RoomDatabase
+import androidx.sqlite.driver.AndroidSQLiteDriver
+import com.vowifi.sw.manager.data.*
+import com.vowifi.sw.manager.model.*
+import kotlinx.coroutines.*
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.collect
+import org.junit.Assert.*
+import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.RuntimeEnvironment
+import org.robolectric.annotation.Config
+import org.robolectric.annotation.SQLiteMode
+
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [33], application = Application::class)
+@SQLiteMode(SQLiteMode.Mode.NATIVE)
+class MessageConversationActionsHostTest {
+    private val owner = requireNotNull(SimOwnerId.parse("sim-owner-v1:" + "a".repeat(43)))
+    private val other = requireNotNull(SimOwnerId.parse("sim-owner-v1:" + "b".repeat(43)))
+    private val identity = StoredMessageConversation(owner, "155501")
+    private val name = "conversation-actions.db"
+    private val dbClass = Class.forName("com.vowifi.sw.manager.data.SoftVoWiFiMessageDatabase").asSubclass(RoomDatabase::class.java)
+    private fun open(): MessageRepository {
+        val db = Room.databaseBuilder(RuntimeEnvironment.getApplication(), dbClass, name)
+            .setDriver(AndroidSQLiteDriver()).setQueryCoroutineContext(Dispatchers.IO.limitedParallelism(1)).build()
+        return Class.forName("com.vowifi.sw.manager.data.AndroidMessageRepository").getConstructor(dbClass).newInstance(db) as MessageRepository
+    }
+    private fun request(ids: List<String>) = requireNotNull(ObservedIncomingReadRequest.create(owner, identity.key, ids))
+
+    @Test fun markingUnreadDoesNotReloadLineLabelsOrRawMessages() = runBlocking {
+        val stored = open()
+        stored.insertQueued(owner, "sent", identity.key, "synthetic", 1)
+        var labelLoads = 0
+        var recordLoads = 0
+        val repo = object : MessageRepository by stored {
+            override suspend fun ownerLabels(owners: List<SimOwnerId>): Map<SimOwnerId, MessageOwnerLabel> {
+                labelLoads++; return stored.ownerLabels(owners)
+            }
+            override suspend fun listByOwner(ownerId: SimOwnerId): List<MessageRecord> {
+                recordLoads++; return stored.listByOwner(ownerId)
+            }
+        }
+        val source = EngineMessageSource(EngineMessageRuntime({ emptyList() }, { error("offline") }, { 10L }),
+            Dispatchers.Unconfined, repo, { null }, { "unused" })
+        var observing: Job? = null
+        try {
+            withTimeout(5000) { source.state.first { it is MessageUiState.Inbox && !it.page.loading && it.page.items.size == 1 } }
+            val labelsBefore = labelLoads
+            val recordsBefore = recordLoads
+            val pageLoading = mutableListOf<Boolean>()
+            observing = launch(Dispatchers.Unconfined) { source.state.collect { if (it is MessageUiState.Inbox) pageLoading += it.page.loading } }
+            assertEquals(MessageConversationActionResult.APPLIED, source.changeConversation(identity.handle.value, MessageConversationAction.MARK_UNREAD))
+            withTimeout(5000) { source.state.first { it is MessageUiState.Inbox && !it.page.loading && it.page.items.singleOrNull()?.unreadCount == 1L } }
+            observing.cancel()
+            assertEquals("标未读不得重读线路备注并插入加载提示", labelsBefore, labelLoads)
+            assertEquals("手动提醒不改变消息正文，不应重新发布整份记录", recordsBefore, recordLoads)
+            assertFalse("已有列表不能闪出分页加载态", pageLoading.any { it })
+        } finally { observing?.cancel(); source.close(); stored.close() }
+    }
+
+    @Test fun unreadReminderPersistsForOutgoingOnlyAndClearsOnlyWhenObserved() = runBlocking {
+        var repo = open()
+        try {
+            repo.insertQueued(owner, "sent", identity.key, "synthetic", 1)
+            repo.markFailed(owner, "sent", 2)
+            assertTrue(repo.changeConversation(identity, MessageConversationAction.MARK_UNREAD))
+            repo.close(); repo = open()
+            assertEquals(1L, repo.countUnreadIncoming())
+            assertEquals(1L, repo.history.summaries(MessageSummaryRequest(owner)).items.single().unreadCount)
+            repo.markIncomingRead(request(listOf("unknown")), 3)
+            assertEquals(1L, repo.countUnreadIncoming())
+            repo.markIncomingRead(requireNotNull(ObservedIncomingReadRequest.create(other, identity.key, listOf("sent"))), 3)
+            assertEquals(1L, repo.countUnreadIncoming())
+            repo.markIncomingRead(request(listOf("sent")), 4)
+            assertEquals(0L, repo.countUnreadIncoming())
+            assertEquals(OutgoingMessageStatus.FAILED, (repo.listByOwner(owner).single() as MessageRecord.Outgoing).status)
+        } finally { repo.close() }
+    }
+
+    @Test fun deleteIsScopedAndRemovesBothDirectionsAndManualUnreadAcrossReopen() = runBlocking {
+        var repo = open()
+        try {
+            repo.insertQueued(owner, "sent", identity.key, "synthetic", 1)
+            repo.insertIncomingIfAbsent(owner, "received", "engine-a", identity.key, "synthetic", 2, 2)
+            repo.insertIncomingIfAbsent(other, "other-sim", "engine-b", identity.key, "synthetic", 3, 3)
+            repo.insertIncomingIfAbsent(owner, "other-peer", "engine-c", "155502", "synthetic", 4, 4)
+            repo.markIncomingRead(request(listOf("received")), 5)
+            assertTrue(repo.changeConversation(identity, MessageConversationAction.MARK_UNREAD))
+            assertTrue(repo.changeConversation(identity, MessageConversationAction.DELETE))
+            repo.close(); repo = open()
+            assertFalse(identity in repo.listConversations())
+            assertEquals(listOf("other-peer"), repo.listByOwner(owner).map { it.id })
+            assertEquals(listOf("other-sim"), repo.listByOwner(other).map { it.id })
+            assertEquals(2L, repo.countUnreadIncoming())
+            assertFalse(repo.changeConversation(identity, MessageConversationAction.DELETE))
+        } finally { repo.close() }
+    }
+
+    @Test fun deleteFailureRollsBackMessagesAndUnreadMarker() = runBlocking {
+        var repo = open()
+        repo.insertQueued(owner, "sent", identity.key, "synthetic", 1)
+        assertTrue(repo.changeConversation(identity, MessageConversationAction.MARK_UNREAD)); repo.close()
+        val path = RuntimeEnvironment.getApplication().getDatabasePath(name)
+        SQLiteDatabase.openDatabase(path.path, null, SQLiteDatabase.OPEN_READWRITE).use {
+            it.execSQL("CREATE TRIGGER reject_delete BEFORE DELETE ON messages BEGIN SELECT RAISE(ABORT, 'synthetic failure'); END")
+        }
+        repo = open()
+        try {
+            try { repo.changeConversation(identity, MessageConversationAction.DELETE); fail("must fail") }
+            catch (e: Exception) { assertEquals("MessageStorageException", e.javaClass.simpleName) }
+            assertEquals(1, repo.listByOwner(owner).size)
+            assertEquals(1L, repo.countUnreadIncoming())
+        } finally { repo.close() }
+    }
+
+    @Test fun offlineProductionSourceUpdatesListBadgeAndNotificationWithoutTransport() = runBlocking {
+        val repo = open()
+        repo.insertQueued(owner, "sent", identity.key, "synthetic", 1)
+        val reconciled = mutableListOf<StoredMessageConversation>()
+        val source = EngineMessageSource(EngineMessageRuntime({ emptyList() }, { error("offline action must not access transport") }, { 10L }),
+            Dispatchers.Unconfined, repo, { null }, { "unused" }, object : MessagePersistenceObserver {
+                override fun onSnapshot(owner: SimOwnerId, records: List<MessageRecord>, freshIncomingId: String?) {
+                    assertNull(freshIncomingId)
+                }
+                override fun onThreadUnread(conversation: StoredMessageConversation, ids: Set<String>) { reconciled += conversation }
+            })
+        try {
+            withTimeout(5000) { source.state.first { it is MessageUiState.Inbox } }
+            assertEquals(MessageConversationActionResult.APPLIED, source.changeConversation(identity.handle.value, MessageConversationAction.MARK_UNREAD))
+            withTimeout(5000) { source.state.first { it is MessageUiState.Inbox && it.page.items.singleOrNull()?.unreadCount == 1L } }
+            withTimeout(5000) { source.unreadSummary.first { it == MessageUnreadSummary.Ready(1) } }
+            assertEquals(1L, repo.countUnreadIncoming())
+            source.markVisibleRead(request(listOf("sent")))
+            withTimeout(5000) { source.unreadSummary.first { it == MessageUnreadSummary.Ready(0) } }
+            withTimeout(5000) { source.state.first { it is MessageUiState.Inbox && it.page.items.singleOrNull()?.unreadCount == 0L } }
+            assertEquals(MessageConversationActionResult.APPLIED, source.changeConversation(identity.handle.value, MessageConversationAction.DELETE))
+            withTimeout(5000) { source.state.first {
+                it is MessageUiState.Empty || it is MessageUiState.Inbox && it.page.items.isEmpty() ||
+                    it is MessageUiState.Unavailable && source.historyChoices.value.let { choices -> choices.storageAvailable && choices.lines.isEmpty() }
+            } }
+            assertTrue(identity in reconciled)
+            assertEquals(0L, repo.countUnreadIncoming())
+            assertEquals(MessageConversationActionResult.MISSING, source.changeConversation(identity.handle.value, MessageConversationAction.DELETE))
+        } finally { source.close(); repo.close() }
+    }
+}

@@ -42,6 +42,12 @@ sealed interface AppRoute : NavKey {
     data object Dialpad : Subpage
 
     @Serializable
+    @SerialName("CallHistoryDetail")
+    data class CallHistoryDetail(val history: CallHistoryHandle) : Subpage {
+        override fun toString() = "CallHistoryDetail"
+    }
+
+    @Serializable
     @SerialName("SettingsAppearance")
     data object SettingsAppearance : Subpage
 
@@ -87,6 +93,16 @@ value class ConversationHandle private constructor(val value: String) {
     }
 }
 
+@Serializable
+@JvmInline
+value class CallHistoryHandle private constructor(val value: String) {
+    init { require(value.matches(Regex("call-history-[A-Za-z0-9_-]{43}"))) }
+    override fun toString() = "CallHistoryHandle"
+    companion object {
+        internal fun fromOpaque(value: String) = CallHistoryHandle(value)
+    }
+}
+
 val AppRoute.Root.destination: AppDestination
     get() = when (this) {
         AppRoute.Home -> AppDestination.HOME
@@ -106,7 +122,7 @@ val AppDestination.rootRoute: AppRoute.Root
 internal val AppRoute.Subpage.root: AppRoute.Root
     get() = when (this) {
         is AppRoute.MessageThread, AppRoute.NewMessage -> AppRoute.Messages
-        AppRoute.Dialpad -> AppRoute.Calls
+        AppRoute.Dialpad, is AppRoute.CallHistoryDetail -> AppRoute.Calls
         AppRoute.SettingsAppearance,
         AppRoute.SettingsConfiguration,
         AppRoute.SettingsDiagnostics,

@@ -12,6 +12,7 @@ data class CallLineChoice(
     val registered: Boolean?,
     val syncReady: Boolean,
     val selected: Boolean,
+    val running: Boolean = false,
 )
 
 data class CallLineState(

@@ -16,9 +16,13 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.navigationevent.compose.NavigationBackHandler
@@ -50,11 +54,14 @@ fun AppShell(
     val chromeSpec = appChromeSpec(appearanceSettings, blurSupported)
     val backdrop = rememberSoftVoWiFiBackdrop(chromeSpec)
     val rootPager = rememberAppRootPagerState(navigationState.currentRoot)
+    var consumedSnapRequestId by remember(rootPager) { mutableLongStateOf(0L) }
     val threadDrafts = rememberSaveable { mutableStateOf<Map<String, String>>(emptyMap()) }
 
     LaunchedEffect(navigationState.currentRoot, rootSnapRequestId) {
         val requestedPage = pagerPageForRoot(navigationState.currentRoot)
-        val forceSnap = rootSnapRequestId > 0
+        // A warm intent is a one-shot request, not a permanent mode for later tab taps.
+        val forceSnap = rootSnapRequestId > 0 && rootSnapRequestId != consumedSnapRequestId
+        consumedSnapRequestId = rootSnapRequestId
         if (shouldSynchronizeExternalRoot(rootPager.selectedPage, requestedPage, forceSnap)) {
             rootPager.selectRoot(
                 navigationState.currentRoot,
@@ -158,7 +165,9 @@ private fun RootPagerHost(
 ) {
     val contract = appRootPagerContract()
     val capture = backdrop?.let { Modifier.layerBackdrop(it) } ?: Modifier
-    Box(Modifier.fillMaxSize().then(capture)) {
+    // Keep the root drawn for predictive back, but never expose its covered controls.
+    val accessibility = if (navigationState.topRoute is AppRoute.Subpage) Modifier.clearAndSetSemantics {} else Modifier
+    Box(Modifier.fillMaxSize().then(capture).then(accessibility)) {
         HorizontalPager(
             state = state.pagerState,
             modifier = Modifier.fillMaxSize(),
@@ -215,6 +224,7 @@ internal val AppRoute.topBarTitle: String
         is AppRoute.MessageThread -> "短信会话"
         AppRoute.NewMessage -> "新建短信"
         AppRoute.Dialpad -> "拨号"
+        is AppRoute.CallHistoryDetail -> "通话详情"
         AppRoute.SettingsAppearance -> "外观"
         AppRoute.SettingsConfiguration -> "SIM 与网络配置"
         AppRoute.SettingsDiagnostics -> "诊断"

@@ -1,6 +1,5 @@
 package com.vowifi.sw.manager.ui
 
-import com.vowifi.sw.manager.model.DiagnosticCheckStatus
 import com.vowifi.sw.manager.model.EngineLifecycle
 import com.vowifi.sw.manager.model.EnvironmentDiagnosticsUiState
 import com.vowifi.sw.manager.model.RegistrationUiState
@@ -13,6 +12,12 @@ internal fun homeHeroPresentation(
     diagnostics: EnvironmentDiagnosticsUiState,
     ims: HomeSoftwareImsProjection = homeSoftwareImsProjection(engine),
 ): HomeHeroPresentation {
+    if (ims.readable && ims.registered > 0) {
+        return homeHero(
+            SemanticTone.SUCCESS, "已注册",
+            HomeHeroCopy("IMS 已注册", ims.overview, "IMS ${homeNonBreakingPhrase("已注册")}", listOf(ims.overview)),
+        )
+    }
     if (engine is SimControlUiState.Loading || diagnostics is EnvironmentDiagnosticsUiState.Loading) {
         return homeHero(
             SemanticTone.INTERACTIVE,
@@ -54,27 +59,10 @@ internal fun homeHeroPresentation(
             HomeHeroCopy("暂无活动 SIM", "检测到活动 SIM 后显示软件 IMS 状态。", "无活动 SIM", listOf("等待活动 SIM")),
         )
     }
-    val environmentPass = diagnostics is EnvironmentDiagnosticsUiState.Ready && diagnostics.severity == DiagnosticCheckStatus.PASS
-    val controlWarning = (engine as? SimControlUiState.Ready)?.message != null || instances.any { it.message != null }
     return when {
         ims.unknown > 0 -> homeHero(
             SemanticTone.WARNING, "待确认",
             HomeHeroCopy("IMS 状态待确认", ims.overview, "IMS 待确认", listOf("${ims.registered} / ${ims.total} 张已注册", "${ims.unknown} 张状态未知")),
-        )
-        ims.allRegistered && ims.connected == ims.total && environmentPass && !controlWarning -> availableHero("IMS 已注册，隧道已连接，环境检查通过。")
-        ims.allRegistered -> homeHero(
-            SemanticTone.WARNING, if (ims.connected != ims.total) "隧道未就绪" else "需要检查",
-            HomeHeroCopy("IMS 已注册", if (ims.connected != ims.total) "IMS 已注册，但并非所有隧道已连接。" else "IMS 已注册，仍需确认控制与环境状态。", "IMS ${homeNonBreakingPhrase("已注册")}", listOf("${ims.total} 张 SIM 已注册", "隧道、控制与环境仍需确认")),
-        )
-        ims.registered > 0 -> homeHero(
-            SemanticTone.WARNING,
-            "部分注册",
-            HomeHeroCopy(
-                "部分 SIM 已注册",
-                ims.overview,
-                "部分${homeNonBreakingPhrase("已注册")}",
-                listOf("${ims.registered} / ${ims.total} 张 SIM ${homeNonBreakingPhrase("已注册")}"),
-            ),
         )
         instances.any { it.lifecycle == EngineLifecycle.STARTING || it.lifecycle == EngineLifecycle.STOPPING } -> homeHero(
             SemanticTone.INTERACTIVE, "引擎切换中",
@@ -92,17 +80,6 @@ internal fun homeHeroPresentation(
         )
     }
 }
-
-private fun availableHero(summary: String): HomeHeroPresentation = homeHero(
-    SemanticTone.SUCCESS,
-    "正常",
-    HomeHeroCopy(
-        "IMS 已就绪",
-        summary,
-        "IMS ${homeNonBreakingPhrase("已就绪")}",
-        listOf("IMS ${homeNonBreakingPhrase("已注册")}", "隧道${homeNonBreakingPhrase("已连接")}", "环境检查通过"),
-    ),
-)
 
 private fun homeHero(tone: SemanticTone, statusText: String, copy: HomeHeroCopy) = HomeHeroPresentation(
     tone = tone,

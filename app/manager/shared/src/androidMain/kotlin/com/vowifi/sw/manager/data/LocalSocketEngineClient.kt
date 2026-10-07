@@ -21,6 +21,7 @@ import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -66,28 +67,47 @@ internal class LocalSocketEngineClient(
 
     internal inner class MessageConnection internal constructor(private val connected: LocalSocket) {
         private var active = true
+        private var writing = false
 
-        fun retire() = synchronized(connectionLock) { active = false }
+        fun retire() {
+            val interrupt = synchronized(connectionLock) { active = false; writing }
+            if (interrupt) disconnect(connected, EOFException("message connection retired"), shutdownInput = true)
+        }
 
         suspend fun request(method: String, params: JsonObject, timeoutMillis: Long): EngineProtocolFrame.Response {
             val id = nextId.getAndIncrement()
             val deferred = CompletableDeferred<EngineProtocolFrame.Response>()
             try {
-                withContext(Dispatchers.IO) {
-                    val context = currentCoroutineContext()
-                    synchronized(writeLock) {
-                        synchronized(connectionLock) {
-                            context.ensureActive()
-                            if (!active || closed || socket !== connected || !handshaken) {
-                                throw EOFException("message connection retired")
+                return withEngineRequestTimeout(timeoutMillis) {
+                    withContext(Dispatchers.IO) {
+                        val context = currentCoroutineContext()
+                        suspendCancellableCoroutine<Unit> { continuation ->
+                            continuation.invokeOnCancellation { cause ->
+                                disconnect(connected, IOException("message write cancelled", cause), shutdownInput = true)
                             }
-                            pending[id] = deferred
-                            connected.outputStream.write(EngineProtocolCodec.request(id, method, params).encodeToByteArray())
-                            connected.outputStream.flush()
+                            try {
+                                synchronized(writeLock) {
+                                    synchronized(connectionLock) {
+                                        context.ensureActive()
+                                        if (!active || closed || socket !== connected || !handshaken) {
+                                            throw EOFException("message connection retired")
+                                        }
+                                        pending[id] = deferred
+                                        writing = true
+                                    }
+                                    try {
+                                        connected.outputStream.write(EngineProtocolCodec.request(id, method, params).encodeToByteArray())
+                                        connected.outputStream.flush()
+                                    } finally { synchronized(connectionLock) { writing = false } }
+                                }
+                                continuation.resumeWith(Result.success(Unit))
+                            } catch (error: Exception) {
+                                continuation.resumeWith(Result.failure(error))
+                            }
                         }
                     }
+                    deferred.await()
                 }
-                return withEngineRequestTimeout(timeoutMillis) { deferred.await() }
             } finally {
                 pending.remove(id)
             }
@@ -190,17 +210,16 @@ internal class LocalSocketEngineClient(
         }
     }
 
-    private fun disconnect(connected: LocalSocket, error: Exception) {
-        synchronized(connectionLock) {
+    private fun disconnect(connected: LocalSocket, error: Exception, shutdownInput: Boolean = false) {
+        val disconnectedPending = synchronized(connectionLock) {
             if (socket !== connected) return
             socket = null
             handshaken = false
-            try { connected.close() } catch (failure: IOException) { error.addSuppressed(failure) }
-            finally {
-                pending.values.forEach { deferred -> deferred.completeExceptionally(error) }
-                pending.clear()
-                mutableDisconnected.tryEmit(Unit)
-            }
+            pending.values.toList().also { pending.clear(); mutableDisconnected.tryEmit(Unit) }
+        }
+        try { closeSocket(connected, shutdownInput) } catch (failure: IOException) { error.addSuppressed(failure) }
+        finally {
+            disconnectedPending.forEach { deferred -> deferred.completeExceptionally(error) }
         }
     }
 
@@ -213,10 +232,21 @@ internal class LocalSocketEngineClient(
                 handshaken = false
             }
         }
-        try { connected?.use { it.shutdownInput() } } finally {
+        try { connected?.let { closeSocket(it, shutdownInput = true) } } finally {
             val error = EOFException("engine client closed")
             pending.values.forEach { deferred -> deferred.completeExceptionally(error) }
             pending.clear()
+        }
+    }
+
+    private fun closeSocket(connected: LocalSocket, shutdownInput: Boolean) {
+        connected.use {
+            var failure: IOException? = null
+            if (shutdownInput) try { it.shutdownInput() } catch (error: IOException) { failure = error }
+            try { it.shutdownOutput() } catch (error: IOException) {
+                if (failure == null) failure = error else failure.addSuppressed(error)
+            }
+            failure?.let { error -> throw error }
         }
     }
 }

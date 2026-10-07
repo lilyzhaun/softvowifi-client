@@ -1,5 +1,7 @@
 package com.vowifi.sw.manager.ui
 
+import androidx.compose.foundation.layout.offset
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -28,6 +30,8 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.vowifi.sw.manager.model.CallDirection
+import com.vowifi.sw.manager.model.CallOutcome
 import top.yukonga.miuix.kmp.basic.BasicComponent
 import top.yukonga.miuix.kmp.basic.Button
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
@@ -119,22 +123,38 @@ internal fun CompactActionRow(spec: CompactActionRowSpec, onAction: () -> Unit, 
 }
 
 @Composable
-internal fun CallHistoryRow(spec: CallHistoryRowPresentation, modifier: Modifier = Modifier) {
+internal fun CallHistoryRow(spec: CallHistoryRowPresentation, modifier: Modifier = Modifier,
+    divider: Boolean = true, stackedMetadata: Boolean = false) {
     val colors = LocalSoftVoWiFiColors.current
+    val palette = phoneColors()
+    val missed = spec.outcome == CallOutcome.MISSED
     Column(modifier.fillMaxWidth()) {
-        Row(Modifier.heightIn(min = 72.dp).padding(vertical = 12.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            Surface(shape = CircleShape, color = colors.surfaceRaised) {
-                Box(Modifier.size(44.dp), contentAlignment = Alignment.Center) {
-                    Icon(MiuixIcons.Phone, null, Modifier.size(20.dp), tint = colors.neutralStatus)
-                }
+        Row(Modifier.fillMaxWidth().heightIn(min = 80.dp).padding(vertical = 16.dp), horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.size(48.dp).background(if (missed) palette.missed.copy(alpha = .08f) else palette.tonal.copy(alpha = .6f), CircleShape), contentAlignment = Alignment.Center) {
+                Icon(CallPhoneIcons.Phone, null, Modifier.size(24.dp), tint = if (missed) palette.missed else palette.accent)
+                Icon(if (spec.direction == CallDirection.INCOMING) CommunicationIncoming else CommunicationOutgoing,
+                    null, Modifier.size(12.dp).align(Alignment.TopEnd).offset(x = (-5).dp, y = 6.dp), tint = if (missed) palette.missed else palette.accent)
             }
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text(spec.peerDisplay, fontSize = 16.sp, lineHeight = 22.sp, fontWeight = FontWeight.SemiBold)
-                Text("${spec.directionText} · ${spec.outcomeText}", color = colors.textSecondary, fontSize = 14.sp, lineHeight = 20.sp)
-                Text("${spec.timeText} · ${spec.durationText}", color = colors.textSecondary, fontSize = 12.sp, lineHeight = 16.sp, style = TextStyle(fontFeatureSettings = "tnum"))
+                Text(displayCallNumber(spec.peerDisplay), fontSize = 17.sp, lineHeight = 23.sp, fontWeight = FontWeight.Medium,
+                    color = if (missed) palette.missed else palette.text)
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                    val direction = if (spec.direction == CallDirection.INCOMING) "呼入" else "呼出"
+                    val summary = when (spec.outcome) {
+                        CallOutcome.MISSED -> "未接来电"
+                        CallOutcome.COMPLETED -> "$direction · ${spec.durationText}"
+                        else -> "$direction · ${spec.outcomeText} · ${spec.durationText}"
+                    }
+                    Text(summary, color = palette.secondary,
+                        fontSize = 14.sp, lineHeight = 20.sp, style = TextStyle(fontFeatureSettings = "tnum"))
+                }
+                if (stackedMetadata) Text(spec.timeText, color = colors.textSecondary, fontSize = 12.sp, lineHeight = 16.sp,
+                    style = TextStyle(fontFeatureSettings = "tnum"))
             }
+            if (!stackedMetadata) Text(spec.timeText, color = palette.secondary, fontSize = 13.sp, lineHeight = 20.sp,
+                style = TextStyle(fontFeatureSettings = "tnum"))
         }
-        HorizontalDivider(Modifier.padding(start = 56.dp), color = colors.separator)
+        if (divider) HorizontalDivider(Modifier.padding(start = 64.dp), color = palette.secondary.copy(alpha = .16f), thickness = .5.dp)
     }
 }
 

@@ -8,6 +8,20 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class SmsDualSimBindingTest {
+    @Test fun emptyAutomaticDraftFollowsRegisteredDefaultWithoutCreatingSelectionEvent() = smsOnEdt {
+        SmsDualSimDriver().use { page ->
+            page.source.historyChoices.value = smsChoices(selected = smsOwnerB)
+            page.source.publish(smsReady(smsOwnerB))
+            page.frame()
+            assertTrue(page.hasText("发送线路：Synthetic B"))
+            assertTrue(page.source.selections.isEmpty())
+            page.edit(0, smsPeerB)
+            page.edit(1, "synthetic default B")
+            page.send()
+            assertEquals(smsOwnerB, page.source.sends.single().owner)
+        }
+    }
+
     @Test fun unsolicitedSingletonBDoesNotReplaceOrSendExistingADraft() = smsOnEdt {
         SmsDualSimDriver().use { page ->
             page.edit(0, smsPeerA)

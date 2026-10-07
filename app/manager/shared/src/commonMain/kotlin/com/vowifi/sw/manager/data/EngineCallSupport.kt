@@ -15,10 +15,20 @@ internal fun pendingCallAudio(
     iccid: String?,
     generation: Long,
 ): PendingCallAudio? {
-    if (before.phase == CallPhase.InCall || session.phase != CallPhase.InCall) return null
+    val mode = session.playbackMode() ?: return null
+    val earlyRevision = if (mode == CallAudioMode.Progress) session.earlyMediaRevision else 0L
+    val ringback = mode == CallAudioMode.Progress && session.ringback
+    if (before.token == session.token && before.playbackMode() == mode &&
+        (mode == CallAudioMode.Conversation || before.earlyMediaRevision == earlyRevision && before.ringback == ringback)) return null
     val token = session.token ?: return null
     val ownerIccid = iccid ?: return null
-    return PendingCallAudio(token, transport, ownerIccid, generation)
+    return PendingCallAudio(token, transport, ownerIccid, generation, mode, earlyRevision, ringback)
+}
+
+internal fun CallSession.playbackMode(): CallAudioMode? = when {
+    phase == CallPhase.InCall -> CallAudioMode.Conversation
+    phase == CallPhase.Dialing && !cancelRequested && (ringback || earlyMediaRevision > 0) -> CallAudioMode.Progress
+    else -> null
 }
 
 internal fun needsAudioStop(snapshot: CallSession): Boolean =

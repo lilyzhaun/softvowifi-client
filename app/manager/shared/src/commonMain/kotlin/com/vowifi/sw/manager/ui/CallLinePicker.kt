@@ -17,6 +17,7 @@ import androidx.compose.ui.unit.dp
 import com.vowifi.sw.manager.data.CallLineChoice
 import com.vowifi.sw.manager.data.CallLineState
 import com.vowifi.sw.manager.data.SimOwnerId
+import com.vowifi.sw.manager.data.CallHistoryOwnerChoice
 import top.yukonga.miuix.kmp.basic.RadioButton
 import top.yukonga.miuix.kmp.overlay.OverlayDialog
 import top.yukonga.miuix.kmp.preference.ArrowPreference
@@ -33,36 +34,37 @@ internal fun CallLineChoice.callFacts(complete: Boolean): String = listOf(
     label: String,
     onSelect: (SimOwnerId) -> Unit,
     enabled: Boolean = true,
+    historyOwners: List<CallHistoryOwnerChoice> = emptyList(),
+    onSelectHistory: (CallHistoryOwnerChoice) -> Unit = {},
 ) {
     var show by remember { mutableStateOf(false) }
-    val feedback = managerActionFeedback(ManagerAction.Navigate, enabled)
-    CompositionLocalProvider(LocalIndication provides NoVisualIndication) {
-        ArrowPreference(title = "出向线路", summary = label, enabled = enabled,
-            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).managerPressScale(feedback)
-                .semantics { contentDescription = "出向线路" },
-            onClick = rememberManagerActionHandler(feedback) { show = true })
-    }
-    if (show) OverlayDialog(show = true, title = "选择拨出线路",
-        summary = "选卡保留号码，不改变通话记录或当前来电。", onDismissRequest = { show = false }) {
-        Column(Modifier.heightIn(max = 360.dp).verticalScroll(rememberScrollState()).selectableGroup(),
-            verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            if (lines.choices.isEmpty()) PhoneText("暂无线路信息，号码已保留", secondary = true)
-            lines.choices.forEach { line ->
-                val interaction = remember(line.owner) { MutableInteractionSource() }
-                val choiceFeedback = managerActionFeedback(ManagerAction.SegmentSelection, enabled)
-                val choose = rememberManagerActionHandler(choiceFeedback) { onSelect(line.owner); show = false }
-                Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).managerPressScale(choiceFeedback, interaction)
-                    .selectable(line.selected, enabled = enabled, role = Role.RadioButton,
-                        interactionSource = interaction, indication = null, onClick = choose).padding(12.dp),
-                    verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    RadioButton(selected = line.selected, onClick = null)
-                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        PhoneText(line.label)
-                        PhoneText(line.callFacts(lines.rosterComplete), size = 14, secondary = true)
-                    }
-                }
+    val active = LocalAppRouteActive.current
+    val running = lines.choices.filter { it.running }
+    val live = running.isNotEmpty()
+    val display = if (live) lines.choices.firstOrNull { it.owner == lines.selectedOwner }?.label ?: label
+        else historyOwners.firstOrNull { it.selected }?.let { history ->
+            lines.choices.firstOrNull { it.owner == history.owner }?.label ?: history.label
+        } ?: "选择通话记录线路"
+    CommunicationLineChip(display, if (live) "出向线路" else "通话记录线路", { show = true }, enabled && active)
+    if (show) {
+    val sheet = rememberCommunicationSheetState { show = false }
+    val interactive = enabled && active && sheet.visible
+    CommunicationSheet(if (live) "选择拨出线路" else "选择通话记录线路", { show = false }, state = sheet) {
+        CommunicationFootnote(if (live) "仅显示已启动引擎的线路；切换同时显示该线路的通话记录，号码保留。"
+            else "切换该线路的本地通话记录，可包含未注册或历史线路。")
+        Column(Modifier.fillMaxWidth().weight(1f, fill = false).heightIn(max = 360.dp)
+            .verticalScroll(rememberScrollState()).selectableGroup()) {
+            if (live) running.forEach { line ->
+                 CommunicationLineRow(line.label, line.callFacts(lines.rosterComplete), line.selected,
+                    { if (interactive) sheet.close { onSelect(line.owner); show = false } }, enabled = interactive)
             }
-            ManagerTextAction("取消", ManagerAction.Rejected, { show = false })
+            else if (historyOwners.isEmpty()) CommunicationFootnote("暂无本地通话记录")
+            else historyOwners.forEach { history ->
+                val name = lines.choices.firstOrNull { it.owner == history.owner }?.label ?: history.label
+                 CommunicationLineRow(name, "本机通话记录", history.selected,
+                    { if (interactive) sheet.close { onSelectHistory(history); show = false } }, enabled = interactive)
+            }
         }
+    }
     }
 }

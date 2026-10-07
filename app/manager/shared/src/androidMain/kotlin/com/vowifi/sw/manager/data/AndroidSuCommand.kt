@@ -21,9 +21,10 @@ internal data class AndroidSuResult(
     )
 }
 
-internal class AndroidSuCommand(
+internal class AndroidSuCommand @JvmOverloads constructor(
     private val timeoutSeconds: Long = 20,
     private val maxBytes: Int = 262_144,
+    private val start: (String) -> Process = { ProcessBuilder("su", "-c", it).redirectErrorStream(true).start() },
 ) {
     fun run(command: String): AndroidSuResult = execute(command, stdin = null)
 
@@ -44,43 +45,61 @@ internal class AndroidSuCommand(
         stdin: ByteArray?,
         timeoutSeconds: Long = this.timeoutSeconds,
     ): AndroidSuResult {
-        val process = ProcessBuilder("su", "-c", command)
-            .redirectErrorStream(true)
-            .start()
+        val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(timeoutSeconds)
+        val process = start(command)
         val collected = ByteArrayOutputStream()
-        val readFailed = AtomicBoolean(false)
+        var readFailed = false
         val writeFailed = AtomicBoolean(false)
-        val drain = Thread {
-            val buffer = ByteArray(4096)
-            try {
-                while (true) {
-                    val n = process.inputStream.read(buffer)
-                    if (n < 0) break
-                    val allowed = maxBytes - collected.size()
-                    if (allowed > 0) collected.write(buffer, 0, minOf(n, allowed))
-                }
-            } catch (_: IOException) {
-                readFailed.set(true)
-            }
-        }
-        drain.start()
-        if (stdin != null) {
+        val inputWorker = Thread({
             try {
                 process.outputStream.use { stream ->
-                    stream.write(stdin)
-                    stream.flush()
+                    if (stdin != null) {
+                        stream.write(stdin)
+                        stream.flush()
+                    }
                 }
             } catch (_: IOException) {
                 writeFailed.set(true)
             }
-        } else {
-            runCatching { process.outputStream.close() }
-        }
-        val finished = process.waitFor(timeoutSeconds, TimeUnit.SECONDS)
-        if (!finished) {
+        }, "vowifi-su-input").apply { isDaemon = true }
+        var finished = false
+        var timedOut = false
+        inputWorker.start()
+        try {
+            val input = process.inputStream
+            val buffer = ByteArray(4096)
+            while (true) {
+                if (Thread.interrupted()) throw InterruptedException()
+                val remaining = deadline - System.nanoTime()
+                if (remaining <= 0) { timedOut = true; break }
+                if (!readFailed) try {
+                    val available = input.available()
+                    if (available > 0) {
+                        val n = input.read(buffer, 0, minOf(available, buffer.size))
+                        if (n > 0) {
+                            val allowed = maxBytes - collected.size()
+                            if (allowed > 0) collected.write(buffer, 0, minOf(n, allowed))
+                            continue
+                        }
+                    }
+                } catch (_: IOException) {
+                    readFailed = true
+                }
+                if (finished) break
+                finished = process.waitFor(minOf(remaining, TimeUnit.MILLISECONDS.toNanos(20)), TimeUnit.NANOSECONDS)
+            }
+            val remaining = deadline - System.nanoTime()
+            if (remaining > 0) TimeUnit.NANOSECONDS.timedJoin(inputWorker, remaining)
+            timedOut = timedOut || inputWorker.isAlive
+        } finally {
             process.destroyForcibly()
             process.waitFor(1, TimeUnit.SECONDS)
-            drain.join(1_000)
+            inputWorker.join(1_000)
+            process.inputStream.close()
+            process.errorStream.close()
+            if (inputWorker.isAlive) throw IOException("Root command input worker did not stop")
+        }
+        if (timedOut) {
             return AndroidSuResult(
                 timedOut = true,
                 exitCode = -1,
@@ -89,8 +108,7 @@ internal class AndroidSuCommand(
                 writeFailed = writeFailed.get(),
             )
         }
-        drain.join(1_000)
-        val overflowed = readFailed.get() || collected.size() >= maxBytes
+        val overflowed = readFailed || collected.size() >= maxBytes
         val failedWrite = writeFailed.get()
         val output = if (overflowed) {
             ""

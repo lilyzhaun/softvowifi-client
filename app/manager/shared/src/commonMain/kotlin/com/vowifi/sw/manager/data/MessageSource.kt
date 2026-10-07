@@ -7,6 +7,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
 interface MessageSource {
+    suspend fun changeConversation(handle: String, action: MessageConversationAction): MessageConversationActionResult = MessageConversationActionResult.FAILED
     fun searchHistory(query: String) = Unit
     fun loadMoreHistory() = Unit
     fun loadOlderMessages() = Unit

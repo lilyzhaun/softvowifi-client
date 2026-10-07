@@ -15,14 +15,17 @@ import com.vowifi.sw.manager.model.*
     outgoingEnabled: Boolean? = null,
     outgoingNotice: String? = null,
     lineContent: (@Composable () -> Unit)? = null,
+    onRefresh: (() -> Unit)? = null,
 ) {
     val ready = state as? CallUiState.Ready
     val back = LocalPhoneBack.current
     val message = listOfNotNull(outgoingNotice, ready?.operationMessage,
         callStatePanelSpec(state)?.description.takeIf { ready?.operationMessage == null && (outgoingNotice == null || ready == null) })
         .distinct().joinToString("\n").ifEmpty { null }
+    val synchronizedIdle = ready?.sync == CallSyncState.Ready && ready.phase == CallPhase.Idle
+    val refresh = onRefresh?.takeIf { canRefreshCallState(state) }
     PhoneDialerScreen(draft, onDraftChange, lineLabel,
-        outgoingEnabled ?: (ready?.sync == CallSyncState.Ready && ready.phase == CallPhase.Idle && ready.origin == CallOrigin.ENGINE),
+        synchronizedIdle && (outgoingEnabled ?: (ready.origin == CallOrigin.ENGINE)),
         ready?.busy == true, message,
-        { onDial(draft) }, back, back, onPermissions, lineContent)
+        { onDial(draft) }, back, back, onPermissions, lineContent, refresh)
 }

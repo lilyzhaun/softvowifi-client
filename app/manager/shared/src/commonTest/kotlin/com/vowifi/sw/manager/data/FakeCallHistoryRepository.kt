@@ -44,12 +44,16 @@ internal class FakeCallHistoryRepository : CallHistoryRepository {
         return records.entries
             .filter { entry -> entry.key.owner == ownerId }
             .sortedWith(newestFirst)
-            .map { entry -> entry.value.toRecord() }
+            .map { entry -> entry.value.toRecord(entry.key.owner) }
     }
 
     override suspend fun clearByOwner(ownerId: SimOwnerId) {
         checkOpen()
         records.keys.filter { key -> key.owner == ownerId }.forEach(records::remove)
+    }
+    override suspend fun deleteByIds(ownerId: SimOwnerId, ids: Set<com.vowifi.sw.manager.model.CallHistoryRecordId>) {
+        checkOpen()
+        records.entries.filter { it.key.owner == ownerId && it.value.toRecord(ownerId).recordId in ids }.map { it.key }.forEach(records::remove)
     }
 
     override suspend fun interruptOpen(endedAtMs: Long) {

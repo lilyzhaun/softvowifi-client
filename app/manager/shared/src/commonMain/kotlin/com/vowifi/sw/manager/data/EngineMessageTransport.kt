@@ -26,6 +26,7 @@ class EngineMessageRuntime(
     val transportFor: (String) -> EngineMessageTransport,
     val clock: () -> Long,
     val activeIccids: suspend () -> List<String?>? = { null },
+    val lineLabelFor: (String) -> String? = { null },
 )
 
 internal class MessagePermissionException(message: String) : Exception(message)

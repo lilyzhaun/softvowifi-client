@@ -21,6 +21,24 @@ import org.robolectric.shadows.ShadowSubscriptionManager.SubscriptionInfoBuilder
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [33], application = SoftVoWiFiApplication::class, shadows = [RuntimeApplicationShadow::class])
 class AndroidMessageSessionBoundaryTest {
+    @Test fun callAndMessageRostersUsePhysicalSlotOrderAndSlotLabel() {
+        val context = RuntimeEnvironment.getApplication()
+        val first = SubscriptionInfoBuilder.newBuilder().setId(8).setSimSlotIndex(0)
+            .setIccId("8900000000000000001").buildSubscriptionInfo()
+        val second = SubscriptionInfoBuilder.newBuilder().setId(3).setSimSlotIndex(1)
+            .setIccId("8900000000000000002").buildSubscriptionInfo()
+        shadowOf(context.getSystemService(SubscriptionManager::class.java)).setActiveSubscriptionInfoList(listOf(second, first))
+        listOf("AndroidMessageSourceKt" to "activeMessageIccids", "AndroidCallSubscriptionsKt" to "activeCallIccids").forEach { (type, method) ->
+            val roster = Class.forName("com.vowifi.sw.manager.data.$type").getDeclaredMethod(method, Context::class.java)
+                .invoke(null, context) as List<*>
+            assertEquals(listOf("8900000000000000001", "8900000000000000002"), roster)
+        }
+        val label = Class.forName("com.vowifi.sw.manager.data.AndroidCallLineLabelKt")
+            .getDeclaredMethod("callLineLabel", Context::class.java, String::class.java)
+            .invoke(null, context, "8900000000000000002") as String
+        assertTrue(label.startsWith("SIM 2"))
+    }
+
     @Test fun readonlyActiveInventoryRetainsUnknownSlotRatherThanPretendingThereIsOneSim() {
         val context = RuntimeEnvironment.getApplication()
         val manager = shadowOf(context.getSystemService(SubscriptionManager::class.java))

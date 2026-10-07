@@ -16,12 +16,24 @@ import androidx.compose.animation.core.tween
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.background
+import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.foundation.layout.Box
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.platform.testTag
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.LiveRegionMode
+import com.vowifi.sw.manager.model.OutgoingMessageStatus
 import top.yukonga.miuix.kmp.basic.CircularProgressIndicator
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -53,15 +65,18 @@ internal fun MessageComposer(
     canSend: Boolean,
     onBodyChange: (String) -> Unit,
     onSend: () -> Unit,
+    outcome: OutgoingMessageStatus? = null,
 ) {
     val colors = LocalSoftVoWiFiColors.current
     val sceneBottomInset = LocalSubpageBottomContentInset.current
-    val editingEnabled = compose.editingEnabled && !pending
-    val sendingEnabled = compose.sendingEnabled && !pending && canSend
-    val isInDark = isSystemInDarkTheme()
-    val shadowSpec = messageComposerShadowSpec()
+    val active = LocalAppRouteActive.current
+    val editingEnabled = active && compose.editingEnabled && !pending
+    val sendingEnabled = active && compose.sendingEnabled && !pending && canSend
+    val editableNow by rememberUpdatedState(editingEnabled)
+    val currentChange by rememberUpdatedState(onBodyChange)
     val estimate = remember(body) { estimateSmsSegments(body) }
     val duration = smsInnerMotionMillis()
+    val inputShape = RoundedCornerShape(24.dp)
     Column(
         Modifier
             .fillMaxWidth()
@@ -74,6 +89,11 @@ internal fun MessageComposer(
             ),
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
+        outcome?.let {
+            Text(messageSubmissionNotice(it), Modifier.semantics { liveRegion = LiveRegionMode.Polite },
+                color = if (it == OutgoingMessageStatus.FAILED) colors.error else colors.textSecondary,
+                fontSize = 13.sp, lineHeight = 18.sp, softWrap = true)
+        }
         compose.notice?.let {
             Text(it, color = colors.textSecondary, fontSize = 12.sp, lineHeight = 16.sp, softWrap = true)
         }
@@ -82,34 +102,21 @@ internal fun MessageComposer(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            TextField(
+            CommunicationInput(
                 value = body,
-                onValueChange = onBodyChange,
+                onChange = { if (editableNow) currentChange(it) },
+                placeholder = "短信内容",
                 modifier = Modifier
                     .weight(1f)
                     .heightIn(min = 48.dp)
                     .animateContentSize(tween(duration))
-                    .dropShadow(
-                        shape = RoundedCornerShape(24.dp),
-                        shadow = Shadow(
-                            radius = shadowSpec.radiusDp.dp,
-                            color = Color.Black,
-                            alpha = if (isInDark) shadowSpec.darkAlpha else shadowSpec.lightAlpha,
-                        ),
-                    )
                     .clearFocusOnInactiveRouteAndImeHide()
                     .onFocusChanged {
                         if (it.isFocused) requestImeOwner()
                     },
-                insideMargin = DpSize(16.dp, 10.dp),
-                cornerRadius = 24.dp,
-                colors = TextFieldDefaults.textFieldColors(backgroundColor = colors.surface),
-                label = "短信内容",
-                useLabelAsPlaceholder = true,
                 enabled = editingEnabled,
-                textStyle = MiuixTheme.textStyles.main.copy(fontSize = 16.sp, lineHeight = 22.sp),
-                minLines = 1,
                 maxLines = 5,
+                background = true,
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Default),
             )
             MessageSendAction(
@@ -118,11 +125,19 @@ internal fun MessageComposer(
                 onClick = onSend,
             )
         }
-        estimate?.let {
+        estimate?.takeIf { it.segments > 1 }?.let {
             Text("本机编码约 ${it.segments} 段 · 非运营商计费", color = colors.textSecondary,
                 fontSize = 12.sp, lineHeight = 16.sp, softWrap = true)
         }
     }
+}
+
+private fun messageSubmissionNotice(status: OutgoingMessageStatus): String = when (status) {
+    OutgoingMessageStatus.ACCEPTED -> "已受理，不代表接收设备已收到。"
+    OutgoingMessageStatus.DELIVERY_REPORTED -> "已收到状态报告，不代表本机收到 MT 短信。"
+    OutgoingMessageStatus.FAILED -> "发送未完成，草稿已保留。"
+    OutgoingMessageStatus.UNKNOWN -> "发送结果未知，请先核对；不会自动重发。"
+    OutgoingMessageStatus.QUEUED -> "排队中"
 }
 
 @Composable
@@ -135,34 +150,34 @@ private fun MessageSendAction(
     val layout = messageComposerLayoutContract()
     val duration = smsInnerMotionMillis()
     val interactionSource = remember { MutableInteractionSource() }
+    val pressed by interactionSource.collectIsPressedAsState()
+    val currentEnabled by rememberUpdatedState(enabled && LocalAppRouteActive.current)
+    val currentClick by rememberUpdatedState(onClick)
     val feedback = managerActionFeedback(ManagerAction.SendMessage, enabled)
-    val handler = rememberManagerActionHandler(feedback, onClick)
+    val acceptedClick = rememberManagerActionHandler(feedback) { if (currentEnabled) currentClick() }
+    val handler = { if (currentEnabled) acceptedClick() }
     val alpha by animateFloatAsState(
-        targetValue = if (enabled) 1f else 0.56f,
+        targetValue = if (enabled || pending) 1f else 0.56f,
         animationSpec = tween(duration),
     )
     val background by animateColorAsState(
-        targetValue = if (enabled) colors.interactive else colors.separator,
+        targetValue = if (enabled || pending) communicationColors().accent else colors.separator,
         animationSpec = tween(duration),
     )
-    Surface(
-        onClick = handler,
-        enabled = enabled,
-        modifier = Modifier.size(layout.sendTargetDp.dp).semantics { stateDescription = if (pending) "发送中" else if (enabled) "可发送" else "不可发送" }.managerPressScale(feedback, interactionSource).graphicsLayer {
-            this.alpha = alpha
-        },
-        shape = CircleShape,
-        color = background,
-        contentColor = if (enabled) colors.onCommunicationAccent else colors.textDisabled,
-        interactionSource = interactionSource,
-        indication = null,
-    ) {
-        androidx.compose.foundation.layout.Box(contentAlignment = Alignment.Center) {
+    Box(Modifier.size(layout.sendTargetDp.dp)
+        .clickable(enabled = enabled, role = Role.Button, interactionSource = interactionSource, indication = null, onClick = handler)
+        .semantics {
+            contentDescription = if (pending) "发送中" else "发送短信"
+            stateDescription = if (pending) "发送中" else if (enabled) "可发送" else "不可发送"
+        }, contentAlignment = Alignment.Center) {
+        Box(Modifier.matchParentSize().phonePressMotion(enabled, interactionSource).testTag("sms-send-face")
+            .graphicsLayer { this.alpha = alpha }.clip(CircleShape).background(background)
+            .background(if (pressed && enabled) Color.Black.copy(alpha = .08f) else Color.Transparent), contentAlignment = Alignment.Center) {
             Crossfade(targetState = pending, animationSpec = tween(smsInnerMotionMillis())) { busy ->
             if (busy) CircularProgressIndicator(Modifier.size(24.dp).semantics { stateDescription = "发送中" }) else Icon(
-                MiuixIcons.Send,
-                contentDescription = if (pending) "发送中" else "发送短信",
-                tint = if (enabled) colors.onCommunicationAccent else colors.textDisabled,
+                CommunicationSendUp,
+                contentDescription = null,
+                tint = if (enabled || pending) communicationColors().onAccent else colors.textDisabled,
             )
             }
         }

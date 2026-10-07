@@ -78,7 +78,8 @@ class MessageInboxSelectionTest {
             }
         }
         val selection = MessageHistorySelection(repository, backgroundScope, MessagePersistenceObserver { _, _, _ -> })
-        selection.publishLive(live); selection.refreshInbox(); runCurrent()
+        val offlineA = MessageUiState.Ready(emptyList(), MessageOrigin.ENGINE, ownerId = ownerA)
+        selection.publishLive(live, sessions = mapOf(ownerA to offlineA, ownerB to live)); selection.refreshInbox(); runCurrent()
         selection.selectHistoryOwner(ownerA); runCurrent()
         assertTrue(assertIs<MessageUiState.Inbox>(selection.state.value).page.loading)
         selection.selectHistoryOwner(ownerB); runCurrent()

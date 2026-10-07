@@ -25,8 +25,8 @@ class HomePresentationStateTest {
             case(RegistrationUiState.Empty, SimControlUiState.Ready(listOf(unconfigured())), readyDiagnostics(), "需要创建 SIM 配置"),
             case(RegistrationUiState.Empty, SimControlUiState.PermissionDenied("raw"), readyDiagnostics(), "无法确认引擎状态"),
             case(RegistrationUiState.ReadError("raw"), SimControlUiState.Failure("raw"), EnvironmentDiagnosticsUiState.Failure("raw"), "状态读取失败"),
-            case(registration("REGISTERED", "UNREGISTERED"), SimControlUiState.Ready(listOf(configured().copy(lifecycle = EngineLifecycle.RUNNING, runtime = runtime()), configured(handle = SimHandle("sim-2")))), readyDiagnostics(), "部分 SIM 已注册"),
-            case(registration("REGISTERED"), SimControlUiState.Ready(listOf(configured().copy(lifecycle = EngineLifecycle.RUNNING, runtime = runtime()))), readyDiagnostics(), "IMS 已就绪"),
+            case(registration("REGISTERED", "UNREGISTERED"), SimControlUiState.Ready(listOf(configured().copy(lifecycle = EngineLifecycle.RUNNING, runtime = runtime()), configured(handle = SimHandle("sim-2")))), readyDiagnostics(), "IMS 已注册"),
+            case(registration("REGISTERED"), SimControlUiState.Ready(listOf(configured().copy(lifecycle = EngineLifecycle.RUNNING, runtime = runtime()))), readyDiagnostics(), "IMS 已注册"),
         )
 
         assertEquals(
@@ -87,8 +87,8 @@ class HomePresentationStateTest {
 
         assertEquals("SIM 未\u2060配\u2060置", unconfiguredText.title)
         assertEquals(listOf("活动 SIM 尚无配\u2060置", "创建后才可启动引擎"), unconfiguredText.summaryLines)
-        assertEquals("IMS 已\u2060就\u2060绪", availableText.title)
-        assertEquals(listOf("IMS 已\u2060注\u2060册", "隧道已\u2060连\u2060接", "环境检查通过"), availableText.summaryLines)
+        assertEquals("IMS 已\u2060注\u2060册", availableText.title)
+        assertEquals(listOf("1 / 1 张活动 SIM 已注册"), availableText.summaryLines)
         val orphanTokens = setOf("配置", "可用", "注册", "连接")
         assertTrue((unconfiguredText.visibleLines + availableText.visibleLines).none { it.replace("\u2060", "") in orphanTokens })
     }

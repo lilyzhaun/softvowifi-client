@@ -5,9 +5,16 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -20,15 +27,15 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalClipboard
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.onLongClick
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import top.yukonga.miuix.kmp.basic.Surface
 import top.yukonga.miuix.kmp.basic.Text
@@ -37,7 +44,8 @@ import top.yukonga.miuix.kmp.basic.Text
 internal fun MessageDateSeparator(label: String) {
     val colors = LocalSoftVoWiFiColors.current
     Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-        Text(label, color = colors.textSecondary, fontSize = 12.sp, lineHeight = 16.sp, softWrap = true)
+        Text(label, Modifier.background(communicationColors().list.copy(alpha = .85f), RoundedCornerShape(12.dp))
+            .padding(horizontal = 10.dp, vertical = 4.dp), color = colors.textSecondary, fontSize = 12.sp, lineHeight = 16.sp, softWrap = true)
     }
 }
 
@@ -94,14 +102,11 @@ private fun MessageBubble(
     val layout = messageBubbleLayoutContract(presentation.direction)
     val maxFraction = messageBubbleMaximumWidth(density.fontScale)
     val copyableText = messageCopyableBody(presentation.body)
-    var copyFeedbackToken by remember(presentation.body) { mutableStateOf(0) }
-
-    LaunchedEffect(copyFeedbackToken) {
-        if (copyFeedbackToken > 0) {
-            delay(1200L)
-            copyFeedbackToken = 0
-        }
-    }
+    val copied = LocalCommunicationCopyFeedback.current
+    val active = LocalAppRouteActive.current
+    val menu = LocalSmsBubbleMenu.current
+    val selected = active && menu?.selectedId == presentation.recordId
+    val contextTarget = rememberCommunicationContextTarget()
 
     val horizontalAlignment = when (presentation.direction) {
         MessageBubbleDirection.INCOMING -> Alignment.Start
@@ -111,10 +116,11 @@ private fun MessageBubble(
         MessageBubbleDirection.INCOMING -> Alignment.CenterStart
         MessageBubbleDirection.OUTGOING -> Alignment.CenterEnd
     }
-    val surfaceColor = when (presentation.direction) {
-        MessageBubbleDirection.INCOMING -> colors.surface
-        MessageBubbleDirection.OUTGOING -> lerp(colors.canvas, colors.interactive, 0.16f)
+    val baseSurfaceColor = when (presentation.direction) {
+        MessageBubbleDirection.INCOMING -> communicationColors().field
+        MessageBubbleDirection.OUTGOING -> communicationColors().outgoing
     }
+    val surfaceColor = baseSurfaceColor
     val contentColor = when (presentation.direction) {
         MessageBubbleDirection.INCOMING -> colors.textPrimary
         MessageBubbleDirection.OUTGOING -> colors.textPrimary
@@ -133,58 +139,69 @@ private fun MessageBubble(
                 val copyBody: () -> Unit = {
                     if (openActions != null) openActions(presentation.recordId) else scope.launch {
                         clipboard.setClipEntry(messageTextClipEntry(copyableText))
-                        copyFeedbackToken++
+                        copied(CommunicationCopyFeedback.MESSAGE)
                     }
                 }
-                val currentLongPress by rememberUpdatedState(copyBody)
+                val longPress = rememberManagerActionHandler(managerActionFeedback(ManagerAction.ContextAction, active), copyBody)
+                val currentLongPress by rememberUpdatedState(longPress)
                 Modifier
                     .semantics {
+                        this.selected = selected
                         onLongClick(label = if (openActions == null) "复制短信" else "消息操作") {
-                            copyBody()
-                            true
+                            if (active) { longPress(); true } else false
                         }
                     }
-                    .pointerInput(copyableText, presentation.recordId) {
+                    .pointerInput(copyableText, presentation.recordId, active) {
                         detectTapGestures(onLongPress = { currentLongPress() })
                     }
             } else {
                 Modifier
             }
 
+            Box {
             Surface(
-                modifier = surfaceModifier,
+                // Keep the real bubble painted while the Android popup window attaches/detaches.
+                modifier = surfaceModifier.communicationContextSource(contextTarget, selected, hideUnderPreview = false),
                 shape = layout.shape,
                 color = surfaceColor,
                 contentColor = contentColor,
             ) {
-                Box(Modifier.padding(12.dp)) {
-                    Text(
-                        text = presentation.body,
-                        fontSize = layout.bodyFontSizeSp.sp,
-                        lineHeight = layout.bodyLineHeightSp.sp,
-                        softWrap = true,
-                    )
-                }
+                MessageBubbleContent(presentation, layout, contentColor)
             }
-
-            presentation.metadataLines.forEach { line ->
-                Text(
-                    text = messageMetadataDisplayText(line),
-                    color = colors.textSecondary,
-                    fontSize = 12.sp,
-                    lineHeight = 16.sp,
-                    softWrap = true,
-                )
+            if (menu != null) CommunicationContextMenu(show = selected, target = contextTarget,
+                onDismiss = menu.onDismiss, sourceShape = layout.shape, sourceColor = surfaceColor,
+                alignEnd = presentation.direction == MessageBubbleDirection.OUTGOING,
+                stableSurface = true, previewContent = { MessageBubbleContent(presentation, layout, contentColor) }) { finish ->
+                    CommunicationMenuRow("复制正文", CommunicationCopy, { finish {
+                        copyableText?.let { scope.launch {
+                            clipboard.setClipEntry(messageTextClipEntry(it)); copied(CommunicationCopyFeedback.MESSAGE)
+                        } }
+                        menu.onDismiss()
+                    } }, enabled = copyableText != null)
+                    CommunicationMenuRow("消息详情", CallPhoneIcons.Information, { finish(menu.onDetails) },
+                        divider = presentation.recordId in menu.reeditableIds)
+                    if (presentation.recordId in menu.reeditableIds) CommunicationMenuRow("重新编辑", CommunicationCompose,
+                        { finish(menu.onReedit) }, enabled = menu.editingEnabled, divider = false)
             }
+            }
+            presentation.metadataLines.filter { it.role == MessageMetadataRole.NOTE }.forEach { line ->
+                Text(messageMetadataDisplayText(line), color = colors.textSecondary, fontSize = 12.sp, lineHeight = 16.sp, softWrap = true)
+            }
+        }
+    }
+}
 
-            if (copyFeedbackToken > 0) {
-                Text(
-                    text = MESSAGE_COPIED_FEEDBACK,
-                    color = colors.textSecondary,
-                    fontSize = 12.sp,
-                    lineHeight = 16.sp,
-                    softWrap = true,
-                )
+/** The same readonly content in each owner window, not a recorded Android RenderNode. */
+@Composable private fun MessageBubbleContent(presentation: MessageBubblePresentation,
+    layout: MessageBubbleLayoutSpec, contentColor: Color) {
+    Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp), horizontalAlignment = Alignment.End,
+        verticalArrangement = Arrangement.spacedBy(3.dp)) {
+        Text(presentation.body, color = contentColor, fontSize = layout.bodyFontSizeSp.sp,
+            lineHeight = layout.bodyLineHeightSp.sp, softWrap = true)
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            presentation.metadataLines.filter { it.role != MessageMetadataRole.NOTE }.forEach { line ->
+                Text(messageMetadataDisplayText(line), color = communicationColors().metadata,
+                    fontSize = 12.sp, lineHeight = 18.sp, softWrap = true)
             }
         }
     }

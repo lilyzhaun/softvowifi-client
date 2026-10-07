@@ -9,6 +9,16 @@ import androidx.compose.runtime.setValue
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import top.yukonga.miuix.kmp.overlay.OverlayListPopup
+import top.yukonga.miuix.kmp.basic.PopupPositionProvider
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import top.yukonga.miuix.kmp.basic.Text
@@ -50,12 +60,25 @@ fun CallsScreen(
     onOpenCall: (() -> Unit)? = null,
     lineContent: (@Composable () -> Unit)? = null,
     currentLineLabel: String? = null,
-) {
-    var clearConfirmation by remember { mutableStateOf<CallHistoryState.Ready?>(null) }
-    var showHistoryActions by remember { mutableStateOf(false) }
+    lineChoices: List<com.vowifi.sw.manager.data.CallLineChoice> = emptyList(),
+    onOpenHistory: (com.vowifi.sw.manager.ui.navigation.CallHistoryHandle) -> Unit = {},
+    callbackEnabled: Boolean = false,
+    onCallback: (String) -> Unit = {},
+    onDeleteRecords: (CallHistoryState.Ready, Set<com.vowifi.sw.manager.model.CallHistoryRecordId>) -> Unit = { _, _ -> },
+    onRefresh: (() -> Unit)? = null,
+    hasRegisteredEngine: Boolean = false,
+) = PhoneStyle {
+    var deletion by remember { mutableStateOf<Set<com.vowifi.sw.manager.model.CallHistoryRecordId>?>(null) }
+    val routeActive = LocalAppRouteActive.current
+    LaunchedEffect(history, routeActive) { deletion = null }
     val ready = state as? CallUiState.Ready
     val active = ready != null && ready.phase != CallPhase.Idle
-    LaunchedEffect(history, active) { clearConfirmation = null }
+    val historyOwner = (history as? CallHistoryState.Ready)?.owner
+    var searching by remember(historyOwner) { mutableStateOf(false) }
+    var query by remember(historyOwner) { mutableStateOf("") }
+    val search = query.filterNot { it.isWhitespace() || it == '-' }
+    val shownHistory = if (history is CallHistoryState.Ready && search.isNotEmpty())
+        CallHistoryState.Ready(history.records.filter { it.peer?.digits()?.contains(search.removePrefix("+")) == true }, history.owner) else history
     val actions = CallActions(
         onRequestMicrophonePermission,
         onAnswer,
@@ -64,26 +87,22 @@ fun CallsScreen(
         onMute,
         onSpeaker,
     )
-    AppPageScaffold(title = appRootTitle(AppRoute.Calls), actions = {
-        if (!active) {
-            ManagerIconAction(MiuixIcons.Phone, "拨号盘", ManagerAction.Navigate, onOpenDialpad)
-            if (history is CallHistoryState.Ready && history.records.isNotEmpty()) {
-                ManagerIconAction(MiuixIcons.More, "通话记录选项", ManagerAction.ContextAction,
-                    { showHistoryActions = !showHistoryActions })
-            }
-        }
-    }) {
-             lineContent?.let { item(key = "outgoing-line") { it() } }
+    CommunicationFeedbackHost {
+    PhoneHistoryScaffold(searching, query, { searching = !searching; query = "" }, { query = it },
+        { searching = false; query = "" }, showDial = !active && hasRegisteredEngine, onDial = onOpenDialpad) {
+             if (!active) lineContent?.let { item(key = "outgoing-line") { it() } }
             if (state is CallUiState.Ready && state.origin == CallOrigin.DESKTOP_FIXTURE) {
                 item(key = "fixture-disclosure") { CallsFixtureDisclosureBand() }
             }
             if (state !is CallUiState.Ready) callStatePanelSpec(state)?.let { panel ->
-                item(key = "calls-state") { CommunicationNotice(panel.title, panel.description) }
+                item(key = "calls-state") { CommunicationListState(panel) {
+                    if (canRefreshCallState(state)) onRefresh?.let { CommunicationTextAction("刷新通话状态", it) }
+                } }
             }
             if (state is CallUiState.Ready && active) {
                 item(key = "calls-session") {
                     currentLineLabel?.let { PhoneText("当前通话 · $it", size = 14, secondary = true) }
-                    if (onOpenCall != null) OngoingCallAffordance("${callPhaseTitle(state.phase)} · 返回通话", onOpenCall)
+                    if (onOpenCall != null) OngoingCallAffordance("${callSessionStatusTitle(state)} · 返回通话", onOpenCall)
                     else {
                     CallSessionCard(
                         state = state,
@@ -96,33 +115,20 @@ fun CallsScreen(
                 }
             }
             if (!active) {
-                if (historyOwners.size > 1) {
-                    item {
-                        Column(Modifier.padding(bottom = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Text("${historyOwners.singleOrNull { it.selected }?.label.orEmpty()} · 本地记录，线路编号不代表 SIM 槽位")
-                            if (ready == null) historyOwners.filterNot { it.selected }.forEach { choice ->
-                                ManagerTextAction("查看${choice.label}", ManagerAction.SegmentSelection,
-                                    { clearConfirmation = null; onSelectHistoryOwner(choice) })
-                            }
-                        }
-                    }
-                }
                 ready?.operationMessage?.let { message -> item { CommunicationNotice(message) } }
-                val confirmation = clearConfirmation
-                if (confirmation != null) {
-                    item {
-                        ClearCallHistoryConfirmation(
-                            onCancel = { clearConfirmation = null },
-                            onConfirm = { clearConfirmation = null; onClearHistory(confirmation) },
-                        )
-                    }
-                } else if (showHistoryActions && history is CallHistoryState.Ready && history.records.isNotEmpty()) {
-                    item {
-                        ManagerTextAction("清除通话记录", ManagerAction.ContextAction,
-                            { showHistoryActions = false; clearConfirmation = history }, Modifier.padding(bottom = 12.dp))
-                    }
+                if (ready != null && canRefreshCallState(state)) onRefresh?.let {
+                    item(key = "calls-refresh") { CommunicationTextAction("刷新通话状态", it) }
                 }
             }
-            if (!active) callsHistoryContent(history)
+             if (!active) {
+                 if (search.isNotEmpty() && shownHistory is CallHistoryState.Ready && shownHistory.records.isEmpty()) {
+                     item(key = "calls-search-empty") { CommunicationListState(StatePanelSpec(CommunicationSearch,
+                         StatePanelTone.NEUTRAL, "没有匹配的通话记录", "试试其他号码，或清空搜索")) }
+                 } else callsHistoryContent(shownHistory, onOpenHistory, callbackEnabled, onCallback, { deletion = it })
+             }
+    }
+    deletion?.takeIf { routeActive }?.let { ids -> (history as? CallHistoryState.Ready)?.let { ready ->
+        CallHistoryDeleteConfirmation(ready, ids, false, { deletion = null }, onDeleteRecords)
+    } }
     }
 }

@@ -14,6 +14,8 @@ internal data class CallSession(
     val peer: CallPeer? = null,
     val direction: com.vowifi.sw.manager.model.CallDirection? = null,
     val cancelRequested: Boolean = false,
+    val ringback: Boolean = false,
+    val earlyMediaRevision: Long = 0,
 ) {
     override fun toString(): String =
         "CallSession(phase=$phase, busy=$busy, hasPeer=${peer != null})"
@@ -40,7 +42,7 @@ internal object CallSessionReducer {
 
     fun reduce(session: CallSession, event: CallWireEvent): CallSessionChange = when (event) {
         is CallWireEvent.Ringing -> CallSessionChange(ringing(session, event))
-        is CallWireEvent.Dialing -> CallSessionChange(dialing(session, event.token))
+        is CallWireEvent.Dialing -> CallSessionChange(dialing(session, event))
         is CallWireEvent.Ending -> CallSessionChange(
             if (session.token == event.token && session.phase != CallPhase.Idle) session.copy(phase = CallPhase.Ending) else session,
         )
@@ -52,6 +54,8 @@ internal object CallSessionReducer {
                     busy = false,
                     operationMessage = null,
                     peer = retainedPeer(current, event.peer),
+                    ringback = false,
+                    earlyMediaRevision = 0,
                 )
             },
         )
@@ -126,10 +130,10 @@ internal object CallSessionReducer {
     }
 
     fun audioStarted(session: CallSession): CallSession =
-        if (session.phase == CallPhase.InCall) session.copy(audio = CallAudioState.Active) else session
+        if (session.playbackMode() != null) session.copy(audio = CallAudioState.Active) else session
 
     fun audioFailed(session: CallSession, message: String = CallFailureMessages.AUDIO): CallSession =
-        if (session.phase == CallPhase.InCall) {
+        if (session.playbackMode() != null) {
             session.copy(audio = CallAudioState.Failed(message))
         } else {
             session
@@ -165,9 +169,9 @@ internal object CallSessionReducer {
     private fun retainedPeer(current: CallSession, incoming: CallPeer?): CallPeer? =
         if (current.phase == CallPhase.Dialing) current.peer else current.peer ?: incoming
 
-    private fun dialing(session: CallSession, token: String): CallSession {
-        if (session.phase !in setOf(CallPhase.Dialing, CallPhase.Canceling) || session.token != null) return session
-        return session.copy(token = token, operationMessage = null)
+    private fun dialing(session: CallSession, event: CallWireEvent.Dialing): CallSession {
+        if (session.phase !in setOf(CallPhase.Dialing, CallPhase.Canceling) || session.token != null && session.token != event.token) return session
+        return session.copy(token = event.token, operationMessage = null, ringback = event.ringback, earlyMediaRevision = event.earlyMediaRevision)
     }
 
     private fun begin(session: CallSession, required: CallPhase): CallSession? =

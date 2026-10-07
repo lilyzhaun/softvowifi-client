@@ -9,6 +9,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.background
+import top.yukonga.miuix.kmp.blur.layerBackdrop
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.animation.core.tween
@@ -26,6 +28,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.vowifi.sw.manager.model.MessageUiState
@@ -47,11 +51,13 @@ internal fun MessageThreadScreen(
     onSend: (String, String) -> Unit,
     onVisible: (ConversationHandle?, List<String>) -> Unit = { _, _ -> },
     onLoadOlder: () -> Unit = {},
-) {
-    val thread = projectMessageThread(handle, messageProjectionOwner(state), state, ::messageDateSpec)
+    historyChoices: com.vowifi.sw.manager.model.MessageHistoryChoices = com.vowifi.sw.manager.model.MessageHistoryChoices(),
+) = PhoneStyle {
+    val displayedState = rememberMessageRouteFrame(state, handle)
+    val thread = projectMessageThread(handle, messageProjectionOwner(displayedState), displayedState, ::messageDateSpec)
     if (thread == null) {
-        MessageMissingThread(state, onLoadOlder)
-        return
+        MessageMissingThread(displayedState, onLoadOlder)
+        return@PhoneStyle
     }
     var localBody by rememberSaveable(handle.value) { mutableStateOf("") }
     val drafts = LocalThreadDrafts.current
@@ -63,38 +69,54 @@ internal fun MessageThreadScreen(
     val submission = rememberMessageDraftSubmission(state, thread.recipient?.value.orEmpty(), body, { updateBody("") }, onSend)
     val requestImeOwner = rememberMessageImeOwnerRequest()
     var selectedId by remember(handle) { mutableStateOf<String?>(null) }
-    var copied by remember(handle) { mutableStateOf(false) }
+    var actionMode by remember(handle) { mutableStateOf(SmsMessageAction.MENU) }
+    val routeActive = LocalAppRouteActive.current
+    var composerHeight by remember(handle) { mutableStateOf(0.dp) }
+    val density = LocalDensity.current
     val loadedIds = thread.items.mapNotNull { item -> when (item) {
         is MessageThreadItem.IncomingBubble -> item.recordId
         is MessageThreadItem.OutgoingBubble -> item.recordId
         is MessageThreadItem.DateSeparator -> null
     } }
-    val selectedRecord = (state as? MessageUiState.Ready)?.records?.firstOrNull { it.id == selectedId && it.id in loadedIds }
+    val selectedRecord = (displayedState as? MessageUiState.Ready)?.records?.firstOrNull { it.id == selectedId && it.id in loadedIds }
     LaunchedEffect(selectedId, selectedRecord) { if (selectedRecord == null) selectedId = null }
-    LaunchedEffect(copied) { if (copied) { delay(1200); copied = false } }
+    LaunchedEffect(routeActive) { if (!routeActive) selectedId = null }
+    CommunicationFeedbackHost(bottomInset = composerHeight) {
+    val copied = LocalCommunicationCopyFeedback.current
     MessageThreadActions(selectedRecord, body, thread.compose.editingEnabled && !submission.pending,
-        { selectedId = null }, { submission.draftEdited(); updateBody(it) }, { copied = true })
-    CompositionLocalProvider(LocalSmsBubbleAction provides { id -> selectedId = id }) {
-    Column(Modifier.fillMaxSize()) {
+        { selectedId = null }, { submission.draftEdited(); updateBody(it) }, { copied(CommunicationCopyFeedback.MESSAGE) }, actionMode)
+    CompositionLocalProvider(LocalSmsBubbleAction provides { id -> selectedId = id; actionMode = SmsMessageAction.MENU },
+        LocalSmsBubbleMenu provides SmsBubbleMenu(selectedId.takeIf { actionMode == SmsMessageAction.MENU },
+            (displayedState as? MessageUiState.Ready)?.records?.filter(::canReeditMessage)?.map { it.id }?.toSet().orEmpty(),
+            thread.compose.editingEnabled && !submission.pending,
+            { actionMode = SmsMessageAction.DETAILS }, { actionMode = SmsMessageAction.REEDIT }, { selectedId = null })) {
+    val backdrop = rememberCommunicationBackdrop()
+    Column(Modifier.fillMaxSize().background(communicationColors().timeline)) {
         MessageThreadTimeline(
             route = AppRoute.MessageThread(handle),
-            state = state,
+            state = displayedState,
             thread = thread,
-            modifier = Modifier.weight(1f),
+            modifier = Modifier.weight(1f).then(backdrop?.let { Modifier.layerBackdrop(it) } ?: Modifier),
             onVisible = onVisible,
             onLoadOlder = onLoadOlder,
+            lineLabel = historyChoices.lines.firstOrNull { it.owner == (displayedState as? MessageUiState.Available)?.ownerId }?.lineTitle(),
         )
-        if (copied) Text("已复制", modifier = Modifier.padding(horizontal = 16.dp), color = LocalSoftVoWiFiColors.current.textSecondary)
+        CompositionLocalProvider(LocalCommunicationBackdrop provides backdrop) {
+        Box(Modifier.onSizeChanged { composerHeight = with(density) { it.height.toDp() } }) {
         MessageComposer(
             body = body,
             compose = thread.compose,
             imeOwner = messageRouteLayout(AppRoute.MessageThread(handle)).imeOwner,
             requestImeOwner = requestImeOwner,
             pending = submission.pending,
+            outcome = submission.outcome,
             canSend = thread.recipient != null && body.isNotBlank(),
             onBodyChange = { submission.draftEdited(); updateBody(boundedDraftBody(it)) },
             onSend = submission.submit,
         )
+        }
+        }
+    }
     }
     }
 }
@@ -107,6 +129,7 @@ private fun MessageThreadTimeline(
     modifier: Modifier,
     onVisible: (ConversationHandle?, List<String>) -> Unit,
     onLoadOlder: () -> Unit,
+    lineLabel: String?,
 ) {
     val topInset = LocalSubpageTopContentInset.current
     val spacing = messageSubpageSpacing()
@@ -118,6 +141,7 @@ private fun MessageThreadTimeline(
     val searching = searchOpen && query.isNotEmpty()
     val shownItems = remember(thread.items, query, searchOpen) { filterLoadedThread(thread.items, if (searchOpen) query else "") }
     val listState = if (searching) searchState else timelineState
+    val scroll = rememberSmsScrollFeedback(listState.canScrollBackward || listState.canScrollForward)
     MessageVisibilityBinder(thread.handle, listState, onVisible)
     val window = (state as? MessageUiState.Ready)?.window
     val lastItemIndex = messageThreadLastItemIndex(shownItems.size, disclosure != null)?.plus(if (window != null) 1 else 0)
@@ -158,11 +182,10 @@ private fun MessageThreadTimeline(
     }
     Column(modifier.fillMaxWidth().padding(top = topInset + 8.dp).clipToBounds()) {
     Column(Modifier.padding(horizontal = 16.dp)) {
-        Text(if (thread.compose.mode == MessageComposeMode.READ_ONLY) "只读：可编辑草稿，连接后再发送。" else "当前会话线路",
-            color = LocalSoftVoWiFiColors.current.textSecondary, fontSize = 12.sp, lineHeight = 16.sp)
         MessageThreadSearch(searchOpen, query, shownItems.count { it !is MessageThreadItem.DateSeparator },
-            onToggle = { searchOpen = !searchOpen; if (!searchOpen) query = "" }, onQuery = { query = it })
-        if (searchOpen) ManagerTextAction("回到最新", ManagerAction.Navigate, {
+            onToggle = { searchOpen = !searchOpen; if (!searchOpen) query = "" }, onQuery = { query = it },
+            contextLabel = if (thread.compose.mode == MessageComposeMode.READ_ONLY) "只读：草稿可编辑，暂不可发送" else lineLabel)
+        if (searchOpen) CommunicationTextAction("回到最新", {
             query = ""; searchOpen = false
             val latest = messageThreadLastItemIndex(thread.items.size, disclosure != null)?.plus(if (window != null) 1 else 0)
             latest?.let { timelineState.requestScrollToItem(it) }
@@ -173,14 +196,15 @@ private fun MessageThreadTimeline(
         val inset = if (maxWidth >= 600.dp) 24.dp else 16.dp
         LazyColumn(
             state = listState,
-            modifier = Modifier.fillMaxSize().widthIn(max = 960.dp).align(Alignment.TopCenter),
+            modifier = Modifier.fillMaxSize().widthIn(max = 960.dp).align(Alignment.TopCenter).then(scroll.modifier),
+            overscrollEffect = scroll.effect,
             contentPadding = PaddingValues(
                 start = inset,
                     top = spacing.contentTopGapDp.dp,
                 end = inset,
                 bottom = spacing.threadBottomGapDp.dp,
             ),
-            verticalArrangement = Arrangement.spacedBy(spacing.threadItemGapDp.dp, Alignment.Bottom),
+            verticalArrangement = Arrangement.spacedBy(spacing.threadItemGapDp.dp, if (searching) Alignment.Top else Alignment.Bottom),
         ) {
             if (window != null) item(key = "history-older") {
                 MessagePageAction(window.loading, window.failed, window.older != null, "加载更早消息") {
@@ -193,6 +217,10 @@ private fun MessageThreadTimeline(
             }
             disclosure?.let { text ->
                 item(key = "fixture-disclosure") { MessageFixtureDisclosureBand(text) }
+            }
+            if (searching && shownItems.isEmpty()) item(key = "thread-search-empty") {
+                CommunicationListState(StatePanelSpec(CommunicationSearch, StatePanelTone.NEUTRAL,
+                    "未找到匹配消息", "仅搜索已加载消息。可更换关键词，或关闭搜索查看会话。"))
             }
             items(shownItems, key = ::threadItemKey) { item ->
                 when (item) {
@@ -241,8 +269,8 @@ private fun MessageMissingThread(state: MessageUiState, onRetry: () -> Unit) {
         Modifier
             .fillMaxSize()
             .padding(start = 16.dp, top = topInset + 16.dp, end = 16.dp, bottom = bottomInset + 16.dp),
-    ) { Column { StatePanel(panel)
-        if (state is MessageUiState.Failure) ManagerTextAction("重试加载", ManagerAction.Navigate, onRetry)
+    ) { CommunicationListState(panel) {
+        if (state is MessageUiState.Failure) CommunicationTextAction("重试加载", onRetry)
     } }
 }
 

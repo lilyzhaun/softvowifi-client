@@ -51,18 +51,27 @@ internal object CallPhoneIcons {
         moveTo(16f, 8f); curveTo(19f, 10f, 19f, 14f, 16f, 16f)
         moveTo(19f, 5f); curveTo(24f, 9f, 24f, 15f, 19f, 19f)
     }
-    val Keypad = glyph("Keypad") {
+    val Keypad = ImageVector.Builder("Keypad", 24.dp, 24.dp, 24f, 24f).apply {
+        path(fill = null, stroke = SolidColor(Color.Black), strokeLineWidth = 2.8f, strokeLineCap = StrokeCap.Round) {
         for (row in 0..2) for (column in 0..2) {
             val horizontal = 5f + column * 7f
             val vertical = 5f + row * 7f
-            moveTo(horizontal - .5f, vertical); lineTo(horizontal + .5f, vertical)
+            moveTo(horizontal, vertical); lineTo(horizontal + .01f, vertical)
         }
-    }
-    val End = glyph("End call") {
-        moveTo(3f, 12f); curveTo(7f, 6f, 17f, 6f, 21f, 12f)
-        lineTo(21f, 16f); lineTo(16f, 16f); lineTo(16f, 12f)
-        curveTo(13f, 11f, 11f, 11f, 8f, 12f); lineTo(8f, 16f); lineTo(3f, 16f); close()
-    }
+        }
+    }.build()
+    val End = ImageVector.Builder("End call", 24.dp, 24.dp, 24f, 24f).apply {
+        path(fill = SolidColor(Color.Black)) {
+            moveTo(2.4f, 10.3f); curveTo(7.5f, 5.5f, 16.5f, 5.5f, 21.6f, 10.3f)
+            curveTo(22.6f, 11.2f, 22.4f, 12.7f, 21.6f, 13.6f); lineTo(19.8f, 15.1f)
+            curveTo(19.2f, 15.7f, 18.2f, 15.5f, 17.8f, 14.9f); lineTo(16.5f, 12.4f)
+            curveTo(16.2f, 11.9f, 16.1f, 11.4f, 16.1f, 10.9f)
+            curveTo(13.4f, 10f, 10.6f, 10f, 7.9f, 10.9f)
+            curveTo(7.9f, 11.4f, 7.8f, 11.9f, 7.5f, 12.4f); lineTo(6.2f, 14.9f)
+            curveTo(5.8f, 15.5f, 4.8f, 15.7f, 4.2f, 15.1f); lineTo(2.4f, 13.6f)
+            curveTo(1.6f, 12.7f, 1.4f, 11.2f, 2.4f, 10.3f); close()
+        }
+    }.build()
     val Delete = glyph("Delete number") {
         moveTo(9f, 5f); lineTo(22f, 5f); lineTo(22f, 19f); lineTo(9f, 19f); lineTo(2f, 12f); close()
         moveTo(12f, 9f); lineTo(18f, 15f); moveTo(18f, 9f); lineTo(12f, 15f)

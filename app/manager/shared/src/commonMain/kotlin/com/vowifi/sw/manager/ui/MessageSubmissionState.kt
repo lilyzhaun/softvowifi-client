@@ -7,6 +7,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.rememberUpdatedState
 import com.vowifi.sw.manager.model.MessageSendAttempt
 import com.vowifi.sw.manager.data.SimOwnerId
 import com.vowifi.sw.manager.model.MessageUiState
@@ -52,6 +53,7 @@ internal fun rememberMessageDraftSubmission(
     var snapshot by rememberSaveable { mutableStateOf<List<String>?>(null) }
     var observedBusy by rememberSaveable { mutableStateOf(false) }
     var submissionEdited by rememberSaveable { mutableStateOf(false) }
+    val routeActive by rememberUpdatedState(LocalAppRouteActive.current)
     val ready = state as? MessageUiState.Available
     var feedback by remember(ready?.ownerId) { mutableStateOf<MessageOutcomeFeedback?>(null) }
     val visibleFeedback = feedback?.takeIf { it.matches(ready?.ownerId, recipient, body) }
@@ -70,6 +72,7 @@ internal fun rememberMessageDraftSubmission(
         }
         if (outcome != null && outcome != OutgoingMessageStatus.QUEUED ||
             observedBusy && ready?.sendBusy != true || state is MessageUiState.Failure || state is MessageUiState.Unavailable ||
+            state is MessageUiState.PermissionDenied ||
             ready != null && (ready.ownerId?.wire().orEmpty() != submitted[0] || !ready.composerEnabled || ready.attachmentNotice?.let(::isStorageAttachmentNotice) == true)
         ) {
             snapshot = null
@@ -81,7 +84,7 @@ internal fun rememberMessageDraftSubmission(
         outcome = visibleFeedback?.attempt?.status,
         draftEdited = { feedback = null; if (snapshot != null) submissionEdited = true },
     ) {
-        if (snapshot == null && canSendMessage(state, recipient, body) && ready != null) {
+        if (routeActive && snapshot == null && canSendMessage(state, recipient, body) && ready != null) {
             feedback = null
             submissionEdited = false
             snapshot = listOf(ready.ownerId?.wire().orEmpty(), recipient, body) + listOfNotNull(ready.sendAttempt?.messageId)

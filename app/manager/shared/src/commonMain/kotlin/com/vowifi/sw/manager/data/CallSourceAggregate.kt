@@ -34,6 +34,7 @@ class CallSourceAggregate(
     internal var inventoryReady = false
     internal var selected: SimOwnerId? = null
     internal var explicitSelection = false
+    private var alignedHistoryOwner: SimOwnerId? = null
     internal var presented: CallLineChild? = null
     internal var preparing: CallBinding? = null
     private var reconciliation: Pair<CallLineChild, CallBinding?>? = null
@@ -97,6 +98,10 @@ class CallSourceAggregate(
         val reconcile = synchronized(lock) {
             if (closed) return
             publishCallLines()
+            if (selected != alignedHistoryOwner) {
+                alignedHistoryOwner = selected
+                selected?.let(recorder::refreshOwner)
+            }
             val previous = presented
             val active = children.filter { it.ready()?.phase?.let { phase -> phase != CallPhase.Idle } == true }
             val current = previous?.takeIf { it in active } ?: active.firstOrNull()
@@ -114,10 +119,11 @@ class CallSourceAggregate(
 
     override fun selectLine(owner: SimOwnerId) {
         synchronized(lock) {
-            if (closed || lines.value.choices.none { it.owner == owner }) return
+            if (closed || lines.value.choices.none { it.owner == owner && it.running }) return
             selected = owner
             explicitSelection = true
         }
+        recorder.selectOutgoingOwner(owner)
         publish()
     }
 
@@ -167,6 +173,7 @@ class CallSourceAggregate(
     override fun cancel() = current(CallAction.Cancel)
     override fun selectHistoryOwner(choice: CallHistoryOwnerChoice) = recorder.selectHistory(choice)
     override fun clearHistory(expected: CallHistoryState.Ready) = recorder.clear(expected)
+    override fun deleteHistory(expected: CallHistoryState.Ready, ids: Set<CallHistoryRecordId>) = recorder.delete(expected, ids)
     override fun close() {
         val retiring = synchronized(lock) {
             if (closed) return

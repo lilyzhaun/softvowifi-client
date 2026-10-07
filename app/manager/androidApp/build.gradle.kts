@@ -1,3 +1,4 @@
+import java.util.Properties
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
@@ -19,6 +20,10 @@ dependencies {
     testImplementation(libs.kotlinx.serialization.json)
 }
 
+val clientVersion = Properties().apply {
+    rootProject.file("version.properties").inputStream().use { load(it) }
+}
+
 android {
     namespace = "com.vowifi.sw"
     compileSdk = 37
@@ -27,8 +32,8 @@ android {
         applicationId = "com.vowifi.sw"
         minSdk = 33
         targetSdk = 36
-        versionCode = 43
-        versionName = "0.3.40"
+        versionCode = clientVersion.getProperty("versionCode").toInt()
+        versionName = clientVersion.getProperty("versionName")
     }
 
     sourceSets.getByName("main") {

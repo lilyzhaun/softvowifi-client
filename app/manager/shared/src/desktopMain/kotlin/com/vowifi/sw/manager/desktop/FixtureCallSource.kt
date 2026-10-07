@@ -57,6 +57,11 @@ class FixtureCallSource(private val mode: CallFixtureMode, private val simulateC
     override fun clearHistory(expected: CallHistoryState.Ready) {
         if (mutableHistory.value === expected) mutableHistory.value = CallHistoryState.Empty
     }
+    override fun deleteHistory(expected: CallHistoryState.Ready, ids: Set<com.vowifi.sw.manager.model.CallHistoryRecordId>) {
+        if (mutableHistory.value !== expected) return
+        val remaining = expected.records.filterNot { it.recordId in ids }
+        mutableHistory.value = if (remaining.isEmpty()) CallHistoryState.Empty else CallHistoryState.Ready(remaining, expected.owner)
+    }
     private val mutableControls = MutableStateFlow(CallAudioControls())
     override val audioControls: StateFlow<CallAudioControls> = mutableControls.asStateFlow()
 

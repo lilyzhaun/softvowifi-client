@@ -44,8 +44,13 @@ object CallOngoingNotification {
                 val end = Intent(END_ACTION).setClassName(context, "com.vowifi.sw.IncomingCallActionReceiver")
                     .setData(Uri.parse("softvowifi-call:$key"))
                     .putExtra(AndroidIncomingCallNotificationCoordinator.EXTRA_NOTIFICATION_KEY, key)
-                builder.addAction(Notification.Action.Builder(null, if (state.phase == CallPhase.Dialing) "取消" else "挂断",
-                    PendingIntent.getBroadcast(context, 206, end, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)).build())
+                val hangup = PendingIntent.getBroadcast(context, 206, end, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+                if (state.phase == CallPhase.InCall) {
+                    val person = Person.Builder().setName(state.peer?.text() ?: "未知号码").build()
+                    builder.setStyle(Notification.CallStyle.forOngoingCall(person, hangup))
+                } else {
+                    builder.addAction(Notification.Action.Builder(null, if (state.phase == CallPhase.Dialing) "取消" else "挂断", hangup).build())
+                }
             }
         }
         return builder.build()

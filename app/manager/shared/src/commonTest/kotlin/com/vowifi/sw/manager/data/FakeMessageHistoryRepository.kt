@@ -3,7 +3,6 @@ package com.vowifi.sw.manager.data
 import com.vowifi.sw.manager.model.MessageRecord
 import com.vowifi.sw.manager.ui.boundedCommunicationText
 import com.vowifi.sw.manager.ui.boundedMessageSearchQuery
-import com.vowifi.sw.manager.ui.privateUiPhoneDisplay
 
 internal class FakeMessageHistoryRepository(private val snapshot: () -> List<FakeStoredMessage>) : MessageHistoryRepository {
     override suspend fun owners(cursor: MessageOwnerCursor?): MessageOwnerPage {
@@ -21,7 +20,7 @@ internal class FakeMessageHistoryRepository(private val snapshot: () -> List<Fak
         require(cursor == null || cursor.owner == request.owner && cursor.query == query)
         val rows = snapshot().filter { it.ownerId == request.owner }.groupBy { it.conversationKey }.map { (key, messages) ->
             val last = messages.maxWith(compareBy<FakeStoredMessage> { it.messageAtMs }.thenBy { it.id })
-            MessageConversationSummary(StoredMessageConversation(request.owner, key), privateUiPhoneDisplay(last.peerAddress),
+            MessageConversationSummary(StoredMessageConversation(request.owner, key), messageSenderDisplay(last.peerAddress),
                 boundedCommunicationText(last.body, "内容不可显示", 80), last.id, last.messageAtMs, last.outgoingStatus,
                 messages.size.toLong(), messages.count { it.incoming && !it.isRead }.toLong(), last.engineStatus)
         }.sortedWith(compareByDescending<MessageConversationSummary> { it.timestampMs }.thenByDescending { it.latestMessageId }.thenByDescending { it.identity.key })

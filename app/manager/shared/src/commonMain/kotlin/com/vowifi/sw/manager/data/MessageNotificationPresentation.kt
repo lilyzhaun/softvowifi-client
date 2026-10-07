@@ -15,22 +15,9 @@ class MessageNotificationPresentation private constructor(
                     PeerNumberNormalizer.normalize(it.peerLabel) == conversation.key }
                 .sortedWith(compareBy<MessageRecord.Incoming> { it.timestampMs }.thenBy { it.id })
                 .takeLast(6).map { it.copy(preview = boundedNotificationBody(it.preview)) }
-            return if (messages.isEmpty()) null else MessageNotificationPresentation(notificationSender(messages.last().peerLabel), messages)
+            return if (messages.isEmpty()) null else MessageNotificationPresentation(messageSenderDisplay(messages.last().peerLabel, "短信"), messages)
         }
     }
-}
-
-private fun notificationSender(label: String): String {
-    val clean = label.filterNot { it.isISOControl() || it in '\u202A'..'\u202E' || it in '\u2066'..'\u2069' }.trim()
-    if (clean.isEmpty() || listOf("sip:", "sips:", "raw:", "tel:").any { clean.startsWith(it, ignoreCase = true) } ||
-        clean.contains('@') || clean.contains("://")) return "短信"
-    var end = 0
-    repeat(64) {
-        if (end < clean.length) {
-            end += if (clean[end].isHighSurrogate() && end + 1 < clean.length && clean[end + 1].isLowSurrogate()) 2 else 1
-        }
-    }
-    return clean.substring(0, end)
 }
 
 private fun boundedNotificationBody(body: String): String {

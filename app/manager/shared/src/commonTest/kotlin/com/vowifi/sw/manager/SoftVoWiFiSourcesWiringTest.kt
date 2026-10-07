@@ -153,6 +153,7 @@ private class WiringFixture {
             override fun dial(number: String) { dials += number }
             override fun dial(expected: com.vowifi.sw.manager.model.CallBinding, number: String) { dials += number }
             override fun clearHistory(expected: CallHistoryState.Ready) = Unit
+            override fun deleteHistory(expected: CallHistoryState.Ready, ids: Set<com.vowifi.sw.manager.model.CallHistoryRecordId>) = error("wiring refresh test must not delete")
         },
     )
 }

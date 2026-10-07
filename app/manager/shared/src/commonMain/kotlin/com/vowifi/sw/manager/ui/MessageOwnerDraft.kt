@@ -66,7 +66,7 @@ internal fun rememberBoundMessageDraft(
     val available = state as? MessageUiState.Available
     LaunchedEffect(canInitialize, initializeAutomatically, available?.ownerId, available?.composerEnabled, available?.origin,
         owner, draft.recipient, draft.body) {
-        if (canInitialize && initializeAutomatically && owner == null && draft.recipient.isEmpty() && draft.body.isEmpty() &&
+        if (canInitialize && initializeAutomatically && draft.recipient.isEmpty() && draft.body.isEmpty() &&
             available?.origin == MessageOrigin.ENGINE && available.composerEnabled) {
             ownerWire = available.ownerId?.wire()
         }
@@ -81,6 +81,7 @@ internal fun rememberBoundMessageDraft(
         if (owner == null && !draft.bindUnassigned(target)) {
             selectionNotice = "该线路已有草稿。请先清空当前未选线路的草稿，再切换；两份草稿均已保留。"
         } else {
+            initializeAutomatically = false
             ownerWire = target.wire()
             selectionNotice = null
             onSelectOwner(target)

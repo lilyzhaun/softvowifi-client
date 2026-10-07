@@ -19,6 +19,10 @@ internal class AndroidMessageRepository(
     private val metadata = database.metadataDao()
     override val history: MessageHistoryRepository = AndroidMessageHistoryStore(database.historyDao())
 
+    override suspend fun changeConversation(identity: StoredMessageConversation, action: MessageConversationAction): Boolean = storageCall {
+        messages.changeConversation(identity.owner.wire(), identity.key, action)
+    }
+
     override suspend fun unreadNotificationPreview(identity: StoredMessageConversation): List<MessageRecord> = storageCall {
         messages.unreadNotificationPreview(identity.owner.wire(), identity.key).asReversed().map(MessageEntity::toRecord)
     }
@@ -126,13 +130,11 @@ internal class AndroidMessageRepository(
         request: ObservedIncomingReadRequest,
         nowMs: Long,
     ): IncomingReadUpdate = storageCall {
-        IncomingReadUpdate.of(
-            messages.markIncomingRead(
+        messages.markIncomingRead(
                 ownerId = request.ownerId.wire(),
                 conversationKey = request.conversationKey,
                 observedIds = request.observedMessageIds,
                 nowMs = nowMs,
-            ),
         )
     }
 

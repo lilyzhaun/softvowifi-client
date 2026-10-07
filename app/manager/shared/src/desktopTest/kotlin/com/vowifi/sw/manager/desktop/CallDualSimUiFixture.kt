@@ -50,12 +50,13 @@ internal class CallDualSimUiSource : CallSource by FixtureCallSource("unavailabl
     fun authorize(owner: SimOwnerId) {
         lines.value = lines.value.copy(selectedOwner = owner,
             outgoingBinding = if (owner == callOwnerA) bindingA else bindingB,
-            choices = lines.value.choices.map { it.copy(selected = it.owner == owner) })
+             choices = lines.value.choices.map { it.copy(selected = it.owner == owner) })
+        historyOwners.value = listOf(CallHistoryOwnerChoice(owner, if (owner == callOwnerA) "历史线路 1" else "历史线路 2", true))
     }
     fun ready(binding: CallBinding = bindingA, phase: CallPhase = CallPhase.Idle, busy: Boolean = false) =
         CallUiState.Ready(phase, CallAudioState.Idle, CallOrigin.ENGINE, busy = busy, binding = binding)
     private fun choice(owner: SimOwnerId) = CallLineChoice(owner,
-        if (owner == callOwnerA) "Synthetic A" else "Synthetic B", true, true, true, true, false)
+        if (owner == callOwnerA) "Synthetic A" else "Synthetic B", true, true, true, true, false, running = true)
 }
 
 @OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class, kotlinx.coroutines.ExperimentalCoroutinesApi::class)
@@ -81,6 +82,7 @@ internal class CallDualSimUiDriver(
         FixtureMessageSource("empty"), source,
     )
     private var time = 0L
+    private var currentRoute: AppRoute = initial ?: AppRoute.Calls
     private val scene = ImageComposeScene(width = 420, height = 980,
         coroutineContext = StandardTestDispatcher(scheduler)) {
         CompositionLocalProvider(LocalLifecycleOwner provides lifecycle, LocalSaveableStateRegistry provides registry) {
@@ -96,7 +98,7 @@ internal class CallDualSimUiDriver(
     fun frame() {
         repeat(40) { scheduler.runCurrent(); time += 16_666_667L; scene.render(time).close(); scheduler.runCurrent() }
     }
-    fun route(route: AppRoute) { assertTrue(routes.trySend(route).isSuccess); frame() }
+    fun route(route: AppRoute) { currentRoute = route; assertTrue(routes.trySend(route).isSuccess); frame() }
     fun save(): Map<String, List<Any?>> = registry.performSave()
     fun edit(value: String) {
         val field = nodes().last { it.config.getOrNull(SemanticsProperties.EditableText) != null }
@@ -104,23 +106,27 @@ internal class CallDualSimUiDriver(
         assertTrue(requireNotNull(field.config[SemanticsActions.SetText].action).invoke(AnnotatedString(value)))
         frame()
     }
-    fun number() = nodes().last { it.config.getOrNull(SemanticsProperties.EditableText) != null }
-        .config[SemanticsProperties.EditableText].text
+    // EditableText is the visual, spaced number; InputText is the actual draft submitted to the source.
+    fun number() = nodes().last { it.config.getOrNull(SemanticsProperties.InputText) != null }
+        .config[SemanticsProperties.InputText].text
     fun hasText(value: String) = nodes().any { value in labels(it) }
     fun action(value: String) = assertNotNull(nodes().lastOrNull {
         value in labels(it) && it.config.getOrNull(SemanticsActions.OnClick) != null
     }, "missing native action: $value")
     fun enabled(value: String) = action(value).config.getOrNull(SemanticsProperties.Disabled) == null
-    fun geometry() = listOf("出向线路", "删除号码", "1", "0", "拨打").map { action(it).boundsInRoot }
+    fun geometry() = listOf("删除号码", "1", "0", "拨打").map { action(it).boundsInRoot }
     fun click(value: String) { invoke(action(value)); frame() }
     fun invoke(node: SemanticsNode) {
         assertNull(node.config.getOrNull(SemanticsProperties.Disabled))
         assertTrue(requireNotNull(node.config[SemanticsActions.OnClick].action).invoke())
     }
     fun select(owner: SimOwnerId) {
+        val original = currentRoute
+        if (original == AppRoute.Dialpad) route(AppRoute.Calls)
         click("出向线路")
         assertTrue(hasText("选择拨出线路"))
         click(if (owner == callOwnerA) "Synthetic A" else "Synthetic B")
+        if (original == AppRoute.Dialpad) route(AppRoute.Dialpad)
     }
     fun capture(name: String) {
         val directory = Files.createDirectories(Path.of("build", "reports", "call-dual-ui"))

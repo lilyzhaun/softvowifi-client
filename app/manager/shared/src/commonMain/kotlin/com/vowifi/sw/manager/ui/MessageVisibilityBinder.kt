@@ -28,7 +28,11 @@ internal fun MessageVisibilityBinder(
         if (!visible) return@LaunchedEffect
         snapshotFlow {
             list.layoutInfo.visibleItemsInfo.mapNotNull { item ->
-                (item.key as? String)?.takeIf { it.startsWith("incoming-") }?.removePrefix("incoming-")
+                (item.key as? String)?.let { key -> when {
+                    key.startsWith("incoming-") -> key.removePrefix("incoming-")
+                    key.startsWith("outgoing-") -> key.removePrefix("outgoing-")
+                    else -> null
+                } }
             }
         }.distinctUntilChanged().collect { ids -> onVisible(handle, ids) }
     }

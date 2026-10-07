@@ -1,6 +1,7 @@
 package com.vowifi.sw.manager.ui
 
 import com.vowifi.sw.manager.data.ConversationGroup
+import com.vowifi.sw.manager.data.messageSenderDisplay
 import com.vowifi.sw.manager.model.CallDirection
 import com.vowifi.sw.manager.model.CallOutcome
 import com.vowifi.sw.manager.model.CallRecord
@@ -84,8 +85,8 @@ internal fun conversationRowPresentation(
 ): ConversationRowPresentation {
     val latest = group.records.last()
     return ConversationRowPresentation(
-        peerDisplay = privateUiPhoneDisplay(latest.peerLabel),
-        avatarText = messageAvatarFallback(privateUiPhoneDisplay(latest.peerLabel)),
+        peerDisplay = messageSenderDisplay(latest.peerLabel),
+        avatarText = messageAvatarFallback(messageSenderDisplay(latest.peerLabel)),
         preview = boundedCommunicationText(latest.preview, "内容不可显示", 80),
         timeText = formatCommunicationTime(latest.timestampMs, nowMs, localDateLabel),
         statusText = when (latest) {
@@ -101,6 +102,8 @@ internal data class CallHistoryRowPresentation(
     val outcomeText: String,
     val durationText: String,
     val timeText: String,
+    val direction: CallDirection = CallDirection.INCOMING,
+    val outcome: CallOutcome? = null,
 ) {
     override fun toString(): String = "CallHistoryRowPresentation"
 }
@@ -110,7 +113,7 @@ internal fun callHistoryRowPresentation(
     nowMs: Long,
     localDateLabel: (Long) -> String,
 ): CallHistoryRowPresentation = CallHistoryRowPresentation(
-    peerDisplay = privateUiPhoneDisplay(record.peer?.digits()),
+    peerDisplay = privateUiPhoneDisplay(record.peer?.dialNumber()),
     directionText = when (record.direction) {
         CallDirection.INCOMING -> "来电"
         CallDirection.OUTGOING -> "去电"
@@ -127,6 +130,8 @@ internal fun callHistoryRowPresentation(
     },
     durationText = formatCallDuration(record.durationSec),
     timeText = formatCommunicationTime(record.startedAtMs, nowMs, localDateLabel),
+    direction = record.direction,
+    outcome = record.outcome,
 )
 
 internal enum class PressFeedback { MIUIX_DEFAULT }

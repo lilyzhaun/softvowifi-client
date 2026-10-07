@@ -44,14 +44,15 @@ class EngineMessageSourceTest {
     }
 
     @Test
-    fun multipleRunningInstancesRequireExplicitOwnerBeforeSending() = runTest(UnconfinedTestDispatcher()) {
+    fun multipleRegisteredInstancesDefaultFirstOwnerButDoNotAuthorizeOtherOwner() = runTest(UnconfinedTestDispatcher()) {
         val transport = FakeEngineMessageTransport()
         val source = sourceOf(listOf(running(ICCID_A), running(ICCID_B)), transport)
 
-        val unbound = assertIs<MessageUiState.Unavailable>(source.state.value)
-        assertEquals(MESSAGE_SELECT_OWNER, unbound.message)
+        val selected = assertIs<MessageUiState.Inbox>(source.state.value)
+        assertEquals(OWNER_A, selected.ownerId)
+        assertTrue(selected.composerEnabled)
         assertEquals(2, source.historyChoices.value.lines.size)
-        source.sendSms(SYNTH_NUMBER, SYNTH_TEXT)
+        source.sendFromDisplayedOwner(OWNER_B, SYNTH_NUMBER, SYNTH_TEXT)
         assertTrue(transport.requests.isEmpty())
         source.close()
     }
@@ -367,8 +368,9 @@ class EngineMessageSourceTest {
 
         instances = listOf(running(ICCID_A), running(ICCID_B))
         source.refresh()
-        val multiple = assertIs<MessageUiState.Unavailable>(source.state.value)
-        assertEquals(MESSAGE_SELECT_OWNER, multiple.message)
+        val multiple = assertIs<MessageUiState.Inbox>(source.state.value)
+        assertEquals(OWNER_A, multiple.ownerId)
+        assertTrue(multiple.composerEnabled)
         assertEquals(2, source.historyChoices.value.lines.size)
         source.close()
     }

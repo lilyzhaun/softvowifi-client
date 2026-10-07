@@ -3,7 +3,6 @@ package com.vowifi.sw.manager.data
 import com.vowifi.sw.manager.model.OutgoingMessageStatus
 import com.vowifi.sw.manager.ui.boundedCommunicationText
 import com.vowifi.sw.manager.ui.boundedMessageSearchQuery
-import com.vowifi.sw.manager.ui.privateUiPhoneDisplay
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlin.coroutines.cancellation.CancellationException
@@ -68,7 +67,7 @@ internal suspend fun collectMessageSummaryPage(
             currentCoroutineContext().ensureActive()
             val summary = MessageConversationSummary(
                 StoredMessageConversation(request.owner, row.conversationKey),
-                privateUiPhoneDisplay(row.peerAddress),
+                messageSenderDisplay(row.peerAddress),
                 boundedCommunicationText(row.body, "内容不可显示", 80),
                 row.messageId, row.messageAtMs,
                 if (row.direction == MESSAGE_DIRECTION_OUTGOING) {

@@ -59,11 +59,16 @@ internal data class PendingCallAudio(
     val transport: EngineMessageTransport,
     val iccid: String,
     val generation: Long,
+    val mode: CallAudioMode = CallAudioMode.Conversation,
+    val earlyMediaRevision: Long = 0,
+    val ringback: Boolean = false,
 ) {
-    fun session(): CallAudioSession = CallAudioSession(iccid, token, generation, transport)
+    fun session(): CallAudioSession = CallAudioSession(iccid, token, generation, transport, mode, earlyMediaRevision, ringback)
 
     fun isLive(session: CallSession, generation: Long): Boolean =
-        session.token == token && session.phase == CallPhase.InCall && this.generation == generation
+        session.token == token && this.generation == generation &&
+            if (mode == CallAudioMode.Conversation) session.phase == CallPhase.InCall
+            else session.phase == CallPhase.Dialing && !session.cancelRequested && session.earlyMediaRevision == earlyMediaRevision && session.ringback == ringback
 }
 
 internal data class CallEffects(
@@ -72,4 +77,5 @@ internal data class CallEffects(
     val history: CallHistoryEffect? = null,
     val historyOwner: SimOwnerId? = null,
     val stopSession: CallAudioSession? = null,
+    val endedSession: CallAudioSession? = null,
 )

@@ -37,9 +37,9 @@ enum class AppearanceBlurSummary(val text: String) {
 }
 
 enum class AppearanceLiquidGlassSummary(val text: String) {
-    ENABLED("悬浮底栏使用液态折射"),
-    DISABLED("悬浮底栏使用不透明指示器"),
-    UNSUPPORTED_FALLBACK("当前设备不支持模糊，使用不透明指示器"),
+    ENABLED("通信操作与悬浮底栏使用液态折射"),
+    DISABLED("通信操作使用普通模糊或不透明背景"),
+    UNSUPPORTED_FALLBACK("当前设备不支持模糊，使用不透明背景"),
 }
 
 fun predictiveBackSummary(enabled: Boolean): String =

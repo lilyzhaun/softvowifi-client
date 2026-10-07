@@ -15,7 +15,7 @@ class CallDualSimUiTest {
             assertTrue(driver.enabled("拨打"))
             driver.click("拨打")
             assertSame(driver.source.bindingB, driver.requests.single().first)
-            assertEquals(callOwnerA, driver.source.historyOwners.value.single().owner)
+            assertEquals(callOwnerB, driver.source.historyOwners.value.single().owner)
             assertEquals(callNumber, driver.requests.single().second)
             assertTrue(driver.source.fallbackDials.isEmpty())
         }
@@ -136,7 +136,7 @@ class CallDualSimUiTest {
             assertSame(driver.source.bindingA, driver.requests.single().first)
             assertEquals(callNumber, driver.number())
             driver.capture("selected-line")
-            driver.click("出向线路"); driver.capture("picker")
+            driver.route(AppRoute.Calls); driver.click("出向线路"); driver.capture("picker")
         }
     }
 
@@ -185,7 +185,7 @@ class CallDualSimUiTest {
             })
         }
         CallDualSimUiDriver(source).use { driver ->
-            driver.click("出向线路")
+            driver.route(AppRoute.Calls); driver.click("出向线路")
             assertTrue(driver.hasText("SIM 状态未知 · 引擎不可用 · 注册未知 · 状态待确认"))
             assertFalse(driver.hasText("SIM 未启用 · 引擎不可用 · 注册未知 · 状态待确认"))
         }
@@ -204,8 +204,12 @@ class CallDualSimUiTest {
             assertFalse(driver.enabled("拨打"))
             driver.select(callOwnerB)
             assertEquals(callNumber, driver.number())
-            driver.click("历史"); driver.click("拨号盘")
+            driver.click("返回"); driver.click("拨号盘")
             assertEquals(callNumber, driver.number())
+            assertFalse(driver.enabled("拨打"), "仅更新出向binding不能覆盖尚未同步的当前state")
+            assertTrue(driver.requests.isEmpty())
+            driver.source.state.value = driver.source.ready(driver.source.bindingB)
+            driver.frame()
             driver.click("拨打")
             assertSame(driver.source.bindingB, driver.requests.single().first)
         }

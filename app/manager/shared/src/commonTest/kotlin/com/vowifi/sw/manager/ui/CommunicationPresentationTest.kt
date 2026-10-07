@@ -120,12 +120,13 @@ class CommunicationPresentationTest {
 
         val presentation = callHistoryRowPresentation(record, now, localDate)
 
-        assertEquals("15550123", presentation.peerDisplay)
+        assertEquals("+15550123", presentation.peerDisplay)
         assertEquals("来电", presentation.directionText)
         assertEquals("已完成", presentation.outcomeText)
         assertEquals("1 分 40 秒", presentation.durationText)
         assertEquals("1 小时前", presentation.timeText)
         assertEquals("CallHistoryRowPresentation", presentation.toString())
+        assertFalse(presentation.toString().contains("15550123"))
         assertFalse(presentation.toString().contains("correlation"))
         assertFalse(presentation.toString().contains("token"))
     }

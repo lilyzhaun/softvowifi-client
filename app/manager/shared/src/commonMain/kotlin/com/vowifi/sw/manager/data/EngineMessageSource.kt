@@ -37,6 +37,8 @@ class EngineMessageSource(
     override fun searchHistory(query: String) = session.selection.searchInbox(query)
     override fun loadMoreHistory() = session.selection.loadMoreInbox()
     override fun loadOlderMessages() = session.selection.loadOlder()
+    override suspend fun changeConversation(handle: String, action: MessageConversationAction) =
+        changeStoredMessageConversation(session, handle, action)
     override fun sendFromDisplayedOwner(owner: SimOwnerId?, number: String, text: String) {
         val displayed = state.value as? MessageUiState.Available ?: return
         if (session.closed || owner == null || displayed.ownerId != owner || !displayed.composerEnabled) return

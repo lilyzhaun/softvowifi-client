@@ -103,7 +103,7 @@ class CallSourceAggregateOwnershipTest {
         } finally { fixture.source.close() }
     }
 
-    @Test fun historySelectionIsIndependentAndGlobalOpenRowBlocksClear() = runTest(UnconfinedTestDispatcher()) {
+    @Test fun outgoingSelectionAlignsHistoryAndGlobalOpenRowBlocksClear() = runTest(UnconfinedTestDispatcher()) {
         val fixture = CallAggregateFixture(coroutineContext)
         try {
             fixture.first.emitIncoming(CALL_TOKEN, "RINGING")
@@ -113,9 +113,10 @@ class CallSourceAggregateOwnershipTest {
             fixture.source.selectHistoryOwner(choice)
             fixture.source.selectLine(OWNER_B)
             fixture.source.refresh()
-            assertEquals(OWNER_A, fixture.repository.lastOwner())
+            assertEquals(OWNER_B, fixture.repository.lastOwner())
             fixture.source.clearHistory(fixture.source.history.value as CallHistoryState.Ready)
             assertEquals(1, fixture.repository.listByOwner(OWNER_A).size)
+            assertEquals(1, fixture.repository.listByOwner(OWNER_B).size)
             fixture.instances = fixture.instances.filter { it.iccid != CallAggregateFixture.ICCID_A }
             fixture.source.refresh()
             fixture.second.emitIncoming(CALL_OTHER, "ENDED", "timeout")

@@ -35,13 +35,30 @@ import java.lang.reflect.InvocationTargetException
 
 @OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class, kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class WarmRootRouteTest {
+    @Test fun warmSnapIsConsumedAndLaterTabSelectionsHaveIntermediateFrames() = onEdt {
+        Driver().use { driver ->
+            driver.route(AppRoute.Calls)
+            val forward = driver.tabFrames(2)
+            assertTrue(forward.any { it > 1.01f && it < 1.99f }, "暖跳转后点击底栏必须有1到2之间的过程：$forward")
+            driver.assertSelected(2)
+            val backward = driver.tabFrames(0)
+            assertTrue(backward.any { it > .01f && it < 1.99f }, "再次切换不能沿用旧SNAP：$backward")
+            driver.assertSelected(0)
+            driver.route(AppRoute.Messages)
+            val repeated = driver.tabFrames(1)
+            assertTrue(repeated.any { it > 1.01f && it < 1.99f }, "新暖跳转也应只消费一次：$repeated")
+            driver.assertSelected(1)
+        }
+    }
+
     @Test fun warmCallsAfterSettledHomeShowsCallsContent() = onEdt {
         Driver().use { driver ->
             driver.assertVisible("SoftVoWiFi")
-            assertFalse(driver.isVisible("拨号盘"))
+            assertFalse(driver.isVisible("搜索通话记录"))
             driver.route(AppRoute.Calls)
             assertEquals(listOf<AppRoute>(AppRoute.Calls), driver.consumed)
-            driver.assertVisible("拨号盘")
+            driver.assertVisible("搜索通话记录")
+            assertFalse(driver.isVisible("拨号盘"), "无注册引擎仍应隐藏创建入口")
             driver.assertSelected(1)
         }
     }
@@ -49,14 +66,14 @@ class WarmRootRouteTest {
     @Test fun queuedWarmCallsAndRepeatedRequestAfterManualHome() = onEdt {
         Driver().use { driver ->
             driver.assertVisible("SoftVoWiFi")
-            assertFalse(driver.isVisible("拨号盘"))
+            assertFalse(driver.isVisible("搜索通话记录"))
             driver.route(AppRoute.Calls)
-            driver.assertVisible("拨号盘")
+            driver.assertVisible("搜索通话记录")
             driver.assertSelected(1)
             driver.tab(0)
             driver.assertVisible("SoftVoWiFi")
             driver.route(AppRoute.Calls)
-            driver.assertVisible("拨号盘")
+            driver.assertVisible("搜索通话记录")
             driver.assertSelected(1)
             assertEquals(listOf<AppRoute>(AppRoute.Calls, AppRoute.Calls), driver.consumed)
         }
@@ -67,12 +84,13 @@ class WarmRootRouteTest {
             driver.enqueue(AppRoute.Calls)
             driver.enqueue(AppRoute.Messages)
             driver.frame()
-            driver.assertVisible("新建短信")
+            driver.assertVisible("搜索短信")
+            assertFalse(driver.isVisible("新建短信"), "无注册引擎仍应隐藏创建入口")
             driver.assertSelected(2)
             driver.route(AppRoute.Dialpad)
             driver.assertVisible("1")
             driver.route(AppRoute.Calls)
-            driver.assertVisible("拨号盘")
+            driver.assertVisible("搜索通话记录")
             driver.back()
             driver.assertVisible("SoftVoWiFi")
             driver.route(AppRoute.Calls)
@@ -89,7 +107,7 @@ class WarmRootRouteTest {
         Driver().use { driver ->
             driver.route(AppRoute.Calls)
             driver.swipeLeft()
-            driver.assertVisible("新建短信")
+            driver.assertVisible("搜索短信")
             driver.assertSelected(2)
             driver.back()
             driver.assertVisible("SoftVoWiFi")
@@ -97,7 +115,7 @@ class WarmRootRouteTest {
             driver.tab(3)
             driver.assertSelected(3)
             driver.tab(1)
-            driver.assertVisible("拨号盘")
+            driver.assertVisible("搜索通话记录")
             driver.back()
             driver.assertVisible("SoftVoWiFi")
         }
@@ -139,7 +157,7 @@ class WarmRootRouteTest {
             }
         }
         init { frame() }
-        fun frame() { assertOwner(); repeat(40) {
+        fun frame(count: Int = 40) { assertOwner(); repeat(count) {
             scheduler.runCurrent()
             time += 16_666_667L
             scene.render(time).close()
@@ -175,6 +193,14 @@ class WarmRootRouteTest {
         fun tab(index: Int) {
             assertTrue(requireNotNull(tabs()[index].config[SemanticsActions.OnClick].action).invoke())
             frame()
+        }
+        fun tabFrames(index: Int): List<Float> {
+            assertTrue(requireNotNull(tabs()[index].config[SemanticsActions.OnClick].action).invoke())
+            return List(40) {
+                frame(1)
+                nodes().first { it.config.contains(SemanticsProperties.HorizontalScrollAxisRange) }
+                    .config[SemanticsProperties.HorizontalScrollAxisRange].value() / 420f
+            }
         }
         private fun visibleNodes() = nodes().filter { node ->
             val bounds = node.boundsInRoot

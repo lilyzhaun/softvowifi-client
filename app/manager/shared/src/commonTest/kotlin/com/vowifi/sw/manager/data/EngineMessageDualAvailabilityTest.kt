@@ -38,29 +38,29 @@ class EngineMessageDualAvailabilityTest {
         assertEquals(0, rig.wireB.events.subscriptionCount.value)
     }
 
-    @Test fun twoActiveSimsWithOnlyOneRunningStillRequireBinding() = runTest {
+    @Test fun twoActiveSimsWithOnlyOneRegisteredAutomaticallyBindThatLine() = runTest {
         val rig = DualSmsFixture(this)
         try {
             rig.instances = rig.instances.take(1); rig.start()
             assertEquals(setOf(OWNER_A, OWNER_B), rig.source.historyChoices.value.lines.map { it.owner }.toSet())
             assertTrue(rig.source.historyChoices.value.lines.all { it.active == true })
-            rig.source.sendSms("155501", "unbound"); runCurrent()
-            assertTrue(rig.wireA.sends.isEmpty())
+            assertEquals(OWNER_A, rig.source.historyChoices.value.selectedOwner)
+            rig.source.sendSms("155501", "registered default"); runCurrent()
+            assertEquals(1, rig.wireA.sends.size)
             rig.select(OWNER_B)
             assertFalse(assertIs<MessageUiState.Inbox>(rig.source.state.value).composerEnabled)
             rig.source.sendSms("155501", "offline B"); runCurrent()
-            assertTrue(rig.wireA.sends.isEmpty())
+            assertEquals(1, rig.wireA.sends.size)
         } finally { rig.close() }
     }
 
-    @Test fun restoredHistoryDoesNotBindANewDualSimDraftButSingleActiveSimIsAutomatic() = runTest {
+    @Test fun registeredDefaultBindsWithDualOrSingleActiveInventory() = runTest {
         val rig = DualSmsFixture(this)
         try {
             rig.repository.insertIncomingIfAbsent(OWNER_A, "stored", "stored", "155501", "synthetic", 1, 1)
             rig.repository.setLastOwner(OWNER_A); rig.start()
-            assertFalse(assertIs<MessageUiState.Inbox>(rig.source.state.value).composerEnabled)
-            rig.source.sendSms("155501", "unbound"); runCurrent()
-            assertTrue(rig.wireA.sends.isEmpty())
+            assertTrue(assertIs<MessageUiState.Inbox>(rig.source.state.value).composerEnabled)
+            assertEquals(OWNER_A, rig.source.historyChoices.value.selectedOwner)
             rig.instances = rig.instances.take(1); rig.active = listOf("8986001"); rig.refresh()
             assertTrue(assertIs<MessageUiState.Inbox>(rig.source.state.value).composerEnabled)
             rig.source.sendSms("155501", "bound single"); runCurrent()

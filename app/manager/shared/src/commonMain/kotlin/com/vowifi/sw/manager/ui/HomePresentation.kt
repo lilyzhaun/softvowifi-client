@@ -62,13 +62,19 @@ private fun homeNotices(
                 AppRoute.SettingsConfiguration,
             ),
         )
-        is SimControlUiState.Ready -> engine.message?.let {
-            add(
-                HomeNoticePresentation(
+        is SimControlUiState.Ready -> {
+            engine.message?.let {
+                add(HomeNoticePresentation(
                     NoticeCardSpec(SemanticTone.WARNING, "SIM 控制状态需注意", homeSafeText(it, "部分 SIM 状态暂时不可用。", 80)),
                     AppRoute.SettingsConfiguration,
-                ),
-            )
+                ))
+            }
+            if (engine.instances.any { it.presence == SimPresence.ACTIVE_UNCONFIGURED }) {
+                add(HomeNoticePresentation(
+                    NoticeCardSpec(SemanticTone.WARNING, "SIM 尚未配置", "这张 SIM 需要创建配置后才能启动引擎。"),
+                    AppRoute.SettingsConfiguration,
+                ))
+            }
         }
         SimControlUiState.Loading -> Unit
     }

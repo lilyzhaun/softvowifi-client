@@ -94,7 +94,8 @@ class HomeScreenTest {
 
         assertEquals(listOf("1", "1"), presentation.metrics.map { it.value })
         assertEquals(listOf("已注册 IMS", "运行中引擎"), presentation.metrics.map { it.label })
-        assertEquals(listOf(SemanticTone.WARNING, SemanticTone.SUCCESS), presentation.metrics.map { it.tone })
+        assertEquals(listOf(SemanticTone.SUCCESS, SemanticTone.SUCCESS), presentation.metrics.map { it.tone })
+        assertEquals("1 / 2 张活动 SIM 已注册", presentation.facts.first().value)
     }
 
     @Test
@@ -131,14 +132,14 @@ class HomeScreenTest {
         )
 
         assertEquals(SemanticTone.SUCCESS, ready.hero.tone)
-        assertEquals("IMS 已就绪", ready.hero.title)
-        assertEquals("IMS 已注册，隧道已连接，环境检查通过。", ready.hero.summary)
+        assertEquals("IMS 已注册", ready.hero.title)
+        assertEquals("1 / 1 张活动 SIM 已注册", ready.hero.summary)
         assertEquals(SemanticTone.WARNING, stale.hero.tone)
         assertEquals("IMS 尚\u2060未\u2060注\u2060册", stale.hero.title)
         assertEquals("引擎正在运行，软件 IMS 尚未注册。", stale.hero.summary)
         assertEquals(SemanticTone.SUCCESS, observerLagging.hero.tone)
-        assertEquals("IMS 已就绪", observerLagging.hero.title)
-        assertEquals("IMS 已注册，隧道已连接，环境检查通过。", observerLagging.hero.summary)
+        assertEquals("IMS 已注册", observerLagging.hero.title)
+        assertEquals("1 / 1 张活动 SIM 已注册", observerLagging.hero.summary)
     }
 
     @Test

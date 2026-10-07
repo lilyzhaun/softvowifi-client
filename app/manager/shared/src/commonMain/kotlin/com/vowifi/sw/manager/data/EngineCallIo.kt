@@ -81,7 +81,8 @@ internal fun audioEndedEffects(
     event: CallAudioEvent.Ended,
     handle: () -> CallEffects,
 ): CallEffects {
-    if (closed || session.phase != com.vowifi.sw.manager.model.CallPhase.InCall ||
+    if (closed || session.playbackMode() != event.session.mode ||
+        event.session.mode == CallAudioMode.Progress && session.earlyMediaRevision != event.session.earlyMediaRevision ||
         session.audio is com.vowifi.sw.manager.model.CallAudioState.Failed ||
         session.token != event.session.token || generation != event.session.generation
     ) {

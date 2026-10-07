@@ -149,8 +149,9 @@ class DialerGeometryRenderTest {
             press("0", 700); assertEquals("+1", number); assertEquals(2, edits)
             press("删除号码", 700); assertEquals("", number); assertEquals(3, edits)
             press("删除号码", 30); assertEquals(3, edits)
-            press("返回", 30); press("历史", 30)
-            assertEquals(2, navigation); assertEquals(5, haptics.size)
+            press("返回", 30)
+            assertEquals(1, navigation); assertEquals(4, haptics.size)
+            assertTrue(nodes(scene).none { it.config.getOrNull(SemanticsProperties.ContentDescription)?.contains("历史") == true })
         } finally { scene.close() }
     }
 

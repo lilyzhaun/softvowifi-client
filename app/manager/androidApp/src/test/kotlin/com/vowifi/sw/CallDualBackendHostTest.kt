@@ -23,7 +23,8 @@ class CallDualBackendHostTest {
         shadowOf(fixture.context).grantPermissions(Manifest.permission.RECORD_AUDIO)
         try {
             fixture.connected()
-            assertNull(fixture.source.lines.value.outgoingBinding)
+            assertEquals(fixture.ownerA, fixture.source.lines.value.selectedOwner)
+            assertNotNull(fixture.source.lines.value.outgoingBinding)
             fixture.source.selectLine(fixture.ownerB)
             fixture.lifecycle.setVisible(activity.get(), true)
             val binding = fixture.source.lines.value.outgoingBinding!!

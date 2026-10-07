@@ -5,6 +5,7 @@ import com.vowifi.sw.manager.model.CallAudioState
 import com.vowifi.sw.manager.model.CallOrigin
 import com.vowifi.sw.manager.model.CallPhase
 import com.vowifi.sw.manager.model.CallUiState
+import com.vowifi.sw.manager.model.CallSyncState
 import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.Close
 import top.yukonga.miuix.kmp.icon.extended.Info
@@ -42,6 +43,21 @@ internal fun callPhaseTitle(phase: CallPhase): String = when (phase) {
     CallPhase.InCall -> "通话中"
     CallPhase.Canceling -> "正在取消"
     CallPhase.Ending -> "正在挂断"
+}
+
+internal fun callSessionStatusTitle(state: CallUiState.Ready): String = when (state.sync) {
+    CallSyncState.Ready -> callPhaseTitle(state.phase)
+    CallSyncState.Recovering -> "正在恢复通话状态"
+    CallSyncState.Unavailable -> "通话状态待确认"
+    CallSyncState.Unregistered -> "线路未注册"
+    CallSyncState.OwnerChanged -> "通话线路已变化"
+}
+
+internal fun canRefreshCallState(state: CallUiState): Boolean = when (state) {
+    CallUiState.Loading -> false
+    is CallUiState.Ready -> !state.busy && state.sync != CallSyncState.Recovering &&
+        (state.sync != CallSyncState.Ready || state.operationMessage != null)
+    else -> true
 }
 
 internal fun callAudioText(audio: CallAudioState): String = when (audio) {

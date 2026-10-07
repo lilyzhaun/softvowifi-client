@@ -17,32 +17,37 @@ import com.vowifi.sw.manager.data.StoredMessageConversation
 import com.vowifi.sw.manager.model.*
 import com.vowifi.sw.manager.ui.*
 import com.vowifi.sw.manager.ui.navigation.AppRoute
-import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlin.math.abs
 import kotlin.test.Test
 import kotlin.test.assertTrue
 import kotlin.test.assertFalse
 
-@OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class)
+@OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class, kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class SmsInnerPagingRenderTest {
     private var time = 0L
     private val owner = requireNotNull(SimOwnerId.parse("sim-owner-v1:" + "a".repeat(43)))
     private val peer = "+12025550123"
     private fun record(index: Int) = MessageRecord.Incoming("id-$index", peer, "synthetic message $index", index * 60000L)
 
-    @Test fun historySearchExitRestoresAnchorAndIncomingRequiresExplicitJump() = runBlocking {
+    @Test fun historySearchExitRestoresAnchorAndIncomingRequiresExplicitJump() = runTest { smsOnEdt {
         val state = mutableStateOf(MessageUiState.Ready((0..79).map(::record), MessageOrigin.ENGINE, ownerId = owner))
         val route = AppRoute.MessageThread(StoredMessageConversation(owner, peer.drop(1)).handle)
         val lifecycle = object : LifecycleOwner {
             override val lifecycle = LifecycleRegistry.createUnsafe(this).apply { currentState = Lifecycle.State.RESUMED }
         }
-        val scene = ImageComposeScene(width = 420, height = 900) {
+        val scene = ImageComposeScene(width = 420, height = 900, coroutineContext = StandardTestDispatcher(testScheduler)) {
             CompositionLocalProvider(LocalLifecycleOwner provides lifecycle) { SoftVoWiFiTheme(false) {
                 AppSubpageScene(route, appChromeSpec(AppearanceSettings(true, false), false), titleOverride = peer, onBack = {}) {
                     MessageThreadScreen(route.conversation, state.value, { _, _ -> error("read only") })
                 }
             } }
         }
+        fun frame(scene: ImageComposeScene) { repeat(24) {
+            testScheduler.advanceTimeBy(50); testScheduler.runCurrent()
+            time += 50_000_000L; scene.render(time).close()
+        } }
         try {
             frame(scene)
             assertTrue(nodes(scene).any { text(it, "synthetic message 79") })
@@ -65,16 +70,16 @@ class SmsInnerPagingRenderTest {
             state.value = state.value.copy(records = state.value.records + record(81)); frame(scene)
             assertTrue(nodes(scene).any { text(it, "synthetic message 81") })
         } finally { scene.close() }
-    }
+    } }
 
-    private fun frame(scene: ImageComposeScene) { repeat(12) { time += 100_000_000L; scene.render(time).close() } }
     private fun nodes(scene: ImageComposeScene): List<SemanticsNode> = scene.semanticsOwners.flatMap { owner ->
         fun descend(node: SemanticsNode): List<SemanticsNode> = listOf(node) + node.children.flatMap(::descend)
         descend(owner.rootSemanticsNode)
     }
     private fun text(node: SemanticsNode, value: String) = node.config.getOrNull(SemanticsProperties.Text)?.any { it.text == value } == true
     private fun click(scene: ImageComposeScene, value: String) {
-        val node = nodes(scene).single { text(it, value) && it.config.getOrNull(SemanticsActions.OnClick) != null }
+        val node = nodes(scene).single { (text(it, value) || it.config.getOrNull(SemanticsProperties.ContentDescription)?.contains(value) == true) &&
+            it.config.getOrNull(SemanticsActions.OnClick) != null }
         requireNotNull(node.config[SemanticsActions.OnClick].action).invoke()
     }
 }

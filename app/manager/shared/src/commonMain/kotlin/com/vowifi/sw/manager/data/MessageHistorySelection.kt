@@ -24,6 +24,8 @@ internal class MessageHistorySelection(
     private var activeOwners: Set<SimOwnerId>? = null
     private var activeRosterComplete = false
     private var automaticOwner: SimOwnerId? = null
+    private var lineLabels = emptyMap<SimOwnerId, String>()
+    private var runningOwners = emptySet<SimOwnerId>()
     private var selected: String? = null
     private var target: StoredMessageConversation? = null
     private var dataRevision = 0L
@@ -36,6 +38,7 @@ internal class MessageHistorySelection(
     val historyChoices get() = inbox.choices
     suspend fun saveOwnerRemark(owner: SimOwnerId, input: String) = inbox.saveRemark(owner, input)
     fun refreshInbox() = inbox.refresh()
+    fun refreshInboxContent() = inbox.refreshPage(showLoading = false)
     suspend fun initialOwners() = inbox.initialOwners.await()
     fun refreshAfterStartup() = synchronized(lock) {
         inbox.refreshPage()
@@ -73,12 +76,16 @@ internal class MessageHistorySelection(
         availableOwners: Set<SimOwnerId>? = null,
         defaultOwner: SimOwnerId? = (value as? MessageUiState.Ready)?.takeIf { it.composerEnabled }?.ownerId,
         availableOwnersComplete: Boolean = availableOwners != null,
+        availableLineLabels: Map<SimOwnerId, String> = emptyMap(),
+        runningLineOwners: Set<SimOwnerId> = emptySet(),
     ) = synchronized(lock) {
         val previous = liveOwners
         liveOwners = sessions
         activeOwners = availableOwners
         activeRosterComplete = availableOwnersComplete
         automaticOwner = defaultOwner
+        lineLabels = availableLineLabels
+        runningOwners = runningLineOwners
         live = value
         if (previous.keys != sessions.keys || sessions.any { (owner, current) -> previous[owner]?.records !== current.records }) {
             inbox.refresh()
@@ -169,7 +176,7 @@ internal class MessageHistorySelection(
     }
 
     private fun render() {
-        val root = inbox.render(live, liveOwners, activeOwners, automaticOwner, activeRosterComplete)
+        val root = inbox.render(live, liveOwners, activeOwners, automaticOwner, activeRosterComplete, lineLabels, runningOwners)
         val saved = history as? MessageUiState.Ready
         val current = saved?.ownerId?.let(liveOwners::get)
         output.value = if (selected == null) root else if (saved != null && current != null) {

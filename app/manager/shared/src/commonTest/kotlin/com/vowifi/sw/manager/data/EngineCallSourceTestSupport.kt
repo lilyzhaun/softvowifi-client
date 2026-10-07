@@ -148,6 +148,17 @@ internal class FakeCallTransport(
         emit("callState", token) { put("state", state) }
     }
 
+    suspend fun emitProgress(token: String, ringback: Boolean, earlyMediaRevision: Long = 0) {
+        snapshotToken = token
+        snapshotStage = "DIALING"
+        snapshotDirection = "OUTGOING"
+        emit("callState", token) {
+            put("state", "DIALING")
+            put("ringback", ringback)
+            put("earlyMediaRevision", earlyMediaRevision)
+        }
+    }
+
     suspend fun emitCallEnded(token: String, reason: String, durationSec: Int? = null) {
         snapshotStage = "IDLE"
         emit("callEnded", token) {
@@ -196,9 +207,14 @@ internal class FakeCallAudioController(
         val token: String,
         val generation: Long,
         val transport: EngineMessageTransport,
+        val mode: CallAudioMode = CallAudioMode.Conversation,
+        val earlyMediaRevision: Long = 0,
+        val ringback: Boolean = false,
     )
 
     val starts = mutableListOf<Start>()
+    val endTones = mutableListOf<CallAudioSession>()
+    override fun callEnded(session: CallAudioSession) { endTones.add(session); stopIf(session) }
     val operations = mutableListOf<String>()
     var activeToken: String? = null
     var lastEndedToken: String? = null
@@ -213,7 +229,7 @@ internal class FakeCallAudioController(
         CompletableDeferred<Unit>().also { gate -> startGates.addLast(gate) }
 
     override suspend fun start(session: CallAudioSession) {
-        starts += Start(session.iccid, session.token, session.generation, session.transport)
+        starts += Start(session.iccid, session.token, session.generation, session.transport, session.mode, session.earlyMediaRevision, session.ringback)
         operations += "start:${session.token}"
         if (startGates.isNotEmpty()) startGates.removeFirst().await()
         startHandler()
@@ -237,7 +253,7 @@ internal class FakeCallAudioController(
 
     private fun activeSession(token: String? = activeToken): CallAudioSession =
         starts.lastOrNull { it.token == token }?.let { start ->
-            CallAudioSession(start.iccid, start.token, start.generation, start.transport)
+            CallAudioSession(start.iccid, start.token, start.generation, start.transport, start.mode, start.earlyMediaRevision, start.ringback)
         } ?: CallAudioSession(CALL_ICCID_A, token ?: CALL_TOKEN, 0L, starts.lastOrNull()?.transport ?: error("no audio"))
 }
 

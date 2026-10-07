@@ -15,6 +15,7 @@ internal data class HomeSoftwareImsProjection(
     val total: Int get() = active.size
     val allRegistered: Boolean get() = readable && total > 0 && registered == total
     val metric: String get() = when {
+        readable && registered > 0 -> registered.toString()
         !readable || unknown > 0 -> "未知"
         total == 0 -> "无 SIM"
         else -> registered.toString()
@@ -25,6 +26,7 @@ internal data class HomeSoftwareImsProjection(
         else -> "$registered / $total 张活动 SIM 已注册" + if (unknown > 0) " · $unknown 张未知" else ""
     }
     val tone: SemanticTone get() = when {
+        readable && registered > 0 -> SemanticTone.SUCCESS
         !readable || unknown > 0 -> SemanticTone.WARNING
         allRegistered -> SemanticTone.SUCCESS
         registered > 0 -> SemanticTone.WARNING

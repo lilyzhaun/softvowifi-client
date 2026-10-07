@@ -56,19 +56,7 @@ internal fun MessageSearchField(
     onQueryChange: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    var expanded by remember { mutableStateOf(false) }
-    val focusManager = LocalFocusManager.current
-    InputField(
-        query = query,
-        onQueryChange = { onQueryChange(boundedMessageSearchQuery(it)) },
-        onSearch = { focusManager.clearFocus() },
-        expanded = expanded,
-        onExpandedChange = { expanded = it },
-        modifier = modifier
-            .clearFocusOnInactiveRouteAndImeHide()
-            .onFocusChanged { expanded = it.isFocused }
-            .fillMaxWidth()
-            .padding(horizontal = 8.dp, vertical = 4.dp),
-        label = "搜索",
-    )
+    CommunicationInput(query, { onQueryChange(boundedMessageSearchQuery(it)) }, "搜索短信",
+        modifier.clearFocusOnInactiveRouteAndImeHide().fillMaxWidth().padding(bottom = 8.dp),
+        singleLine = true, leading = CommunicationSearch, fontSize = 16)
 }

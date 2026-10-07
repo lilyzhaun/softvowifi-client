@@ -56,6 +56,7 @@ class AndroidCallSource(
     override val lines get() = delegate.lines
     override fun selectLine(owner: SimOwnerId) = delegate.selectLine(owner)
     override fun selectHistoryOwner(choice: CallHistoryOwnerChoice) = delegate.selectHistoryOwner(choice)
+    override fun deleteHistory(expected: com.vowifi.sw.manager.model.CallHistoryState.Ready, ids: Set<com.vowifi.sw.manager.model.CallHistoryRecordId>) = delegate.deleteHistory(expected, ids)
     override val audioControls = audio.controls
 
     override fun refresh() = delegate.refresh()

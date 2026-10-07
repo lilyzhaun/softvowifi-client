@@ -7,6 +7,7 @@ import com.vowifi.sw.manager.data.*
 import com.vowifi.sw.manager.model.MessageUiState
 import java.util.UUID
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
@@ -35,9 +36,12 @@ class MessagePagingRoomSourceTest {
         try {
             repeat(121) { index -> repository.insertIncomingIfAbsent(owner, "row-$index", "engine-$index", "1555$index", "synthetic", index.toLong(), 1) }
             repeat(121) { index -> repository.insertIncomingIfAbsent(owner, "thread-$index", "thread-engine-$index", "1666", "long-window", index.toLong(), 1) }
-            val running = EngineMessageSource(EngineMessageRuntime({ emptyList() }, { error("No engine permitted in this test") }, { 1L }),
+            val listed = CompletableDeferred<Unit>()
+            val running = EngineMessageSource(EngineMessageRuntime({ listed.complete(Unit); emptyList() }, { error("No engine permitted in this test") }, { 1L }),
                 Dispatchers.IO, repository, { owner }, { "unused" })
             source = running
+            // The initial Room index can publish before startup recovery refreshes it.
+            withTimeout(10_000) { listed.await() }
             val root = withTimeout(10_000) { running.state.first { it is MessageUiState.Inbox && !it.page.loading } } as MessageUiState.Inbox
             assertEquals(50, root.page.items.size)
             assertFalse(root.composerEnabled)

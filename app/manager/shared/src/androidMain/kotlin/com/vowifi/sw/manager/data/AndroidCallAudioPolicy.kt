@@ -55,6 +55,8 @@ class AndroidCallAudioPolicy(
         publish(if (manager.communicationDevice?.id == target.id) null else "正在等待音频路由确认")
         return true
     }
+    internal fun progressOutputState(): String =
+        "mode=${manager.mode} communication=${manager.communicationDevice?.type ?: 0} voice-volume=${manager.getStreamVolume(AudioManager.STREAM_VOICE_CALL)} voice-muted=${manager.isStreamMute(AudioManager.STREAM_VOICE_CALL)}"
     private fun publish(message: String? = null) {
         if (!owned.get()) return
         val type = manager.communicationDevice?.type

@@ -37,6 +37,7 @@ internal fun requireCredentialEncryptedStorage(isDeviceProtectedStorage: Boolean
 }
 
 interface MessageRepository {
+    suspend fun changeConversation(identity: StoredMessageConversation, action: MessageConversationAction): Boolean = throw MessageStorageException()
     val history: MessageHistoryRepository
     suspend fun unreadNotificationPreview(identity: StoredMessageConversation): List<MessageRecord> = emptyList()
     suspend fun ownerLabels(owners: List<SimOwnerId>): Map<SimOwnerId, MessageOwnerLabel> = throw MessageStorageException()

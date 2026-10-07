@@ -138,6 +138,7 @@ sealed class ConfigurationFormatException(
 ) : IllegalArgumentException(message) {
     class Unparseable : ConfigurationFormatException("配置结果无法解析")
     class Unsuccessful : ConfigurationFormatException("配置结果未成功")
+    class PayloadTooLarge : ConfigurationFormatException("配置补丁超过 64 KiB 限制")
     class ForbiddenField : ConfigurationFormatException("配置包含禁止字段")
     class IdentityLeak : ConfigurationFormatException("配置包含敏感标识")
     class InvalidTransport : ConfigurationFormatException("底层网络值无效")

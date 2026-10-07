@@ -7,9 +7,9 @@ import com.vowifi.sw.manager.data.MessageRemarkSaveResult
 import com.vowifi.sw.manager.data.SimOwnerId
 import com.vowifi.sw.manager.model.MessageHistoryLine
 
-internal fun MessageHistoryLine.lineTitle(): String = label?.let {
-    it.remark.ifBlank { "本地线路 ${it.ordinal}" }
-} ?: "正在读取线路"
+internal fun MessageHistoryLine.lineTitle(): String = simLabel?.let { sim ->
+    label?.remark?.takeIf { it.isNotBlank() }?.let { "$sim · $it" } ?: sim
+} ?: label?.let { it.remark.ifBlank { "历史线路 ${it.ordinal}" } } ?: "正在读取线路"
 
 internal fun MessageHistoryLine.lineSummary(): String {
     val activity = when (active) {
@@ -17,17 +17,17 @@ internal fun MessageHistoryLine.lineSummary(): String {
         false -> "SIM 未启用"
         null -> "SIM 状态未知"
     }
-    return "${label?.let { "本地线路 ${it.ordinal} · " }.orEmpty()}$conversationCount 个会话 · $activity · " +
+    return "$conversationCount 个会话 · $activity · " +
         "${if (connected) "已连接" else "未连接"} · ${if (sendable) "可发送" else "暂不可发送"}"
 }
 
 internal fun filterMessageLines(lines: List<MessageHistoryLine>, query: String): List<MessageHistoryLine> {
     val term = query.trim()
     return lines.filter { it.lineTitle().contains(term, ignoreCase = true) ||
-        it.label?.let { label -> "本地线路 ${label.ordinal}".contains(term, ignoreCase = true) } == true }
+        it.label?.let { label -> "历史线路 ${label.ordinal}".contains(term, ignoreCase = true) } == true }
 }
 
-internal class MessageRemarkEditor(val owner: SimOwnerId, initial: String, val lineNumber: Long? = null) {
+internal class MessageRemarkEditor(val owner: SimOwnerId, initial: String, val lineNumber: Long? = null, val simLabel: String? = null) {
     var input by mutableStateOf(initial)
     var busy by mutableStateOf(false)
         private set

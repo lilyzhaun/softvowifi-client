@@ -2,6 +2,7 @@ package com.vowifi.sw.manager.data
 
 import android.content.Context
 import android.os.Process
+import android.util.Log
 import com.vowifi.sw.manager.model.CallAudioControls
 import java.io.IOException
 import java.util.concurrent.Executors
@@ -18,6 +19,7 @@ import kotlinx.coroutines.flow.asStateFlow
 internal class AndroidCallAudioController(
     context: Context,
     private val microphone: CallMicrophoneLease,
+    private val control: CallControlTransport = AndroidCallControlTransport(),
 ) : CallAudioController {
     private val appContext = context.applicationContext
     private val executor = Executors.newFixedThreadPool(2) { runnable ->
@@ -32,17 +34,30 @@ internal class AndroidCallAudioController(
 
     @Volatile
     private var session: Session? = null
+    private var lastOwner: CallAudioSession? = null
+    private var endTone: AndroidCallEndTone? = null
 
     override suspend fun start(session: CallAudioSession) {
         if (released.get()) throw AndroidCallAudioException()
-        if (!microphone.permits(session)) throw AndroidCallAudioException()
+        val permitted = microphone.permits(session)
+        if (session.mode == CallAudioMode.Progress) Log.i("SoftVoWiFiAudio",
+            "progress start ringback=${session.ringback} early-media=${session.earlyMediaRevision > 0} permitted=$permitted")
+        if (!permitted) throw AndroidCallAudioException()
+        synchronized(lock) {
+            val current = this.session
+            if (current != null && current.owner.sameSession(session) && session.mode == CallAudioMode.Progress) {
+                current.devices.ringback(session.ringback)
+                return
+            }
+        }
         stop()
         val focusLost = AtomicBoolean(false)
         val devices = AndroidCallAudioDevices.create(appContext,
             onLost = { focusLost.set(true); interrupt(session) },
-            onRoute = { route -> mutableControls.value = route.copy(muted = mutableControls.value.muted) })
+            onRoute = { route -> mutableControls.value = route.copy(muted = mutableControls.value.muted) },
+            playbackOnly = session.mode == CallAudioMode.Progress)
         val socket = try {
-            AndroidCallAudioSocket.connect(session.iccid)
+            if (session.mode == CallAudioMode.Progress && session.earlyMediaRevision == 0L) null else AndroidCallAudioSocket.connect(session.iccid)
         } catch (error: CancellationException) {
             devices.close()
             throw error
@@ -51,17 +66,19 @@ internal class AndroidCallAudioController(
             throw AndroidCallAudioException()
         }
         try {
-            val response = session.transport.request(
-                "audioStart",
-                CallProtocolCodec.audioStartParams(session.token),
-                CallProtocolCodec.AUDIO_START_TIMEOUT_MILLIS,
-            )
-            if (response.error != null) throw AndroidCallAudioException()
+            if (socket != null) {
+                val response = startCallAudioControl(session, control)
+                if (response.error != null) throw AndroidCallAudioException()
+            }
             if (focusLost.get() || !microphone.permits(session)) throw AndroidCallAudioException()
             devices.start()
+            if (session.mode == CallAudioMode.Progress) {
+                devices.ringback(session.ringback)
+                devices.logProgressOutput()
+            }
             if (focusLost.get() || !microphone.permits(session)) throw AndroidCallAudioException()
         } catch (error: Exception) {
-            socket.close()
+            socket?.close()
             devices.close()
             if (error is CancellationException) throw error
             throw AndroidCallAudioException()
@@ -74,10 +91,11 @@ internal class AndroidCallAudioController(
             }
             this.session?.closeFromStop()
             this.session = next
+            lastOwner = session
         }
         try {
-            executor.execute { captureLoop(next) }
-            executor.execute { playbackLoop(next) }
+            if (session.mode == CallAudioMode.Conversation) executor.execute { captureLoop(next) }
+            if (socket != null) executor.execute { playbackLoop(next) }
         } catch (_: RejectedExecutionException) {
             stopIf(session)
             throw AndroidCallAudioException()
@@ -86,9 +104,21 @@ internal class AndroidCallAudioController(
 
     override fun stop() {
         synchronized(lock) {
+            endTone?.close()
+            endTone = null
             session?.closeFromStop()
             session = null
             mutableControls.value = CallAudioControls()
+        }
+    }
+    override fun callEnded(session: CallAudioSession) {
+        synchronized(lock) {
+            if (released.get() || lastOwner?.sameCall(session) != true ||
+                this.session != null && this.session?.owner?.sameCall(session) != true) return
+            val speaker = mutableControls.value.speakerOn
+            stop()
+            lastOwner = null
+            endTone = AndroidCallEndTone(appContext).also { it.play(speaker) }
         }
     }
     override fun stopIf(session: CallAudioSession) {
@@ -125,7 +155,10 @@ internal class AndroidCallAudioController(
     }
     fun interrupt(expected: CallAudioSession? = null) {
         val current = session ?: return
-        if (expected == null || current.owner.sameSession(expected)) onWorkerEnd(current)
+        if (expected == null || current.owner.sameSession(expected)) {
+            synchronized(lock) { if (lastOwner?.sameCall(current.owner) == true) lastOwner = null }
+            onWorkerEnd(current)
+        }
     }
 
     private fun captureLoop(current: Session) {
@@ -138,7 +171,7 @@ internal class AndroidCallAudioController(
                 if (n <= 0 || current.closed.get()) return@runAudioWorker
                 mutableControls.value.applyMute(buffer, n)
                 for (frame in capture.push(buffer, 0, n)) {
-                    current.socket.writeFrame(frame)
+                    current.socket!!.writeFrame(frame)
                 }
             }
         }
@@ -147,11 +180,19 @@ internal class AndroidCallAudioController(
     private fun playbackLoop(current: Session) {
         runAudioWorker(current) {
             while (!current.closed.get()) {
-                val payloads = current.socket.readPayloads()
+                val payloads = current.socket!!.readPayloads()
                 if (current.closed.get()) return@runAudioWorker
                 for (payload in payloads) {
+                    if (current.owner.mode == CallAudioMode.Progress) current.devices.remotePlaybackStarted(payload)
                     if (!PcmFrameCodec.writeFully(payload, current.devices::write)) {
                         return@runAudioWorker
+                    }
+                    if (current.owner.mode == CallAudioMode.Progress && current.pcmWritten.compareAndSet(false, true)) {
+                        Log.i("SoftVoWiFiAudio", "progress PCM AudioTrack write succeeded capture=false")
+                        current.devices.logProgressOutput()
+                    }
+                    if (current.owner.mode == CallAudioMode.Progress && payload.any { it != 0.toByte() } && current.nonzeroWritten.compareAndSet(false, true)) {
+                        Log.i("SoftVoWiFiAudio", "progress nonzero PCM AudioTrack write succeeded capture=false")
                     }
                 }
             }
@@ -198,11 +239,13 @@ internal class AndroidCallAudioController(
     }
 
     private class Session(
-        val socket: AndroidCallAudioSocket,
+        val socket: AndroidCallAudioSocket?,
         val devices: AndroidCallAudioDevices,
         val owner: CallAudioSession,
     ) {
         val closed = AtomicBoolean(false)
+        val pcmWritten = AtomicBoolean(false)
+        val nonzeroWritten = AtomicBoolean(false)
         private val emitEnded = AtomicBoolean(true)
         private val endedPublished = AtomicBoolean(false)
 
@@ -218,7 +261,7 @@ internal class AndroidCallAudioController(
 
         private fun closeResources() {
             if (!closed.compareAndSet(false, true)) return
-            runCatching { socket.close() }
+            runCatching { socket?.close() }
             runCatching { devices.close() }
         }
     }

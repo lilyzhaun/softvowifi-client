@@ -62,6 +62,8 @@ class EngineCallSource @JvmOverloads internal constructor(
         launch { refreshConnection() }
     }
     override fun refresh() = launch { refreshConnection() }
+    override fun deleteHistory(expected: CallHistoryState.Ready, ids: Set<CallHistoryRecordId>) = recorder.delete(expected, ids)
+
     override fun selectHistoryOwner(choice: CallHistoryOwnerChoice) = launch {
         mutex.withLock { if (activeTransport == null && session.phase == CallPhase.Idle) recorder.selectHistory(choice) }
     }
@@ -99,6 +101,7 @@ class EngineCallSource @JvmOverloads internal constructor(
         val before = session
         session = next
         val leaving = before.phase != CallPhase.Idle && next.phase == CallPhase.Idle
+        val stopPlayback = before.playbackMode() != null && next.playbackMode() == null
         if (before.phase == CallPhase.Idle && next.phase != CallPhase.Idle) {
             generation += 1
             bindingGeneration += 1
@@ -112,10 +115,12 @@ class EngineCallSource @JvmOverloads internal constructor(
         }
         publish()
         return CallEffects(
-            stopAudio = leaving,
-            stopSession = if (leaving) audioSession(before) else null,
+            stopAudio = leaving || stopPlayback,
+            stopSession = if (leaving || stopPlayback) audioSession(before) else null,
             audio = activeTransport?.let { pendingCallAudio(before, session, it, activeIccid, generation) },
             history = history,
+            endedSession = if (leaving && before.token != null && before.audio !is CallAudioState.Failed &&
+                (cause is CallHistoryCause.EventEnded || cause == CallHistoryCause.Hangup)) audioSession(before) else null,
         )
     }
     internal fun invalidateOperations() {
@@ -168,7 +173,8 @@ class EngineCallSource @JvmOverloads internal constructor(
         publish()
     }
     internal suspend fun apply(effects: CallEffects) {
-        if (effects.stopAudio) effects.stopSession?.let(audio::stopIf)
+        if (effects.endedSession != null) audio.callEnded(effects.endedSession)
+        else if (effects.stopAudio) effects.stopSession?.let(audio::stopIf)
         effects.history?.let(recorder::enqueue)
         if (ownsRecorder) effects.historyOwner?.let(recorder::refreshOwner)
         effects.audio?.let { pending ->
@@ -184,7 +190,10 @@ class EngineCallSource @JvmOverloads internal constructor(
             mutex.withLock {
                 if (event.session.iccid != activeIccid || event.session.transport !== activeTransport) return@withLock CallEffects()
                 audioEndedEffects(closed, session, generation, event) {
-                    session = CallSessionReducer.audioFailed(session, CallFailureMessages.AUDIO_INTERRUPTED)
+                    // Provisional PCM closes during SDP/final-answer handoff. Keep
+                    // the prepared call grant; only confirmed audio loss is a failure.
+                    session = if (event.session.mode == CallAudioMode.Progress) session.copy(audio = CallAudioState.Idle)
+                        else CallSessionReducer.audioFailed(session, CallFailureMessages.AUDIO_INTERRUPTED)
                     publish()
                     CallEffects(stopAudio = true, stopSession = event.session)
                 }
@@ -194,7 +203,10 @@ class EngineCallSource @JvmOverloads internal constructor(
     internal fun audioSession(current: CallSession = session): CallAudioSession? {
         val owner = activeIccid ?: return null
         val transport = activeTransport ?: return null
-        return current.token?.let { CallAudioSession(owner, it, generation, transport) }
+        val progress = current.phase != CallPhase.InCall && (current.ringback || current.earlyMediaRevision > 0)
+        return current.token?.let { CallAudioSession(owner, it, generation, transport,
+            if (progress) CallAudioMode.Progress else CallAudioMode.Conversation,
+            if (progress) current.earlyMediaRevision else 0L, progress && current.ringback) }
     }
     internal fun publish() {
         val owner = activeIccid

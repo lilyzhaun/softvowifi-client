@@ -23,7 +23,8 @@ class CallOngoingNotificationContractHostTest {
             assertEquals("+12025550123", notification.extras.getString(Notification.EXTRA_TITLE))
             assertEquals("通话中", notification.extras.getString(Notification.EXTRA_TEXT))
             assertEquals(Notification.CATEGORY_CALL, notification.category)
-            assertNotEquals("android.app.Notification\$CallStyle", notification.extras.getString(Notification.EXTRA_TEMPLATE))
+            assertEquals("android.app.Notification\$CallStyle", notification.extras.getString(Notification.EXTRA_TEMPLATE))
+            assertEquals(2, notification.extras.getInt("android.callType"))
             assertNull(notification.fullScreenIntent)
             assertEquals(Notification.VISIBILITY_PRIVATE, notification.visibility)
             val public = notification.publicVersion
@@ -68,7 +69,13 @@ class CallOngoingNotificationContractHostTest {
                 assertEquals(phase == CallPhase.InCall, notification.extras.getBoolean(Notification.EXTRA_SHOW_CHRONOMETER))
                 if (phase in setOf(CallPhase.Dialing, CallPhase.Connecting, CallPhase.InCall)) {
                     val end = notification.actions.single()
-                    assertEquals(if (phase == CallPhase.Dialing) "取消" else "挂断", end.title)
+                    if (phase == CallPhase.InCall) {
+                        assertEquals("android.app.Notification\$CallStyle", notification.extras.getString(Notification.EXTRA_TEMPLATE))
+                        assertTrue(end.title.isNotBlank()) // CallStyle supplies the localized hang-up button.
+                    } else {
+                        assertNotEquals("android.app.Notification\$CallStyle", notification.extras.getString(Notification.EXTRA_TEMPLATE))
+                        assertEquals(if (phase == CallPhase.Dialing) "取消" else "挂断", end.title)
+                    }
                     assertTrue(end.actionIntent.isImmutable)
                     assertTrue(end.actionIntent.isBroadcast)
                     val intent = shadowOf(end.actionIntent).savedIntent

@@ -33,7 +33,8 @@ internal interface AndroidMessageHistoryDao {
     @Query("""
         SELECT sim_owner_id AS owner, COUNT(DISTINCT conversation_key) AS conversationCount,
             COUNT(*) AS messageCount,
-            SUM(CASE WHEN direction = 'INCOMING' AND `read` = 0 THEN 1 ELSE 0 END) AS unreadCount
+            SUM(CASE WHEN (direction = 'INCOMING' AND `read` = 0) OR message_id IN
+                (SELECT value FROM message_metadata WHERE `key` GLOB 'conversation_unread_v1:*') THEN 1 ELSE 0 END) AS unreadCount
         FROM messages WHERE (:after IS NULL OR sim_owner_id > :after)
         GROUP BY sim_owner_id ORDER BY sim_owner_id ASC LIMIT 51
     """)
@@ -46,7 +47,8 @@ internal interface AndroidMessageHistoryDao {
             totals.messageCount AS messageCount, totals.unreadCount AS unreadCount
         FROM (
             SELECT conversation_key, COUNT(*) AS messageCount,
-                SUM(CASE WHEN direction = 'INCOMING' AND `read` = 0 THEN 1 ELSE 0 END) AS unreadCount
+                SUM(CASE WHEN (direction = 'INCOMING' AND `read` = 0) OR message_id IN
+                    (SELECT value FROM message_metadata WHERE `key` GLOB 'conversation_unread_v1:*') THEN 1 ELSE 0 END) AS unreadCount
             FROM messages WHERE sim_owner_id = :owner GROUP BY conversation_key
         ) AS totals
         JOIN messages AS latest ON latest.message_id = (

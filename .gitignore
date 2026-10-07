@@ -11,6 +11,8 @@ local.properties
 *.iml
 
 # Signing and private material
+.secrets/
+dist/
 *.jks
 *.keystore
 *.p12

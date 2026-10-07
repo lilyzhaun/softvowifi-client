@@ -6,7 +6,7 @@ import com.vowifi.sw.manager.model.CallSyncState
 internal fun CallSourceAggregate.publishCallLines() {
     val complete = inventoryReady && roster != null && roster!!.all { it != null }
     if (!explicitSelection) {
-        selected = roster?.singleOrNull()?.takeIf { owner ->
+        selected = roster?.firstOrNull { owner ->
             complete && children.any { it.owner == owner && it.ready()?.sync == CallSyncState.Ready }
         }
     }
@@ -17,7 +17,7 @@ internal fun CallSourceAggregate.publishCallLines() {
         CallLineChoice(owner, labels[owner] ?: "SIM ${index + 1}", owner in roster.orEmpty(),
             inventoryReady && child != null && !child.source.closed,
             when (ready?.sync) { CallSyncState.Ready -> true; CallSyncState.Unregistered -> false; else -> null },
-            ready?.sync == CallSyncState.Ready, owner == selected)
+            ready?.sync == CallSyncState.Ready, owner == selected, running = child != null && !child.source.closed)
     }
     val idle = children.all { it.ready()?.phase?.let { phase -> phase == CallPhase.Idle } == true }
     val allowed = children.singleOrNull { it.owner == selected }?.ready()?.takeIf {

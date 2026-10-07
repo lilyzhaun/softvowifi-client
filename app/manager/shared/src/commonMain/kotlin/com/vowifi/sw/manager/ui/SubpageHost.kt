@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.key
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
 import androidx.navigation3.runtime.entryProvider
 import androidx.navigation3.runtime.rememberDecoratedNavEntries
@@ -103,7 +104,9 @@ internal fun SubpageHost(
     destinationContent: @Composable (AppRoute) -> Unit,
 ) {
     val spec = LocalSoftVoWiFiChromeEnvironment.current.spec
-    val entries = subpageEntryProvider(state, spec, topBarTitleOverride, onStateChange, destinationContent)
+    val latestState = rememberUpdatedState(state)
+    val entries = subpageEntryProvider(state, spec, topBarTitleOverride, onStateChange, destinationContent,
+        communicationActive = { isRouteActive(latestState.value, it) })
     val onBack = { onStateChange(AppNavigator.back(state)) }
     val decorated = rememberDecoratedNavEntries(
         backStack = state.backStack,
@@ -129,6 +132,7 @@ private fun subpageEntryProvider(
     topBarTitleOverride: String?,
     onStateChange: (AppNavigationState) -> Unit,
     destinationContent: @Composable (AppRoute) -> Unit,
+    communicationActive: (AppRoute.Subpage) -> Boolean,
 ) = entryProvider {
     entry<AppRoute.Home>(clazzContentKey = ::appRouteContentKey) { Box(Modifier.fillMaxSize()) }
     entry<AppRoute.Calls>(clazzContentKey = ::appRouteContentKey) { Box(Modifier.fillMaxSize()) }
@@ -139,12 +143,15 @@ private fun subpageEntryProvider(
             it,
             spec,
             titleOverride = subpageTitleOverride(it, topBarTitleOverride),
-            routeActive = isRouteActive(state, it),
+            routeActive = communicationActive(it),
             onBack = { onStateChange(AppNavigator.back(state)) },
         ) { destinationContent(it) }
     }
     entry<AppRoute.NewMessage>(clazzContentKey = ::appRouteContentKey) { AppSubpageScene(AppRoute.NewMessage, spec, routeActive = isRouteActive(state, AppRoute.NewMessage), onBack = { onStateChange(AppNavigator.back(state)) }) { destinationContent(AppRoute.NewMessage) } }
-    entry<AppRoute.Dialpad>(clazzContentKey = ::appRouteContentKey) { AppSubpageScene(AppRoute.Dialpad, spec, routeActive = isRouteActive(state, AppRoute.Dialpad), onBack = { onStateChange(AppNavigator.back(state)) }) { destinationContent(AppRoute.Dialpad) } }
+    entry<AppRoute.Dialpad>(clazzContentKey = ::appRouteContentKey) { AppSubpageScene(AppRoute.Dialpad, spec, routeActive = communicationActive(AppRoute.Dialpad), onBack = { onStateChange(AppNavigator.back(state)) }) { destinationContent(AppRoute.Dialpad) } }
+    entry<AppRoute.CallHistoryDetail>(clazzContentKey = ::appRouteContentKey) {
+        AppSubpageScene(it, spec, routeActive = isRouteActive(state, it), onBack = { onStateChange(AppNavigator.back(state)) }) { destinationContent(it) }
+    }
     entry<AppRoute.SettingsAppearance>(clazzContentKey = ::appRouteContentKey) { AppSubpageScene(AppRoute.SettingsAppearance, spec, routeActive = isRouteActive(state, AppRoute.SettingsAppearance), onBack = { onStateChange(AppNavigator.back(state)) }) { destinationContent(AppRoute.SettingsAppearance) } }
     entry<AppRoute.SettingsConfiguration>(clazzContentKey = ::appRouteContentKey) { AppSubpageScene(AppRoute.SettingsConfiguration, spec, routeActive = isRouteActive(state, AppRoute.SettingsConfiguration), onBack = { onStateChange(AppNavigator.back(state)) }) { destinationContent(AppRoute.SettingsConfiguration) } }
     entry<AppRoute.SettingsDiagnostics>(clazzContentKey = ::appRouteContentKey) { AppSubpageScene(AppRoute.SettingsDiagnostics, spec, routeActive = isRouteActive(state, AppRoute.SettingsDiagnostics), onBack = { onStateChange(AppNavigator.back(state)) }) { destinationContent(AppRoute.SettingsDiagnostics) } }

@@ -72,6 +72,9 @@ internal interface CallRecordDao {
     @Query("DELETE FROM call_records WHERE sim_owner_id = :ownerId")
     suspend fun clearByOwner(ownerId: String)
 
+    @Query("DELETE FROM call_records WHERE sim_owner_id = :ownerId AND correlation_id IN (:correlations)")
+    suspend fun deleteByIds(ownerId: String, correlations: List<String>)
+
     @Query(
         """
         DELETE FROM call_records
@@ -130,7 +133,7 @@ internal fun CallHistoryWrite.toEntity(ownerWire: String): CallRecordEntity = Ca
     simOwnerId = ownerWire,
     correlationId = correlation.wire(),
     direction = direction.name,
-    peerPhone = peer?.digits(),
+    peerPhone = peer?.dialNumber(),
     startedAtMs = times.startedAtMs,
     connectedAtMs = times.connectedAtMs,
     endedAtMs = times.endedAtMs,

@@ -48,7 +48,7 @@ class CallProtocolCodecTest {
         assertEquals(TOKEN, params.getValue("callId").jsonPrimitive.content)
         assertEquals(13_000L, CallProtocolCodec.ANSWER_TIMEOUT_MILLIS)
         assertEquals(5_000L, CallProtocolCodec.CONTROL_TIMEOUT_MILLIS)
-        assertEquals(18_000L, CallProtocolCodec.DIAL_TIMEOUT_MILLIS)
+        assertEquals(130_000L, CallProtocolCodec.DIAL_TIMEOUT_MILLIS)
     }
 
     @Test

@@ -11,6 +11,23 @@ import kotlinx.coroutines.test.runTest
 
 class CallHistoryStoreTest {
     @Test
+    fun manualHistorySelectionKeepsOwnerButStillRefreshesNewRecords() = runTest(UnconfinedTestDispatcher()) {
+        val repository = FakeCallHistoryRepository()
+        repository.upsert(OWNER_A, historyWrite())
+        repository.upsert(OWNER_B, historyWrite())
+        val store = CallHistoryStore(repository, coroutineContext)
+        try {
+            store.select(OWNER_A)
+            store.selectHistory(store.owners.value.single { it.owner == OWNER_B })
+            store.select(OWNER_A)
+            assertEquals(OWNER_B, repository.lastOwner())
+            repository.upsert(OWNER_B, historyWrite(correlation = "second-record", startedAtMs = 2_000L))
+            store.select(OWNER_B)
+            assertEquals(2, assertIs<CallHistoryState.Ready>(store.state.value).records.size)
+        } finally { store.close() }
+    }
+
+    @Test
     fun ownerSwitchInvalidatesConfirmationEvenWithIdenticalRecords() = runTest(UnconfinedTestDispatcher()) {
         val repository = FakeCallHistoryRepository()
         val write = historyWrite()

@@ -9,22 +9,41 @@ import android.media.AudioDeviceInfo
 import android.media.AudioRecord
 import android.media.AudioTrack
 import android.media.MediaRecorder
+import android.media.ToneGenerator
+import android.util.Log
+import android.os.SystemClock
+import android.os.Handler
+import android.os.Looper
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.coroutines.cancellation.CancellationException
 import kotlin.math.max
 
 internal class AndroidCallAudioDevices(
-    private val record: AudioRecord,
+    private val record: AudioRecord?,
     private val track: AudioTrack,
     private val policy: AndroidCallAudioPolicy,
+    private val onPlaybackFailed: () -> Unit,
 ) : AutoCloseable {
     private val closed = AtomicBoolean(false)
+    private var tone: ToneGenerator? = null
+    private var remotePlayback = false
+    private var lastMediaAt: Long? = null
+    private var ringbackRequested = false
+    private var watchScheduled = false
+    private val ringbackHandler = Handler(Looper.getMainLooper())
+    private val ringbackWatch = Runnable {
+        val failed = synchronized(this) {
+            watchScheduled = false
+            if (closed.get()) false else try { updateRingback(); false } catch (_: AndroidCallAudioException) { true }
+        }
+        if (failed) onPlaybackFailed()
+    }
 
     fun start() {
-        if (record.state != AudioRecord.STATE_INITIALIZED) throw AndroidCallAudioException()
+        if (record != null && record.state != AudioRecord.STATE_INITIALIZED) throw AndroidCallAudioException()
         if (track.state != AudioTrack.STATE_INITIALIZED) throw AndroidCallAudioException()
-        record.startRecording()
-        if (record.recordingState != AudioRecord.RECORDSTATE_RECORDING) {
+        record?.startRecording()
+        if (record != null && record.recordingState != AudioRecord.RECORDSTATE_RECORDING) {
             throw AndroidCallAudioException()
         }
         track.play()
@@ -34,10 +53,51 @@ internal class AndroidCallAudioDevices(
     }
 
     fun read(buffer: ByteArray): Int =
-        record.read(buffer, 0, buffer.size, AudioRecord.READ_BLOCKING)
+        record!!.read(buffer, 0, buffer.size, AudioRecord.READ_BLOCKING)
+
+    @Synchronized fun ringback(enabled: Boolean) {
+        Log.i("SoftVoWiFiAudio", "progress ringback request enabled=$enabled closed=${closed.get()}")
+        if (closed.get()) return
+        ringbackRequested = enabled
+        updateRingback()
+    }
+
+    private fun updateRingback() {
+        val local = shouldPlayLocalRingback(ringbackRequested, lastMediaAt, SystemClock.elapsedRealtime())
+        if (local) {
+            if (tone == null) {
+                val next = try { ToneGenerator(AudioManager.STREAM_VOICE_CALL, 70) }
+                    catch (_: RuntimeException) { throw AndroidCallAudioException() }
+                if (!next.startTone(ToneGenerator.TONE_SUP_RINGTONE)) { next.release(); throw AndroidCallAudioException() }
+                tone = next
+                Log.i("SoftVoWiFiAudio", "progress ringback started capture=false")
+            }
+        } else {
+            if (tone != null) Log.i("SoftVoWiFiAudio", "progress ringback stopped")
+            tone?.stopTone(); tone?.release(); tone = null
+        }
+        if (ringbackRequested && !local && !watchScheduled) {
+            watchScheduled = true
+            ringbackHandler.postDelayed(ringbackWatch, EARLY_MEDIA_PRESENCE_MILLIS)
+        } else if (!ringbackRequested || local) {
+            ringbackHandler.removeCallbacks(ringbackWatch)
+            watchScheduled = false
+        }
+    }
+
+    @Synchronized fun remotePlaybackStarted(pcm: ByteArray) {
+        if (closed.get() || !hasRingbackSuppressingPcm(pcm)) return
+        lastMediaAt = SystemClock.elapsedRealtime()
+        if (!remotePlayback) Log.i("SoftVoWiFiAudio", "progress remote PCM playback capture=false")
+        remotePlayback = true
+        updateRingback()
+    }
 
     fun write(bytes: ByteArray, offset: Int, length: Int): Int =
         track.write(bytes, offset, length, AudioTrack.WRITE_BLOCKING)
+
+    fun logProgressOutput() = Log.i("SoftVoWiFiAudio",
+        "progress output play=${track.playState} rate=${track.sampleRate} channels=${track.channelCount} encoding=${track.audioFormat} routed=${track.routedDevice?.type ?: 0} ${policy.progressOutputState()}")
 
     fun enableSpeaker(): Boolean {
         return policy.speaker(true)
@@ -47,11 +107,14 @@ internal class AndroidCallAudioDevices(
         policy.speaker(false)
     }
 
-    override fun close() {
+    @Synchronized override fun close() {
         if (!closed.compareAndSet(false, true)) return
+        ringbackHandler.removeCallbacks(ringbackWatch)
         policy.close()
-        runCatching { record.stop() }
-        runCatching { record.release() }
+        if (tone != null) Log.i("SoftVoWiFiAudio", "progress ringback stopped")
+        tone?.stopTone(); tone?.release(); tone = null
+        runCatching { record?.stop() }
+        runCatching { record?.release() }
         runCatching { track.pause() }
         runCatching { track.flush() }
         runCatching { track.stop() }
@@ -59,7 +122,7 @@ internal class AndroidCallAudioDevices(
     }
 
     companion object {
-        fun create(context: Context, onLost: () -> Unit, onRoute: (com.vowifi.sw.manager.model.CallAudioControls) -> Unit): AndroidCallAudioDevices {
+        fun create(context: Context, onLost: () -> Unit, onRoute: (com.vowifi.sw.manager.model.CallAudioControls) -> Unit, playbackOnly: Boolean = false): AndroidCallAudioDevices {
             var record: AudioRecord? = null
             var track: AudioTrack? = null
             var policy: AndroidCallAudioPolicy? = null
@@ -73,9 +136,9 @@ internal class AndroidCallAudioDevices(
                     .build()
                 policy = AndroidCallAudioPolicy(manager, onLost, onRoute)
                 if (!policy.acquire()) throw AndroidCallAudioException()
-                record = buildRecord()
+                if (!playbackOnly) record = buildRecord()
                 track = buildTrack(attributes)
-                return AndroidCallAudioDevices(record, track, policy)
+                return AndroidCallAudioDevices(record, track, policy, onLost)
             } catch (error: CancellationException) {
                 releasePartial(record, track, policy)
                 throw error

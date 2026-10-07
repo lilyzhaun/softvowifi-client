@@ -120,6 +120,7 @@ internal class CallTestSocket(private val receive: (CallTestSocket, String) -> U
     override fun getInputStream(): InputStream = input
     override fun getOutputStream(): OutputStream = output
     override fun shutdownInput() { endInput() }
+    override fun shutdownOutput() = Unit
     override fun close() { closed = true; endInput() }
     fun endInput() { incoming.offer(-1) }
     fun respond(id: Long, result: JsonObject) = send(buildJsonObject { put("id", id); put("result", result) })

@@ -7,7 +7,9 @@ import com.vowifi.sw.manager.data.CallLineState
 import com.vowifi.sw.manager.data.SimOwnerId
 import com.vowifi.sw.manager.model.CallBinding
 
-internal class CallDialDraft(number: String = "", owner: SimOwnerId? = null, label: String = "未选择") {
+internal class CallDialDraft(
+    number: String = "", owner: SimOwnerId? = null, label: String = "未选择", private var explicitSelection: Boolean = false,
+) {
     var number by mutableStateOf(number)
     var owner by mutableStateOf(owner)
         private set
@@ -16,12 +18,16 @@ internal class CallDialDraft(number: String = "", owner: SimOwnerId? = null, lab
 
     fun select(owner: SimOwnerId, lines: CallLineState) {
         this.owner = owner
+        explicitSelection = true
         label = lines.choices.firstOrNull { it.owner == owner }?.label ?: "原拨出线路"
     }
 
     fun acceptInitial(lines: CallLineState) {
-        if (number.isEmpty() && owner == null && lines.outgoingBinding != null) {
-            lines.selectedOwner?.let { select(it, lines) }
+        if (number.isEmpty() && !explicitSelection && lines.outgoingBinding != null) {
+            lines.selectedOwner?.let {
+                owner = it
+                label = lines.choices.firstOrNull { choice -> choice.owner == it }?.label ?: "原拨出线路"
+            }
         }
     }
 
@@ -37,8 +43,8 @@ internal class CallDialDraft(number: String = "", owner: SimOwnerId? = null, lab
 
     companion object {
         val Saver = listSaver<CallDialDraft, String>(
-            save = { listOf(it.number, it.owner?.wire().orEmpty(), it.label) },
-            restore = { CallDialDraft(it[0], SimOwnerId.parse(it[1]), it[2]) },
+            save = { listOf(it.number, it.owner?.wire().orEmpty(), it.label, it.explicitSelection.toString()) },
+            restore = { CallDialDraft(it[0], SimOwnerId.parse(it[1]), it[2], it.getOrNull(3) == "true") },
         )
     }
 }

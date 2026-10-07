@@ -30,9 +30,13 @@ internal suspend fun refreshMessageAttachment(session: EngineMessageSession, for
             val owners = active?.map { it?.let(session.ownerIdFor) }
             session.activeOwners = owners?.filterNotNull()?.toSet()
             session.activeRosterComplete = owners != null && owners.none { it == null }
-            session.automaticOwner = if (session.activeRosterComplete) owners?.singleOrNull() else null
+            session.lineLabels = active.orEmpty().filterNotNull().mapNotNull { raw ->
+                val owner = session.ownerIdFor(raw) ?: return@mapNotNull null
+                session.runtime.lineLabelFor(raw)?.let { owner to it }
+            }.toMap()
             val running = instances.filter { it.lifecycle == EngineLifecycle.RUNNING }
-            val targets = running.mapNotNull { instance -> session.ownerIdFor(instance.iccid)?.let { it to instance } }.toMap()
+             val targets = running.mapNotNull { instance -> session.ownerIdFor(instance.iccid)?.let { it to instance } }.toMap()
+             session.runningOwners = targets.keys
             try {
                 val offlineUnchanged = !force && session.sessions.isEmpty() && running.isEmpty() &&
                     session.fallback is MessageUiState.Ready
@@ -62,7 +66,9 @@ internal suspend fun refreshMessageAttachment(session: EngineMessageSession, for
                     } else {
                         val line = MessageLiveSession(owner, instance.iccid, instance.pid, session.runtime.transportFor(instance.iccid))
                         line.records = session.repository.listByOwner(owner)
-                        if (owner == session.automaticOwner) session.repository.setLastOwner(owner)
+                        if (session.activeRosterComplete && session.activeOwners?.singleOrNull() == owner) {
+                            session.repository.setLastOwner(owner)
+                        }
                         session.sessions = session.sessions + (owner to line)
                         line.disconnectJob = session.scope.launch {
                             line.transport.messageDisconnects.collect { disconnectMessageSession(session, line) }

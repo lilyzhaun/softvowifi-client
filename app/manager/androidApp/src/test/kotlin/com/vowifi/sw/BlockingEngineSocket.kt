@@ -40,6 +40,7 @@ internal class BlockingEngineSocket : LocalSocket() {
         private set
     var connectFailure: IOException? = null
     var shutdownFailure: IOException? = null
+    var shutdownOutputFailure: IOException? = null
     var closeFailure: IOException? = null
     var helloVersion = 1
     var holdResponse = false
@@ -97,6 +98,7 @@ internal class BlockingEngineSocket : LocalSocket() {
         shutdownFailure?.let { throw it }
         peerEof()
     }
+    override fun shutdownOutput() { shutdownOutputFailure?.let { throw it } }
     override fun close() {
         closeCalls.incrementAndGet()
         descriptorOpen = false
@@ -118,6 +120,7 @@ internal class BlockingSocketClient : AutoCloseable {
     override fun close() {
         socket.peerEof()
         socket.shutdownFailure = null
+        socket.shutdownOutputFailure = null
         socket.closeFailure = null
         try { transport.close() } finally { runBlocking { withTimeout(5_000) { lifetime.join() } } }
     }

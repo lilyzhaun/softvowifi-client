@@ -138,7 +138,7 @@ internal fun messageFixtureDisclosure(route: AppRoute, state: MessageUiState): S
 }
 
 internal fun messageTextLayoutContract(fontScale: Float): MessageTextLayout {
-    require(fontScale in 1f..2f)
+    require(fontScale.isFinite() && fontScale > 0f)
     return MessageTextLayout(softWrap = true, breakUnboundedText = true)
 }
 
@@ -155,7 +155,7 @@ internal fun messageListLayoutContract(): MessageListLayoutSpec = MessageListLay
     minimumTouchDp = 48,
     previewMaxLines = 2,
     statusMaxLines = 1,
-    usesFab = false,
+    usesFab = true,
     openRows = true,
 )
 
@@ -172,8 +172,8 @@ internal fun messageBubbleLayoutContract(direction: MessageBubbleDirection): Mes
     when (direction) {
         MessageBubbleDirection.INCOMING -> MessageBubbleLayoutSpec(
             maximumWidthFraction = 0.78f,
-            bodyFontSizeSp = 16,
-            bodyLineHeightSp = 22,
+            bodyFontSizeSp = 17,
+            bodyLineHeightSp = 23,
             topStartRadiusDp = 18,
             topEndRadiusDp = 18,
             bottomStartRadiusDp = 4,
@@ -182,8 +182,8 @@ internal fun messageBubbleLayoutContract(direction: MessageBubbleDirection): Mes
         )
         MessageBubbleDirection.OUTGOING -> MessageBubbleLayoutSpec(
             maximumWidthFraction = 0.78f,
-            bodyFontSizeSp = 16,
-            bodyLineHeightSp = 22,
+            bodyFontSizeSp = 17,
+            bodyLineHeightSp = 23,
             topStartRadiusDp = 18,
             topEndRadiusDp = 18,
             bottomStartRadiusDp = 18,
@@ -193,7 +193,7 @@ internal fun messageBubbleLayoutContract(direction: MessageBubbleDirection): Mes
     }
 
 internal fun messageBubbleMaximumWidth(fontScale: Float): Float {
-    require(fontScale in 1f..2f)
+    require(fontScale.isFinite() && fontScale > 0f)
     return if (fontScale >= 1.5f) 0.90f else 0.78f
 }
 

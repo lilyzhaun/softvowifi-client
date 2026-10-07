@@ -56,12 +56,15 @@ class MessagePagingRenderTest {
         }
         try {
             frame(scene)
-            scroll(scene, 53)
+            // Search now lives in the fixed header, so the pagination footer moved one item up.
+            scroll(scene, 52)
             frame(scene)
             click(scene, "加载更多会话")
             frame(scene)
             assertEquals(100, (selection.state.value as MessageUiState.Inbox).page.items.size)
             scroll(scene, 0); frame(scene)
+            nodes(scene).single { it.config.getOrNull(SemanticsProperties.ContentDescription)?.contains("搜索短信") == true && it.config.contains(SemanticsActions.OnClick) }
+                .config[SemanticsActions.OnClick].action!!.invoke(); frame(scene)
             val search = nodes(scene).single { it.config.getOrNull(SemanticsActions.SetText) != null }
             requireNotNull(search.config[SemanticsActions.SetText].action).invoke(AnnotatedString("NEEDLE"))
             frame(scene)

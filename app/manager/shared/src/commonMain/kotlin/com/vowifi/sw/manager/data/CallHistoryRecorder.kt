@@ -86,8 +86,12 @@ internal class CallHistoryRecorder(
 
     fun enqueue(effect: CallHistoryEffect) = store.write(effect)
     fun refreshOwner(owner: SimOwnerId) = store.select(owner)
+    fun selectOutgoingOwner(owner: SimOwnerId) = store.select(owner, outgoingSelection = true)
     fun clear(expected: CallHistoryState.Ready) {
         if (canClear()) store.clear(expected)
+    }
+    fun delete(expected: CallHistoryState.Ready, ids: Set<com.vowifi.sw.manager.model.CallHistoryRecordId>) {
+        if (canClear()) store.delete(expected, ids)
     }
     private fun canClear(): Boolean = synchronized(lock) { open.isEmpty() }
     fun close() = store.close()

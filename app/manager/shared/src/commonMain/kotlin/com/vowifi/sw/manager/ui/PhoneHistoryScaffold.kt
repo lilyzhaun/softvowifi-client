@@ -1,0 +1,45 @@
+package com.vowifi.sw.manager.ui
+
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListScope
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import top.yukonga.miuix.kmp.basic.Text
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.navigationevent.NavigationEventInfo
+import androidx.navigationevent.compose.LocalNavigationEventDispatcherOwner
+import androidx.navigationevent.compose.NavigationBackHandler
+import androidx.navigationevent.compose.rememberNavigationEventState
+
+@Composable internal fun PhoneHistoryScaffold(searching: Boolean, query: String,
+    onSearch: () -> Unit, onQuery: (String) -> Unit, onCloseSearch: () -> Unit,
+    showDial: Boolean, onDial: () -> Unit, content: LazyListScope.() -> Unit) {
+    val palette = phoneColors()
+    val bottom = LocalRootBottomContentInset.current.value
+    Box(Modifier.fillMaxSize().background(palette.canvas).statusBarsPadding()) {
+        Column(Modifier.fillMaxSize()) {
+            CommunicationSearchHeader("通话记录", "搜索号码", searching, query, onSearch, onQuery, onCloseSearch)
+            LazyColumn(Modifier.weight(1f).fillMaxWidth().phoneOverscroll(), overscrollEffect = null,
+                contentPadding = PaddingValues(start = 24.dp, end = 24.dp, top = 0.dp,
+                    bottom = bottom + if (showDial) 108.dp else 24.dp), content = content)
+        }
+        if (showDial) PhoneButton("拨号盘", onDial, Modifier.align(Alignment.BottomEnd)
+            .padding(end = 24.dp, bottom = bottom + 24.dp), icon = CallPhoneIcons.Keypad,
+            prominent = true, targetSize = 64.dp, roundedSquare = true, showLabel = false)
+    }
+}

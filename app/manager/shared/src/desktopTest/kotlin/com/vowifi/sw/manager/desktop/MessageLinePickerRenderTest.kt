@@ -79,6 +79,7 @@ class MessageLinePickerRenderTest {
             assertEquals("", editor.input)
             assertActionBounds(scene, "取消", 250f)
             click(scene, "取消")
+            frame(scene)
             assertTrue(cancelled)
         } finally { scene.close() }
     }
@@ -129,12 +130,15 @@ class MessageLinePickerRenderTest {
         try {
             frame(scene)
             val root = nodes(scene)
-            assertEquals(1, root.count { it.config.getOrNull(SemanticsActions.SetText) != null })
+            assertEquals(0, root.count { it.config.getOrNull(SemanticsActions.SetText) != null })
+            val search = root.single { it.config.getOrNull(SemanticsProperties.ContentDescription)?.contains("搜索短信") == true && it.config.contains(SemanticsActions.OnClick) }
+            requireNotNull(search.config[SemanticsActions.OnClick].action).invoke(); frame(scene)
+            assertEquals(1, nodes(scene).count { it.config.getOrNull(SemanticsActions.SetText) != null })
             assertEquals(1, root.count { it.config.getOrNull(SemanticsProperties.Text)?.any { text -> text.text == "出行备用" } == true })
             screenshot(scene, "issue11-root.png")
             click(scene, "出行备用")
             frame(scene)
-            assertTrue(nodes(scene).any { it.config.getOrNull(SemanticsProperties.Text)?.any { text -> text.text == "选择短信线路" } == true })
+            assertTrue(nodes(scene).any { it.config.getOrNull(SemanticsProperties.Text)?.any { text -> text.text == "选择短信记录线路" } == true })
         } finally { scene.close() }
     }
     @Test fun searchesTwentyLinesEditsWithoutSelectingAndRetriesFailedSave() {
@@ -169,6 +173,7 @@ class MessageLinePickerRenderTest {
             screenshot(scene, "issue11-lines-search.png")
             click(scene, "备注")
             frame(scene)
+            frame(scene) // The selector exits before the editor starts entering.
             assertEquals(null, picked)
             assertEquals(lines.last().owner, editor?.owner)
             click(scene, "保存")
@@ -182,10 +187,12 @@ class MessageLinePickerRenderTest {
             frame(scene)
             assertEquals(2, saves)
             assertEquals(null, editor)
+            frame(scene)
             val restoredSearch = nodes(scene).single { it.config.getOrNull(SemanticsActions.SetText) != null }
             requireNotNull(restoredSearch.config[SemanticsActions.SetText].action).invoke(AnnotatedString("20"))
             frame(scene)
             click(scene, requireNotNull(lines.last().label).remark)
+            frame(scene)
             assertEquals(lines.last().owner, picked)
         } finally { scene.close() }
     }

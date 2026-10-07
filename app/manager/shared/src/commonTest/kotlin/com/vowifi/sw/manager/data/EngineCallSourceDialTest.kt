@@ -22,7 +22,7 @@ import kotlinx.serialization.json.put
 
 class EngineCallSourceDialTest {
     @Test
-    fun dialSendsExactRecipientWithEighteenSecondTimeoutAndStartsAudioFromResponseOnce() =
+    fun dialSendsExactRecipientWithRingingBudgetAndStartsAudioFromResponseOnce() =
         runTest(UnconfinedTestDispatcher()) {
             val transport = FakeCallTransport()
             val audio = FakeCallAudioController()
@@ -34,7 +34,7 @@ class EngineCallSourceDialTest {
             assertEquals("dial", request.method)
             assertEquals("tel:$CALL_NUMBER", request.params.getValue("recipient").jsonPrimitive.content)
             assertEquals(setOf("recipient"), request.params.keys)
-            assertEquals(18_000L, request.timeoutMillis)
+            assertEquals(130_000L, request.timeoutMillis)
             val inCall = assertIs<CallUiState.Ready>(source.state.value)
             assertEquals(CallPhase.InCall, inCall.phase)
             assertEquals(CallAudioState.Active, inCall.audio)

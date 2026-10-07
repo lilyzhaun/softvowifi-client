@@ -94,13 +94,15 @@ object ConfigurationCodec {
         val before = parseObject(encode(previous))
         val after = parseObject(encode(next))
         // Unchanged empty UI overrides may represent non-empty derived values on disk.
-        return JsonObject(buildMap {
+        val payload = JsonObject(buildMap {
             (before.keys + after.keys).forEach { key ->
                 val old = before[key] ?: JsonPrimitive("")
                 val nextValue = after[key] ?: JsonPrimitive("")
                 if (old != nextValue) put(key, nextValue)
             }
         }).toString()
+        if (payload.encodeToByteArray().size > MAX_PATCH_BYTES) throw ConfigurationFormatException.PayloadTooLarge()
+        return payload
     }
 
     fun result(output: String): ControlScriptFailure? =
@@ -217,6 +219,7 @@ private data class WireOverrides(
 )
 
 private const val SMSC_KEY = "smsc"
+private const val MAX_PATCH_BYTES = 64 * 1024
 private val FORBIDDEN_KEYS = setOf("iccid", "imsi", "imei", "line1", "slot", "enabled")
 private val IDENTITY_DIGITS = Regex("""\d{15,22}""")
 private val MASKED_LABEL = Regex("""^实例 ••••(?: \d{4})?$""")

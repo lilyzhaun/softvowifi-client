@@ -4,6 +4,7 @@ import com.vowifi.sw.manager.model.CallDirection
 import com.vowifi.sw.manager.model.CallOutcome
 import com.vowifi.sw.manager.model.CallPeerPhone
 import com.vowifi.sw.manager.model.CallRecord
+import com.vowifi.sw.manager.model.CallHistoryRecordId
 import com.vowifi.sw.manager.model.CallTimesDraft
 
 internal class CallCorrelationKey private constructor(private val value: String) {
@@ -65,7 +66,7 @@ class CallHistoryWrite private constructor(
         outcome: CallOutcome,
     ): CallHistoryWrite = CallHistoryWrite(correlation, direction, peer, times, outcome)
 
-    internal fun toRecord(): CallRecord = CallRecord(
+    internal fun toRecord(owner: SimOwnerId): CallRecord = CallRecord(
         direction = direction,
         peer = peer,
         startedAtMs = times.startedAtMs,
@@ -73,6 +74,7 @@ class CallHistoryWrite private constructor(
         endedAtMs = times.endedAtMs,
         durationSec = times.durationSec,
         outcome = outcome,
+        recordId = CallHistoryRecordId(messageRouteDigest(owner.wire() + "\u0000" + correlation.wire())),
     )
 
     override fun toString(): String =

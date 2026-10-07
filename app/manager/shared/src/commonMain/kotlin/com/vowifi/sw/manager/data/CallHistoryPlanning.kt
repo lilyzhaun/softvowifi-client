@@ -62,7 +62,7 @@ internal fun callHistoryWrite(
     CallHistoryDraft(
         correlation = correlation.wire(),
         direction = direction,
-        peer = peer?.digits(),
+        peer = peer?.dialNumber(),
         times = CallTimesDraft(startedAtMs, connectedAtMs, endedAtMs, durationSec),
         outcome = outcome,
     ),

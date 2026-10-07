@@ -15,6 +15,7 @@ internal data class CallVersion(val epoch: String, val revision: Long) {
 internal class CallSnapshot(
     val version: CallVersion, val phase: CallPhase, val token: String?,
     val direction: CallDirection?, val peer: CallPeer?, val elapsed: Long, val dtmf: Boolean,
+    val ringback: Boolean = false, val earlyMediaRevision: Long = 0,
 )
 internal object CallSnapshotCodec {
     fun version(data: JsonObject): CallVersion? {
@@ -47,7 +48,9 @@ internal object CallSnapshotCodec {
         }
         if (phase != CallPhase.Idle && (token == null || direction == null)) return null
         if (phase == CallPhase.Idle && ("callId" in data || "direction" in data || "peer" in data)) return null
-        return CallSnapshot(version, phase, token, direction, data.text("peer")?.let(CallPeer::parse), elapsed, dtmf)
+        val progress = decodeCallProgress(data) ?: return null
+        return CallSnapshot(version, phase, token, direction, data.text("peer")?.let(CallPeer::parse), elapsed, dtmf,
+            phase == CallPhase.Dialing && progress.first, if (phase == CallPhase.Dialing) progress.second else 0L)
     }
 }
 private fun JsonObject.text(key: String): String? =

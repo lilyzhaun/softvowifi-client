@@ -179,6 +179,7 @@ private fun EngineCallSource.adoptSnapshot(snapshot: CallSnapshot, readOnly: Boo
         busy = controlOperation != null || dialOperation != null,
         peer = snapshot.peer ?: if (continuing) session.peer else null,
         direction = snapshot.direction, cancelRequested = cancel,
+        ringback = snapshot.ringback, earlyMediaRevision = snapshot.earlyMediaRevision,
         operationMessage = if (continuing) operationMessage?.takeUnless {
             it in setOf(CallFailureMessages.RECOVERING, CallFailureMessages.SNAPSHOT, CallFailureMessages.OWNER_CHANGED)
         } else null,

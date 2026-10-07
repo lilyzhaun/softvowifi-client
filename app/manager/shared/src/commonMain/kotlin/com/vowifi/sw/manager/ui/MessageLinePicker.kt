@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.runtime.Composable
@@ -54,22 +55,17 @@ internal object MessageLineLayout {
 }
 
 @Composable
-internal fun MessageLineEntry(choices: MessageHistoryChoices, title: String? = null, onOpen: () -> Unit) {
+internal fun MessageLineEntry(choices: MessageHistoryChoices, title: String? = null, actionLabel: String = "短信线路", onOpen: () -> Unit) {
     val selected = choices.lines.firstOrNull { it.owner == choices.selectedOwner }
-    val feedback = managerActionFeedback(ManagerAction.Navigate)
-    CompositionLocalProvider(LocalIndication provides NoVisualIndication) {
-        ArrowPreference(
-            title = title ?: selected?.lineTitle() ?: "短信线路",
-            summary = when {
-                choices.labelsFailed -> "无法读取线路备注，点此重试"
-                choices.labelsLoading -> "正在读取线路备注"
-                selected != null -> selected.lineSummary()
-                else -> "选择浏览及新建短信的线路"
-            },
-            modifier = Modifier.fillMaxWidth().padding(vertical = MessageLineLayout.gap)
-                .heightIn(min = MessageLineLayout.touch).managerPressScale(feedback),
-            onClick = rememberManagerActionHandler(feedback, onOpen),
-        )
+    val stopped = choices.hasRunningEngines && selected != null && !selected.running
+    Column(Modifier.padding(bottom = 4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        CommunicationLineChip(title ?: selected?.lineTitle() ?: "选择短信线路", actionLabel, onOpen)
+        if (stopped) Text("原线路已停止，请切换运行线路；原草稿保持不变。",
+            color = LocalSoftVoWiFiColors.current.textSecondary, fontSize = 12.sp, lineHeight = 16.sp)
+        if (choices.labelsFailed || choices.labelsLoading) {
+            Text(if (choices.labelsFailed) "无法读取线路备注，点此重试" else "正在读取线路备注",
+                color = LocalSoftVoWiFiColors.current.textSecondary, fontSize = 12.sp, lineHeight = 16.sp)
+        }
     }
 }
 
@@ -82,90 +78,72 @@ internal fun MessageLinePicker(
     onRetry: (() -> Unit)?,
 ) {
     var query by remember { mutableStateOf("") }
-    val lines = filterMessageLines(choices.lines, query)
-    OverlayDialog(show = true, title = "选择短信线路", summary = "选择浏览和新建短信的线路；已有会话仍用原线路回复。", onDismissRequest = onDismiss) {
-        Column(verticalArrangement = Arrangement.spacedBy(MessageLineLayout.gap)) {
-            TextField(value = query, onValueChange = { query = it }, label = "搜索备注或本地编号", modifier = Modifier.fillMaxWidth())
+    val lines = filterMessageLines(choices.selectableLines(), query)
+    val listState = rememberLazyListState()
+    val scroll = rememberSmsScrollFeedback(listState.canScrollBackward || listState.canScrollForward)
+    val sheet = rememberCommunicationSheetState(onDismiss)
+    val interactive = sheet.visible && LocalAppRouteActive.current
+    CommunicationSheet(choices.pickerTitle(), onDismiss, state = sheet) {
+             CommunicationInput(query, { query = it }, "搜索SIM、备注或历史编号",
+                Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), enabled = interactive,
+                singleLine = true, leading = CommunicationSearch)
+            CommunicationFootnote(if (choices.hasRunningEngines) "仅显示已启动引擎的线路；切换同时显示该线路的短信，已有会话仍用原线路回复。"
+                else "切换该线路的本地短信记录，可包含未注册或历史线路。")
             when {
                 choices.labelsFailed -> {
                     Text("无法读取线路备注", color = LocalSoftVoWiFiColors.current.error)
-                    if (onRetry != null) ManagerTextAction("重新读取", ManagerAction.Refresh, onRetry)
+                    if (onRetry != null) CommunicationTextAction("重新读取", onRetry, enabled = interactive)
                 }
                 choices.labelsLoading -> Text("正在读取线路备注")
                 lines.isEmpty() -> Text("没有匹配的线路")
-                else -> LazyColumn(Modifier.fillMaxWidth().heightIn(max = MessageLineLayout.viewport).selectableGroup()) {
+                else -> LazyColumn(Modifier.fillMaxWidth().weight(1f, fill = false).heightIn(max = MessageLineLayout.viewport).selectableGroup()
+                    .then(scroll.modifier), state = listState, overscrollEffect = scroll.effect) {
                     items(lines, key = { it.owner.wire() }) { line ->
                         MessageLineRow(line, line.owner == choices.selectedOwner,
-                            { onSelect(line.owner) }, { onEdit(line) })
+                            { if (interactive) sheet.close { onSelect(line.owner) } },
+                            { if (interactive) sheet.close { onEdit(line) } }, enabled = interactive)
                     }
                 }
             }
-            ManagerTextAction("取消", ManagerAction.Rejected, onDismiss)
-        }
     }
 }
 
 @Composable
-private fun MessageLineRow(line: MessageHistoryLine, selected: Boolean, onSelect: () -> Unit, onEdit: () -> Unit) {
-    val interaction = remember { MutableInteractionSource() }
-    val feedback = managerActionFeedback(ManagerAction.SegmentSelection)
-    val handler = rememberManagerActionHandler(feedback, onSelect)
-    val colors = LocalSoftVoWiFiColors.current
-    Column(Modifier.fillMaxWidth().padding(vertical = MessageLineLayout.gap)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Row(Modifier.weight(1f).heightIn(min = MessageLineLayout.touch)
-                .managerPressScale(feedback, interaction)
-                .selectable(selected, interactionSource = interaction, indication = null, role = Role.RadioButton, onClick = handler)
-                .padding(MessageLineLayout.inset),
-                horizontalArrangement = Arrangement.spacedBy(MessageLineLayout.gap), verticalAlignment = Alignment.CenterVertically) {
-                RadioButton(selected = selected, onClick = null)
-                Column(Modifier.weight(1f)) {
-                    Text(line.lineTitle(), fontSize = MessageLineLayout.body, lineHeight = MessageLineLayout.bodyLine)
-                    Text(line.lineSummary(), color = colors.textSecondary, fontSize = MessageLineLayout.secondary, lineHeight = MessageLineLayout.secondaryLine)
-                }
-            }
-            ManagerTextAction("备注", ManagerAction.ContextAction, onEdit)
-        }
-        HorizontalDivider(color = colors.separator)
-    }
+private fun MessageLineRow(line: MessageHistoryLine, selected: Boolean, onSelect: () -> Unit, onEdit: () -> Unit,
+    enabled: Boolean = true) {
+    CommunicationLineRow(line.lineTitle(), line.lineSummary(), selected, onSelect, onEdit, enabled)
 }
 
 @Composable
 internal fun MessageRemarkDialog(editor: MessageRemarkEditor, onDismiss: () -> Unit,
     submit: suspend (SimOwnerId, String) -> MessageRemarkSaveResult) {
     val scope = rememberCoroutineScope()
-    OverlayDialog(show = true,
-        onDismissRequest = { if (!editor.busy) onDismiss() }) {
-        Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(MessageLineLayout.gap)) {
-            Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(MessageLineLayout.gap)) {
-                Text(editor.lineNumber?.let { "本地线路 $it 的备注" } ?: "线路备注",
-                    modifier = Modifier.fillMaxWidth().semantics { heading() },
-                    fontSize = MiuixTheme.textStyles.title4.fontSize, fontWeight = FontWeight.Medium)
-                Text("备注仅保存在本机", modifier = Modifier.fillMaxWidth(),
-                    fontSize = MessageLineLayout.secondary, lineHeight = MessageLineLayout.secondaryLine,
-                    color = LocalSoftVoWiFiColors.current.textSecondary)
-                TextField(value = editor.input, onValueChange = { editor.input = it }, label = "备注",
-                    enabled = !editor.busy, modifier = Modifier.fillMaxWidth())
+    val scrollState = rememberScrollState()
+    val scroll = rememberSmsScrollFeedback(scrollState.canScrollBackward || scrollState.canScrollForward)
+    val sheet = rememberCommunicationSheetState(onDismiss)
+    val interactive = sheet.visible && LocalAppRouteActive.current
+    CommunicationSheet("线路备注", onDismiss, state = sheet, dismissible = !editor.busy,
+        endAction = { CommunicationTextAction(if (editor.busy) "正在保存" else "保存",
+            { if (sheet.visible) scope.launch { if (editor.save(submit)) sheet.close(onDismiss) } },
+            enabled = interactive && !editor.busy, weight = FontWeight.SemiBold) }) {
+            Column(Modifier.fillMaxWidth().weight(1f, fill = false).then(scroll.modifier).verticalScroll(scrollState, overscrollEffect = scroll.effect).padding(vertical = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                CommunicationFootnote("${editor.simLabel ?: editor.lineNumber?.let { "历史线路 $it" } ?: "线路"} · 备注仅保存在本机")
+                CommunicationInput(editor.input, { editor.input = it }, "备注",
+                    Modifier.fillMaxWidth().padding(horizontal = 16.dp), enabled = interactive && !editor.busy)
                 val input = editor.input.trim()
-                Text("${input.codePointCount(0, input.length)} / 40 字符", modifier = Modifier.fillMaxWidth(),
+                Text("${input.codePointCount(0, input.length)} / 40 字符", modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
                     fontSize = MessageLineLayout.secondary, lineHeight = MessageLineLayout.secondaryLine)
-                editor.error?.let { Text(it, modifier = Modifier.fillMaxWidth(),
+                editor.error?.let { Text(it, modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
                     fontSize = MessageLineLayout.secondary, lineHeight = MessageLineLayout.secondaryLine,
                     color = LocalSoftVoWiFiColors.current.error) }
-                Text("清除后使用本地编号", modifier = Modifier.fillMaxWidth(),
-                    fontSize = MessageLineLayout.secondary, lineHeight = MessageLineLayout.secondaryLine,
-                    color = LocalSoftVoWiFiColors.current.textSecondary)
-                ManagerTextAction("清除备注", ManagerAction.ContextAction, {
-                    editor.input = ""
-                    scope.launch { if (editor.save(submit)) onDismiss() }
-                }, enabled = !editor.busy, modifier = Modifier.fillMaxWidth())
+                CommunicationFootnote("清除后显示SIM名称或历史线路编号")
+                 CommunicationTextAction("清除备注", {
+                    if (sheet.visible && !editor.busy) {
+                        editor.input = ""
+                        scope.launch { if (editor.save(submit)) sheet.close(onDismiss) }
+                    }
+                }, enabled = interactive && !editor.busy, modifier = Modifier.fillMaxWidth(), destructive = true)
             }
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(MessageLineLayout.gap)) {
-                ManagerTextAction("取消", ManagerAction.Rejected, onDismiss, enabled = !editor.busy, modifier = Modifier.weight(1f))
-                ManagerTextAction(if (editor.busy) "正在保存" else "保存", ManagerAction.SaveConfiguration,
-                    { scope.launch { if (editor.save(submit)) onDismiss() } }, busy = editor.busy, modifier = Modifier.weight(1f))
-            }
-        }
     }
 }

@@ -35,16 +35,14 @@ internal fun CallsDialComposer(
 ) {
     val colors = LocalSoftVoWiFiColors.current
         Column(Modifier.fillMaxWidth().padding(vertical = 24.dp), verticalArrangement = Arrangement.spacedBy(12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-            TextField(
+            CommunicationInput(
                 value = number,
-                onValueChange = onNumberChange,
+                onChange = onNumberChange,
                 modifier = Modifier.fillMaxWidth(),
-                label = "对方号码",
-                useLabelAsPlaceholder = true,
+                placeholder = "对方号码",
                 enabled = inputEnabled,
                 singleLine = true,
-                textStyle = TextStyle(fontSize = 28.sp, lineHeight = 36.sp, textAlign = TextAlign.Center),
-                cornerRadius = 24.dp,
+                fontSize = 28,
             )
             if (showMicrophonePermissionAction) {
                 CallsActionButton(MICROPHONE_PERMISSION_ACTION, !busy, onRequestMicrophonePermission)
@@ -54,31 +52,8 @@ internal fun CallsDialComposer(
 
 @Composable
 internal fun CallsActionButton(label: String, enabled: Boolean, onClick: () -> Unit, tone: CallActionTone = CallActionTone.PRIMARY, icon: ImageVector? = null) {
-    val colors = LocalSoftVoWiFiColors.current
-    Button(
-        onClick = onClick,
-        enabled = enabled,
-        modifier = Modifier.heightIn(min = 48.dp),
-        colors = ButtonDefaults.buttonColors(
-            color = when (tone) {
-                CallActionTone.PRIMARY -> colors.interactive
-                CallActionTone.SECONDARY -> colors.surfaceRaised
-                CallActionTone.DESTRUCTIVE -> colors.errorSurface
-            },
-            disabledColor = colors.separator,
-            contentColor = when (tone) {
-                CallActionTone.PRIMARY -> colors.onCommunicationAccent
-                CallActionTone.SECONDARY -> colors.textPrimary
-                CallActionTone.DESTRUCTIVE -> colors.error
-            },
-            disabledContentColor = colors.textDisabled,
-        ),
-    ) {
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-            icon?.let { Icon(it, null) }
-            Text(label, fontSize = 14.sp, lineHeight = 20.sp)
-        }
-    }
+    PhoneButton(label, onClick, enabled = enabled, icon = icon, wide = true,
+        selected = tone == CallActionTone.PRIMARY, destructive = tone == CallActionTone.DESTRUCTIVE)
 }
 
 internal enum class CallActionTone { PRIMARY, SECONDARY, DESTRUCTIVE }

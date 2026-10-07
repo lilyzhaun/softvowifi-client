@@ -55,6 +55,7 @@ class CallEntrySocketShadow {
     @Implementation fun getOutputStream() = requireNotNull(socket).outputStream
     @Implementation fun setSoTimeout(timeout: Int) = Unit
     @Implementation fun shutdownInput() { socket?.shutdownInput() }
+    @Implementation fun shutdownOutput() { socket?.shutdownOutput() }
     @Implementation fun close() { socket?.close() }
 }
 

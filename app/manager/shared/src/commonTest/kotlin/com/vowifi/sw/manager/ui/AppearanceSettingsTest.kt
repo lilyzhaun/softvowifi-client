@@ -166,9 +166,9 @@ class AppearanceSettingsTest {
             AppearanceLiquidGlassSummary.ENABLED,
             appearanceLiquidGlassSummary(AppearanceSettings.Default.copy(liquidGlassRequested = true), blurSupported = true),
         )
-        assertEquals("悬浮底栏使用液态折射", AppearanceLiquidGlassSummary.ENABLED.text)
-        assertEquals("悬浮底栏使用不透明指示器", AppearanceLiquidGlassSummary.DISABLED.text)
-        assertEquals("当前设备不支持模糊，使用不透明指示器", AppearanceLiquidGlassSummary.UNSUPPORTED_FALLBACK.text)
+        assertEquals("通信操作与悬浮底栏使用液态折射", AppearanceLiquidGlassSummary.ENABLED.text)
+        assertEquals("通信操作使用普通模糊或不透明背景", AppearanceLiquidGlassSummary.DISABLED.text)
+        assertEquals("当前设备不支持模糊，使用不透明背景", AppearanceLiquidGlassSummary.UNSUPPORTED_FALLBACK.text)
     }
 
     @Test

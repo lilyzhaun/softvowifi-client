@@ -33,7 +33,7 @@ internal fun CallHistoryWrite.interrupted(endedAtMs: Long): CallHistoryWrite? {
         CallHistoryDraft(
             correlation = correlation.wire(),
             direction = direction,
-            peer = peer?.digits(),
+            peer = peer?.dialNumber(),
             times = CallTimesDraft(times.startedAtMs, connectedAtMs, ended, durationSec),
             outcome = CallOutcome.INTERRUPTED,
         ),

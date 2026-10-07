@@ -7,7 +7,7 @@ data class IncomingInsertResult(
     override fun toString(): String = "IncomingInsertResult(inserted=$inserted)"
 }
 
-class IncomingReadUpdate private constructor(ids: List<String>) {
+class IncomingReadUpdate private constructor(ids: List<String>, val manualUnreadCleared: Boolean) {
     private val ids: List<String> = ids.toList()
     val updatedIds: List<String> get() = ids.toList()
     val updatedCount: Int get() = ids.size
@@ -15,8 +15,8 @@ class IncomingReadUpdate private constructor(ids: List<String>) {
     override fun toString(): String = "IncomingReadUpdate(updatedCount=$updatedCount)"
 
     companion object {
-        fun of(updatedIds: Collection<String>): IncomingReadUpdate =
-            IncomingReadUpdate(updatedIds.toList())
+        fun of(updatedIds: Collection<String>, manualUnreadCleared: Boolean = false): IncomingReadUpdate =
+            IncomingReadUpdate(updatedIds.toList(), manualUnreadCleared)
     }
 }
 

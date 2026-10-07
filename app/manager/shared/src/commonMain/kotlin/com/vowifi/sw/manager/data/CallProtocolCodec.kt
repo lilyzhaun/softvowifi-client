@@ -9,6 +9,7 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.booleanOrNull
+import kotlinx.serialization.json.longOrNull
 import kotlinx.serialization.json.put
 
 internal sealed interface CallWireEvent {
@@ -17,7 +18,7 @@ internal sealed interface CallWireEvent {
         override val token: String,
         val peer: CallPeer? = null,
     ) : CallWireEvent
-    data class Dialing(override val token: String) : CallWireEvent
+    data class Dialing(override val token: String, val ringback: Boolean = false, val earlyMediaRevision: Long = 0) : CallWireEvent
     data class Ending(override val token: String) : CallWireEvent
     data class InCall(
         override val token: String,
@@ -46,7 +47,8 @@ object CallProtocolCodec {
     const val ANSWER_TIMEOUT_MILLIS = 13_000L
     const val CONTROL_TIMEOUT_MILLIS = 5_000L
     const val AUDIO_START_TIMEOUT_MILLIS = 5_000L
-    const val DIAL_TIMEOUT_MILLIS = 18_000L
+    // Engine: 120 s call setup + bounded cancellation; leave RPC delivery margin.
+    const val DIAL_TIMEOUT_MILLIS = 130_000L
     const val MAX_DURATION_SEC = 359_999
 
     private val DIAL_NUMBER = Regex("""\+?\d{1,20}""")
@@ -126,7 +128,7 @@ object CallProtocolCodec {
     }
 
     private fun callState(token: String, data: JsonObject): CallWireEvent? = when (data.string("state")) {
-        "DIALING" -> CallWireEvent.Dialing(token)
+        "DIALING" -> decodeCallProgress(data)?.let { CallWireEvent.Dialing(token, it.first, it.second) }
         "IN_CALL" -> CallWireEvent.InCall(token)
         "ENDING" -> CallWireEvent.Ending(token)
         else -> null
@@ -152,6 +154,12 @@ object CallProtocolCodec {
         "failed" -> CallWireReason.FAILED
         else -> null
     }
+}
+
+internal fun decodeCallProgress(data: JsonObject): Pair<Boolean, Long>? {
+    val ringback = if ("ringback" in data) (data["ringback"] as? JsonPrimitive)?.takeUnless { it.isString }?.booleanOrNull ?: return null else false
+    val revision = if ("earlyMediaRevision" in data) (data["earlyMediaRevision"] as? JsonPrimitive)?.takeUnless { it.isString }?.longOrNull?.takeIf { it >= 0 } ?: return null else 0L
+    return ringback to revision
 }
 
 private fun JsonObject.string(key: String): String? =

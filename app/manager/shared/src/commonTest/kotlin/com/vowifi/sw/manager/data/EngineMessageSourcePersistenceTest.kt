@@ -60,7 +60,7 @@ class EngineMessageSourcePersistenceTest {
     }
 
     @Test
-    fun lastOwnerWithMultipleRunningEnginesStaysReadOnly() = runTest(UnconfinedTestDispatcher()) {
+    fun lastOwnerWithMultipleRunningEnginesDefaultsFirstRegisteredWithoutStealingOtherOwner() = runTest(UnconfinedTestDispatcher()) {
         val repository = FakeMessageRepository()
         val first = sourceOf(listOf(running(ICCID_A)), FakeEngineMessageTransport(sendResult = sendOk(MO_ID, 202, 66)), repository)
         first.sendSms(SYNTH_NUMBER, SYNTH_TEXT)
@@ -70,10 +70,10 @@ class EngineMessageSourcePersistenceTest {
         val transport = FakeEngineMessageTransport()
         val multiple = sourceOf(listOf(running(ICCID_A), running(ICCID_B)), transport, repository)
         val ready = inspectInboxThreads(multiple)
-        assertFalse(ready.composerEnabled)
-        assertEquals(MESSAGE_SELECT_OWNER, ready.attachmentNotice)
+        assertTrue(ready.composerEnabled)
+        assertEquals(OWNER_A, multiple.historyChoices.value.selectedOwner)
         assertEquals("msg-1", ready.records.single().id)
-        multiple.sendSms(SYNTH_PEER, "synth-late")
+        multiple.sendFromDisplayedOwner(OWNER_B, SYNTH_PEER, "not the displayed owner")
         assertTrue(transport.requests.isEmpty())
         multiple.close()
     }
@@ -128,17 +128,18 @@ class EngineMessageSourcePersistenceTest {
     }
 
     @Test
-    fun noLastOwnerKeepsUnavailableAndMultipleEnginesExposeUnboundChoices() = runTest(UnconfinedTestDispatcher()) {
+    fun noLastOwnerKeepsOfflineUnavailableButMultipleEnginesDefaultFirstRegistered() = runTest(UnconfinedTestDispatcher()) {
         val empty = sourceOf(listOf(stopped(ICCID_A)), FakeEngineMessageTransport())
         assertIs<MessageUiState.Unavailable>(empty.state.value)
         empty.close()
 
         val transport = FakeEngineMessageTransport()
         val multiple = sourceOf(listOf(running(ICCID_A), running(ICCID_B)), transport)
-        val unbound = assertIs<MessageUiState.Unavailable>(multiple.state.value)
-        assertEquals(MESSAGE_SELECT_OWNER, unbound.message)
+        val selected = assertIs<MessageUiState.Inbox>(multiple.state.value)
+        assertEquals(OWNER_A, selected.ownerId)
+        assertTrue(selected.composerEnabled)
         assertEquals(2, multiple.historyChoices.value.lines.size)
-        multiple.sendSms(SYNTH_NUMBER, SYNTH_TEXT)
+        multiple.sendFromDisplayedOwner(OWNER_B, SYNTH_NUMBER, SYNTH_TEXT)
         assertTrue(transport.requests.isEmpty())
         multiple.close()
     }

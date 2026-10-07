@@ -28,9 +28,10 @@ class MessageVisibility(
         } ?: return@synchronized
         onVisible(handle)
         val observed = ids.toSet()
-        val incoming = group.records.filterIsInstance<MessageRecord.Incoming>()
-            .filter { !it.isRead && it.id in observed }.map { it.id }
-        if (incoming.isEmpty()) return@synchronized
-        ObservedIncomingReadRequest.create(owner, group.conversationKey, incoming)?.let(onRead)
+        // A manual conversation reminder may be anchored to a sent or already-read message.
+        // The repository still updates incoming read flags only, scoped to these visible IDs.
+        val visibleIds = group.records.filter { it.id in observed }.map { it.id }
+        if (visibleIds.isEmpty()) return@synchronized
+        ObservedIncomingReadRequest.create(owner, group.conversationKey, visibleIds)?.let(onRead)
     }
 }

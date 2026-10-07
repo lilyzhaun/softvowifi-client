@@ -14,6 +14,7 @@ import androidx.compose.runtime.MutableState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.text.font.FontWeight
@@ -35,9 +36,9 @@ internal val LocalThreadDrafts = compositionLocalOf<MutableState<Map<String, Str
 internal fun unreadCountLabel(count: Int): String = if (count > 99) "99+" else count.toString()
 
 @Composable
-internal fun UnreadBadge(count: Int, modifier: Modifier = Modifier, indicatorOnly: Boolean = false) {
+internal fun UnreadBadge(count: Int, modifier: Modifier = Modifier, indicatorOnly: Boolean = false, color: Color? = null, foreground: Color? = null) {
     if (count == 0) return
-    UnreadBadgeContent(unreadCountLabel(count), "$count 条未读短信", modifier, indicatorOnly)
+    UnreadBadgeContent(unreadCountLabel(count), "$count 条未读短信", modifier, indicatorOnly, color, foreground)
 }
 
 @Composable
@@ -54,17 +55,17 @@ internal fun MessageSummaryBadge(summary: MessageUnreadSummary, indicatorOnly: B
 }
 
 @Composable
-private fun UnreadBadgeContent(label: String, description: String, modifier: Modifier, indicatorOnly: Boolean) {
+private fun UnreadBadgeContent(label: String, description: String, modifier: Modifier, indicatorOnly: Boolean, color: Color? = null, foreground: Color? = null) {
     val colors = LocalSoftVoWiFiColors.current
     Surface(
         modifier = modifier.clearAndSetSemantics { contentDescription = description },
         shape = CircleShape,
-        color = colors.interactive,
+        color = color ?: colors.interactive,
     ) {
         if (indicatorOnly) Box(Modifier.size(8.dp)) else Text(
             label,
             modifier = Modifier.heightIn(min = 20.dp).padding(horizontal = 6.dp, vertical = 2.dp),
-            color = colors.onCommunicationAccent,
+            color = foreground ?: if (color == null) colors.onCommunicationAccent else Color.White,
             fontSize = 12.sp,
             lineHeight = 16.sp,
             fontWeight = FontWeight.SemiBold,
@@ -76,14 +77,14 @@ private fun UnreadBadgeContent(label: String, description: String, modifier: Mod
 internal fun CommunicationNotice(title: String, summary: String? = null, modifier: Modifier = Modifier) {
     val colors = LocalSoftVoWiFiColors.current
     Row(
-        modifier.padding(vertical = 12.dp),
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
+         modifier.padding(vertical = 8.dp),
+         horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalAlignment = Alignment.Top,
     ) {
-        Icon(MiuixIcons.Info, null, Modifier.size(20.dp), tint = colors.neutralStatus)
+         Icon(MiuixIcons.Info, null, Modifier.size(16.dp), tint = colors.textSecondary)
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text(title, fontSize = 14.sp, lineHeight = 20.sp, color = colors.textSecondary)
-            summary?.let { Text(it, fontSize = 14.sp, lineHeight = 20.sp, color = colors.textSecondary) }
+             Text(title, fontSize = 13.sp, lineHeight = 18.sp, color = colors.textSecondary)
+             summary?.let { Text(it, fontSize = 13.sp, lineHeight = 18.sp, color = colors.textSecondary) }
         }
     }
 }

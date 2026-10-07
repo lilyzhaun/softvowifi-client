@@ -184,7 +184,8 @@ class SmsInnerRenderTest {
         requireNotNull(editable(scene)[index].config[SemanticsActions.SetText].action).invoke(AnnotatedString(value))
     }
     private fun clickText(scene: ImageComposeScene, value: String) {
-        val node = nodes(scene).single { text(it, value) && it.config.getOrNull(SemanticsActions.OnClick) != null }
+        val node = nodes(scene).single { (text(it, value) || it.config.getOrNull(SemanticsProperties.ContentDescription)?.contains(value) == true) &&
+            it.config.getOrNull(SemanticsActions.OnClick) != null }
         val center = node.boundsInRoot.center
         scene.sendPointerEvent(PointerEventType.Press, center)
         scene.sendPointerEvent(PointerEventType.Release, center)

@@ -20,6 +20,7 @@ import com.vowifi.sw.manager.ui.CallLoadingContent
 import com.vowifi.sw.manager.ui.CallEndContent
 import com.vowifi.sw.manager.ui.AndroidAppearanceSettingsSource
 import com.vowifi.sw.manager.ui.PhoneActionFeedback
+import com.vowifi.sw.manager.ui.runtimeBlurSupported
 
 class CallActivity : ComponentActivity() {
     private lateinit var runtime: SoftVoWiFiRuntime
@@ -70,7 +71,7 @@ class CallActivity : ComponentActivity() {
                 }
             }
             SoftVoWiFiTheme {
-                PhoneActionFeedback(appearanceSettings) {
+                PhoneActionFeedback(appearanceSettings, blurSupported = remember { runtimeBlurSupported() }) {
                 if (authorized != null && ready != null && (ready.phase == CallPhase.Idle || current?.let { authorized?.sameCall(it) } == true)) {
                     if (ready.phase == CallPhase.Idle) CallEndContent(ready.operationMessage, ::returnToManagement)
                     else {

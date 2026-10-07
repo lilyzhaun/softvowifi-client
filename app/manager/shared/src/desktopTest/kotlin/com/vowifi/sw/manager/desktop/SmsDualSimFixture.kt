@@ -148,7 +148,8 @@ internal class SmsDualSimDriver(
         FixtureObserverLogSource("empty"), FixtureEngineControlSource("unavailable"),
         FixtureSimControlSource("empty"), FixtureConfigurationSource("empty"),
         FixtureEnvironmentDiagnosticsSource("empty"), FixtureOperationalLogSource("empty"),
-        source, FixtureCallSource("unavailable"),
+        // Root creation requires explicit registered-engine facts; SMS authorization is still tested independently.
+        source, CallDualSimUiSource(),
     )
     private var time = 0L
     private var activeRoute: AppRoute = initial ?: AppRoute.Messages
@@ -210,7 +211,7 @@ internal class SmsDualSimDriver(
                 it.contains("线路") || it.contains("SIM") || it == "Synthetic A" || it == "Synthetic B"
             }
         }, "new-message page must expose a native SIM picker even without history"))
-        assertTrue(hasText("选择短信线路"), "native line picker must open")
+        assertTrue(hasText(if (source.historyChoices.value.lines.any { it.running }) "选择短信线路" else "选择短信记录线路"), "native line picker must open")
     }
     fun selectAtRoot(owner: SimOwnerId) {
         route(AppRoute.Messages)

@@ -11,6 +11,7 @@ plugins {
 }
 
 kotlin {
+    jvmToolchain(21)
     android {
         namespace = "com.vowifi.sw.manager.shared"
         compileSdk {

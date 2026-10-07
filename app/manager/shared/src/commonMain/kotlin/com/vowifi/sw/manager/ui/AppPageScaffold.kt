@@ -18,6 +18,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -45,6 +46,7 @@ internal fun AppPageScaffold(
     showTopBar: Boolean = true,
     contentHorizontalInset: Dp? = null,
     contentTopInset: Dp = if (showTopBar) 12.dp else 8.dp,
+    communicationStyle: Boolean = false,
     actions: @Composable RowScope.() -> Unit = {},
     content: LazyListScope.() -> Unit,
 ) {
@@ -55,8 +57,11 @@ internal fun AppPageScaffold(
         derivedStateOf { scrollBehavior.state.overlappedFraction }
     }
     val colors = LocalSoftVoWiFiColors.current
+    val canvas = if (communicationStyle) communicationColors().list else colors.canvas
     val chrome = LocalSoftVoWiFiChromeEnvironment.current
-    val pageBackdrop = if (pageLocalBackdropEnabled(showTopBar, chrome.spec.effectiveBlur)) {
+    val pageBackdrop = if (communicationStyle && showTopBar) {
+        rememberCommunicationBackdrop()
+    } else if (pageLocalBackdropEnabled(showTopBar, chrome.spec.effectiveBlur)) {
         rememberSoftVoWiFiBackdrop(chrome.spec)
     } else {
         null
@@ -65,15 +70,18 @@ internal fun AppPageScaffold(
     val subpageTopContentInset = LocalSubpageTopContentInset.current
     val subpageBottomContentInset = LocalSubpageBottomContentInset.current
     BoxWithConstraints(modifier.fillMaxSize()) {
-        val horizontalInset = pageHorizontalInset(showTopBar, maxWidth, contentHorizontalInset)
+            val horizontalInset = pageHorizontalInset(showTopBar, maxWidth, contentHorizontalInset ?: if (communicationStyle) 16.dp else null)
         Scaffold(
             modifier = Modifier.fillMaxSize(),
             topBar = {
                 if (showTopBar) {
-                    AppPageTopBar(title, scrollBehavior, overlapFraction, chrome.spec, pageBackdrop, actions)
+                    CompositionLocalProvider(LocalCommunicationBackdrop provides pageBackdrop) {
+                        if (communicationStyle) CommunicationRootHeader(title, actions)
+                        else AppPageTopBar(title, scrollBehavior, overlapFraction, chrome.spec, pageBackdrop, actions)
+                    }
                 }
             },
-            containerColor = colors.canvas.copy(alpha = 1f),
+            containerColor = canvas.copy(alpha = 1f),
             contentWindowInsets = when (appPageWindowInsets(showTopBar)) {
                 AppPageWindowInsets.ROOT_HORIZONTAL_SYSTEM_BARS ->
                     WindowInsets.systemBars.only(WindowInsetsSides.Horizontal)
@@ -82,12 +90,12 @@ internal fun AppPageScaffold(
         ) { innerPadding ->
             val layoutDirection = LocalLayoutDirection.current
             val capture = pageBackdrop?.let { Modifier.layerBackdrop(it) } ?: Modifier
-            val nestedScrollModifier = if (appPageNestedScrollEnabled(showTopBar)) {
+            val nestedScrollModifier = if (appPageNestedScrollEnabled(showTopBar) && !communicationStyle) {
                 Modifier.nestedScroll(scrollBehavior.nestedScrollConnection)
             } else {
                 Modifier
             }
-            Box(Modifier.fillMaxSize().background(colors.canvas.copy(alpha = 1f)).then(capture)) {
+            Box(Modifier.fillMaxSize().background(canvas.copy(alpha = 1f)).then(capture)) {
                 val scrollEndModifier = if (chrome.spec.hapticsEnabled) Modifier.scrollEndHaptic() else Modifier
                 LazyColumn(
                     state = listState,

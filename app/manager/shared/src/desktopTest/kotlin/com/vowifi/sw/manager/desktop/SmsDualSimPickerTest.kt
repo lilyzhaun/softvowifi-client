@@ -19,7 +19,7 @@ class SmsDualSimPickerTest {
             assertTrue(page.hasText("发送线路：Synthetic A"))
             page.openPicker()
             assertFalse(page.hasText("仅切换浏览历史，不切换发送线路"))
-            assertTrue(page.hasText("本地线路 2 · 0 个会话 · SIM 状态未知 · 已连接 · 暂不可发送"))
+            assertTrue(page.hasText("0 个会话 · SIM 状态未知 · 已连接 · 暂不可发送"))
             page.capture("new-message-picker")
             page.edit(page.fields().lastIndex, "Synthetic B")
             page.click("备注")

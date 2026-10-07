@@ -46,7 +46,7 @@ internal fun appearanceSectionSpecs(
         appearanceBlurSummary(settings, blurSupported).text,
         settings.blurRequested,
     )
-    if (settings.floatingNavigation) {
+    run {
         val liquidSummary = appearanceLiquidGlassSummary(settings, blurSupported)
         val availability = if (blurSupported) {
             ManagerPreferenceAvailability.Enabled

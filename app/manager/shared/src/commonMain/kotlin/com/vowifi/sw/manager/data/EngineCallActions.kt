@@ -70,6 +70,7 @@ internal suspend fun EngineCallSource.performCurrentControl(action: CallAction) 
 
 private suspend fun EngineCallSource.performResolvedControl(action: CallAction, started: () -> Boolean, resolve: () -> CallBinding?) {
     var pendingOnly = false
+    var stopProgress: CallAudioSession? = null
     val request = mutex.withLock {
         val expected = resolve() ?: return
         val supersedes = action == CallAction.Hangup && session.phase in setOf(CallPhase.Connecting, CallPhase.InCall) ||
@@ -83,6 +84,7 @@ private suspend fun EngineCallSource.performResolvedControl(action: CallAction, 
         }
         if (!allowed || action == CallAction.Cancel && session.cancelRequested) return
         if (action == CallAction.Cancel) {
+            stopProgress = audioSession()
             session = session.copy(cancelRequested = true, phase = CallPhase.Canceling, operationMessage = null)
             if (session.token == null) pendingOnly = true
         }
@@ -91,6 +93,7 @@ private suspend fun EngineCallSource.performResolvedControl(action: CallAction, 
         if (!started()) return
         beginControl(expected.owner, token, action)
     }
+    stopProgress?.let(audio::stopIf)
     request?.let { executeControl(it) }
 }
 

@@ -27,20 +27,34 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.platform.testTag
 import top.yukonga.miuix.kmp.basic.*
 
 internal data class PhoneColors(val canvas: Color, val surface: Color, val text: Color, val accent: Color, val onAccent: Color) {
     val red = Color(0xFFD94A4A)
-    val secondary = if (canvas.luminance() < .5f) Color(0xFFB9BEC5) else Color(0xFF626A73)
+    val secondary = if (canvas.luminance() < .5f) Color(0xFFB5C4C1) else Color(0xFF596866)
+    val tonal = if (canvas.luminance() < .5f) Color(0xFF283F3B) else Color(0xFFDCEBE5)
+    val missed = if (canvas.luminance() < .5f) Color(0xFFFFAB9C) else Color(0xFFA93825)
 }
 
-@Composable fun PhoneActionFeedback(settings: AppearanceSettings, content: @Composable () -> Unit) {
+@Composable fun PhoneActionFeedback(settings: AppearanceSettings, blurSupported: Boolean = false, content: @Composable () -> Unit) {
     CompositionLocalProvider(LocalSoftVoWiFiChromeEnvironment provides SoftVoWiFiChromeEnvironment(
-        appChromeSpec(settings, blurSupported = false), backdrop = null), content = content)
+        appChromeSpec(settings, blurSupported), backdrop = null), content = content)
 }
-@Composable internal fun phoneColors(): PhoneColors = if (LocalSoftVoWiFiColors.current.canvas.luminance() < .5f)
-    PhoneColors(Color(0xFF121417), Color(0xFF1C1F24), Color(0xFFF4F4F4), Color(0xFF91B8B3), Color(0xFF121417))
-else PhoneColors(Color(0xFFF4F6F8), Color.White, Color(0xFF161616), Color(0xFF376F6B), Color.White)
+@Composable internal fun phoneColors(): PhoneColors {
+    val colors = LocalSoftVoWiFiColors.current
+    return if (colors.canvas.luminance() < .5f)
+        PhoneColors(Color(0xFF121A19), Color(0xFF202B29), Color(0xFFF0F5F3), Color(0xFF9FCABE), Color(0xFF13251F))
+    else PhoneColors(Color(0xFFF3F7F5), Color(0xFFFFFFFF), Color(0xFF10201C), Color(0xFF376F60), Color.White)
+}
+
+@Composable internal fun PhoneStyle(enabled: Boolean = true, content: @Composable () -> Unit) {
+    if (!enabled) { content(); return }
+    val palette = phoneColors()
+    CompositionLocalProvider(LocalCommunicationPalette provides CommunicationColors(palette.canvas, palette.canvas,
+        palette.surface, palette.canvas, palette.accent, palette.tonal, palette.secondary), content = content)
+}
 
 @Composable internal fun PhoneText(text: String, modifier: Modifier = Modifier, size: Int = 16, secondary: Boolean = false) {
     val palette = phoneColors()
@@ -58,32 +72,38 @@ else PhoneColors(Color(0xFFF4F6F8), Color.White, Color(0xFF161616), Color(0xFF37
     compact: Boolean = false, showLabel: Boolean = true,
     longClickLabel: String? = null,
     toggle: Boolean = false, prominent: Boolean = false,
+    material: Boolean = true, targetSize: Dp? = null,
+    roundedSquare: Boolean = false,
     content: (@Composable () -> Unit)? = null,
 ) {
     val palette = phoneColors()
     val interaction = remember { MutableInteractionSource() }
     val pressed by interaction.collectIsPressedAsState()
-    val feedback = if (toggle) toggleActionFeedback(!selected, enabled && !busy)
-        else managerActionFeedback(ManagerAction.ContextAction, enabled && !busy)
+    val actionable = enabled && !busy && LocalAppRouteActive.current
+    val feedback = if (toggle) toggleActionFeedback(!selected, actionable)
+        else managerActionFeedback(ManagerAction.ContextAction, actionable)
     val click = rememberManagerActionHandler(feedback, onClick)
     val longClick = onLongClick?.let { rememberManagerActionHandler(feedback, it) }
     val opacity by animateFloatAsState(if (enabled || busy) 1f else .55f, tween(160), label = "phoneAvailability")
-    val shape = if (wide) RoundedCornerShape(40.dp) else CircleShape
-    val surface by animateColorAsState(when { destructive -> palette.red; selected -> palette.accent; else -> palette.surface }, tween(160))
-    val foreground by animateColorAsState(when { destructive -> Color.White; selected -> palette.onAccent; else -> palette.text }, tween(160))
+    val shape = when { wide -> RoundedCornerShape(40.dp); roundedSquare -> RoundedCornerShape(20.dp); else -> CircleShape }
+    val surface by animateColorAsState(when { destructive -> palette.red; prominent -> palette.accent; selected -> palette.tonal; compact -> Color.Transparent; else -> palette.surface }, tween(160))
+    val foreground by animateColorAsState(when { destructive -> Color.White; prominent -> palette.onAccent; selected -> palette.accent; else -> palette.text }, tween(160))
     Column(modifier, horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        val target = if (compact) 48.dp else if (prominent || destructive) 80.dp else 72.dp
-        Box(Modifier.then(if (wide) Modifier.fillMaxWidth().heightIn(min = 64.dp) else Modifier.sizeIn(minWidth = target, minHeight = target))
-            .managerPressScale(feedback, interaction).graphicsLayer { alpha = opacity }
-            .clip(shape).background(if (pressed && feedback.accepted) foreground.copy(alpha = .12f).compositeOver(surface) else surface)
-            .combinedClickable(enabled = enabled && !busy, role = Role.Button, interactionSource = interaction,
+        val target = targetSize ?: if (compact) 48.dp else if (prominent || destructive) 80.dp else 72.dp
+        val targetModifier = Modifier.then(if (wide) Modifier.fillMaxWidth().heightIn(min = 64.dp) else Modifier.sizeIn(minWidth = target, minHeight = target))
+        Box(targetModifier.combinedClickable(enabled = actionable, role = Role.Button, interactionSource = interaction,
                 indication = null, onClick = click, hapticFeedbackEnabled = false,
                 onLongClick = longClick, onLongClickLabel = longClickLabel)
             .semantics {
                 contentDescription = label
                 if (toggle) { this.selected = selected; stateDescription = if (selected) "已开启" else "已关闭" }
                 if (busy) stateDescription = "处理中"
-            }
+            }, contentAlignment = Alignment.Center) {
+        val control = targetModifier.phonePressMotion(actionable, interaction).graphicsLayer { alpha = opacity }
+            .testTag("phone-face-$label").clip(shape)
+        val background = if (material && !compact && !selected && !destructive && !prominent) communicationSurfaceModifier(control, shape, surface)
+            else control.background(surface)
+        Box(background.background(if (pressed && feedback.accepted) foreground.copy(alpha = .08f) else Color.Transparent)
             .padding(if (wide) 12.dp else 6.dp), contentAlignment = Alignment.Center) {
             when {
                 busy -> CircularProgressIndicator(Modifier.size(28.dp))
@@ -93,8 +113,9 @@ else PhoneColors(Color(0xFFF4F6F8), Color.White, Color(0xFF161616), Color(0xFF37
                     BasicText(label, style = TextStyle(color = foreground, fontSize = 18.sp, lineHeight = 26.sp,
                         fontWeight = FontWeight.Medium, fontFamily = FontFamily.SansSerif, textAlign = TextAlign.Center))
                 }
-                icon != null -> Icon(icon, null, tint = foreground, modifier = Modifier.size(30.dp))
+                icon != null -> Icon(icon, null, tint = foreground, modifier = Modifier.size(if (destructive) 36.dp else 30.dp))
             }
+        }
         }
         if (!wide && content == null && showLabel) PhoneText(label, size = 14)
     }
@@ -102,20 +123,20 @@ else PhoneColors(Color(0xFFF4F6F8), Color.White, Color(0xFF161616), Color(0xFF37
 
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable internal fun PhoneNavigation(label: String, onClick: () -> Unit, icon: ImageVector? = null, showText: Boolean = true) {
-    val interaction = remember { MutableInteractionSource() }
-    val pressed by interaction.collectIsPressedAsState()
-    val feedback = managerActionFeedback(ManagerAction.Navigate)
-    val click = rememberManagerActionHandler(feedback, onClick)
-    Box(Modifier.sizeIn(minHeight = 48.dp, minWidth = 48.dp).managerPressScale(feedback, interaction)
-        .background(if (pressed) phoneColors().text.copy(alpha = .12f) else Color.Transparent, CircleShape)
-        .combinedClickable(role = Role.Button, interactionSource = interaction, indication = null, onClick = click)
-        .semantics { contentDescription = label }
-        .padding(horizontal = 8.dp, vertical = 8.dp), contentAlignment = Alignment.Center) {
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            icon?.let { Icon(it, null, tint = phoneColors().text, modifier = Modifier.size(24.dp)) }
-            if (showText) PhoneText(label)
+    if (icon != null && !showText) CommunicationIconAction(icon, label, onClick)
+    else if (icon != null) {
+        val interaction = remember { MutableInteractionSource() }
+        val feedback = managerActionFeedback(ManagerAction.Navigate, LocalAppRouteActive.current)
+        Row(Modifier.heightIn(min = 48.dp).combinedClickable(enabled = feedback.accepted, role = Role.Button,
+            interactionSource = interaction, indication = null, hapticFeedbackEnabled = false,
+            onClick = rememberManagerActionHandler(feedback, onClick)).semantics { contentDescription = label }
+            .padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Icon(icon, null, Modifier.size(24.dp), tint = phoneColors().secondary)
+            PhoneText(label, secondary = true)
         }
     }
+    else CommunicationTextAction(label, onClick)
 }
 
 internal fun displayCallNumber(raw: String): String = if (raw.startsWith("+1") && raw.length == 12 && raw.drop(1).all(Char::isDigit))

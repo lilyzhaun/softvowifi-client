@@ -5,6 +5,7 @@ import com.vowifi.sw.manager.data.ConversationGrouping
 import com.vowifi.sw.manager.data.SimOwnerId
 import com.vowifi.sw.manager.data.isStorageAttachmentNotice
 import com.vowifi.sw.manager.data.messageConversationHandle
+import com.vowifi.sw.manager.data.messageSenderDisplay
 import com.vowifi.sw.manager.model.MessageOrigin
 import com.vowifi.sw.manager.model.MessageRecord
 import com.vowifi.sw.manager.model.MessageUiState
@@ -153,7 +154,7 @@ internal fun projectMessageThread(
     }
     return MessageThreadPage(
         handle = handle,
-        peerDisplay = privateUiPhoneDisplay(group.displayLabel),
+        peerDisplay = messageSenderDisplay(group.displayLabel),
         recipient = MessageRecipient.create(group.displayLabel),
         items = items,
         compose = state.composeSpec(),
@@ -181,8 +182,8 @@ private fun ConversationGroup.toRow(ownerId: SimOwnerId): MessageConversationRow
     val latest = records.last()
     return MessageConversationRow(
         handle = conversationHandle(ownerId, this),
-        peerDisplay = privateUiPhoneDisplay(displayLabel),
-        avatarText = messageAvatarFallback(privateUiPhoneDisplay(displayLabel)),
+        peerDisplay = messageSenderDisplay(displayLabel),
+        avatarText = messageAvatarFallback(messageSenderDisplay(displayLabel)),
         latestPreview = boundedCommunicationText(latest.preview, "内容不可显示", 80),
         timestamp = MessageTimestampSpec(latest.timestampMs),
         recordCount = records.size,
@@ -192,7 +193,7 @@ private fun ConversationGroup.toRow(ownerId: SimOwnerId): MessageConversationRow
 }
 
 internal fun messageAvatarFallback(peerDisplay: String): String =
-    peerDisplay.firstOrNull { it in '0'..'9' }?.toString() ?: "?"
+    if (peerDisplay == "未知号码") "?" else peerDisplay.firstOrNull(Char::isLetterOrDigit)?.uppercase() ?: "?"
 
 private fun MessageRecord.toThreadItem(): MessageThreadItem = when (this) {
     is MessageRecord.Incoming -> MessageThreadItem.IncomingBubble(

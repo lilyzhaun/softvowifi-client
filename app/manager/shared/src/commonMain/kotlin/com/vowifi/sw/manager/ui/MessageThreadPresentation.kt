@@ -55,7 +55,7 @@ internal fun messageOutgoingMetadataLines(
 }
 
 internal fun messageThreadMetadataLayoutContract(fontScale: Float): MessageThreadMetadataLayout {
-    require(fontScale in 1f..2f)
+    require(fontScale.isFinite() && fontScale > 0f)
     return MessageThreadMetadataLayout(
         independentLines = true,
         softWrap = true,

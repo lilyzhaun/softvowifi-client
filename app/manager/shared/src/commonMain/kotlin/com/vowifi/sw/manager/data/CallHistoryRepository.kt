@@ -1,6 +1,7 @@
 package com.vowifi.sw.manager.data
 
 import com.vowifi.sw.manager.model.CallRecord
+import com.vowifi.sw.manager.model.CallHistoryRecordId
 
 internal class CallHistoryStorageException : Exception(CALL_HISTORY_STORAGE_NOTICE) {
     override fun toString(): String = "CallHistoryStorageException"
@@ -23,6 +24,7 @@ interface CallHistoryRepository {
     suspend fun upsert(ownerId: SimOwnerId, write: CallHistoryWrite)
     suspend fun listByOwner(ownerId: SimOwnerId): List<CallRecord>
     suspend fun clearByOwner(ownerId: SimOwnerId)
+    suspend fun deleteByIds(ownerId: SimOwnerId, ids: Set<CallHistoryRecordId>)
     suspend fun interruptOpen(endedAtMs: Long)
     fun close()
 }

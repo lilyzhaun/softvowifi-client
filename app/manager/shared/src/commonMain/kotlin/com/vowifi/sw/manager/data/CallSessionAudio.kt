@@ -3,13 +3,18 @@ package com.vowifi.sw.manager.data
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
-internal fun CallAudioSession.sameSession(other: CallAudioSession): Boolean =
+internal fun CallAudioSession.sameCall(other: CallAudioSession): Boolean =
     iccid == other.iccid && token == other.token && generation == other.generation && transport === other.transport
+
+internal fun CallAudioSession.sameSession(other: CallAudioSession): Boolean =
+    sameCall(other) && mode == other.mode && earlyMediaRevision == other.earlyMediaRevision
 
 internal class CallSessionAudio(private val delegate: CallAudioController) {
     private val lock = Any()
     private val starts = Mutex()
     private var current: Claim? = null
+    private var last: Claim? = null
+    private var ending: Claim? = null
     private var closed = false
 
     fun child(): Scoped = Scoped()
@@ -18,6 +23,8 @@ internal class CallSessionAudio(private val delegate: CallAudioController) {
         if (!closed) {
             closed = true
             current = null
+            last = null
+            ending = null
             delegate.stop()
         }
     }
@@ -37,7 +44,7 @@ internal class CallSessionAudio(private val delegate: CallAudioController) {
                 val claim = synchronized(lock) {
                     check(!retired && !closed && revision == ticket)
                     check(current == null || current?.scope === this)
-                    Claim(this, session).also { current = it }
+                    Claim(this, session).also { current = it; last = it; ending = null }
                 }
                 try {
                     delegate.start(session)
@@ -59,7 +66,20 @@ internal class CallSessionAudio(private val delegate: CallAudioController) {
 
         override fun stop() = synchronized(lock) { stopCurrent(null) }
         override fun stopIf(session: CallAudioSession) = synchronized(lock) { stopCurrent(session) }
-        fun retire() = synchronized(lock) { retired = true; stopCurrent(null) }
+        override fun callEnded(session: CallAudioSession) = synchronized(lock) {
+            val owned = last?.takeIf { it.scope === this && it.session.sameCall(session) } ?: return@synchronized
+            if (retired || closed || current != null && current !== owned) return@synchronized
+            revision++
+            current = null
+            last = null
+            ending = owned
+            delegate.callEnded(session)
+        }
+        fun retire() = synchronized(lock) {
+            retired = true; stopCurrent(null)
+            if (last?.scope === this) last = null
+            if (ending?.scope === this) { ending = null; delegate.stop() }
+        }
 
         private fun stopCurrent(expected: CallAudioSession?) {
             val owned = current?.takeIf { it.scope === this }

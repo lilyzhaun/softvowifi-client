@@ -26,6 +26,7 @@ class SmsDualSimLinePresentationTest {
         val summary = line.copy(active = true, sendable = true).lineSummary()
         assertTrue(summary.contains("SIM 已启用"))
         assertTrue(summary.contains("可发送"))
-        assertTrue(summary.contains("本地线路 1"))
+        assertFalse(summary.contains("本地线路 1"))
+        assertTrue(summary.contains("0 个会话"))
     }
 }

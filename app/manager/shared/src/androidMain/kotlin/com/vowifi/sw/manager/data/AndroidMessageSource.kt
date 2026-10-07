@@ -41,6 +41,7 @@ class AndroidMessageSource(
                         transportFor = { iccid -> AndroidEngineMessageTransport(pool, iccid) },
                         clock = clock,
                         activeIccids = { activeMessageIccids(context) },
+                        lineLabelFor = { callLineLabel(context, it).takeIf { label -> label.startsWith("SIM ") } },
                     ),
                     parentContext = parentContext,
                     repository = repository,
@@ -60,6 +61,8 @@ class AndroidMessageSource(
     override val state: StateFlow<MessageUiState> = opened?.source?.state ?: fallback
     override val unreadSummary get() = opened?.source?.unreadSummary ?: super.unreadSummary
     override val historyChoices get() = opened?.source?.historyChoices ?: super.historyChoices
+    override suspend fun changeConversation(handle: String, action: MessageConversationAction) =
+        opened?.source?.changeConversation(handle, action) ?: MessageConversationActionResult.FAILED
     override suspend fun saveOwnerRemark(owner: SimOwnerId, input: String) =
         opened?.source?.saveOwnerRemark(owner, input) ?: MessageRemarkSaveResult.Failed
     override fun selectHistoryOwner(owner: SimOwnerId) { opened?.source?.selectHistoryOwner(owner) }
@@ -137,7 +140,8 @@ private fun String?.isPermissionDenied(): Boolean =
         this.orEmpty().contains("error=13", ignoreCase = true)
 
 internal fun activeMessageIccids(context: Context): List<String?>? = try {
-    context.getSystemService(SubscriptionManager::class.java)?.activeSubscriptionInfoList?.map {
+    context.getSystemService(SubscriptionManager::class.java)?.activeSubscriptionInfoList
+        ?.sortedBy { it.simSlotIndex.takeIf { slot -> slot >= 0 } ?: Int.MAX_VALUE }?.map {
         IccidNormalizer.normalize(it.iccId)
     }
 } catch (_: SecurityException) {

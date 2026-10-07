@@ -14,6 +14,12 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.LaunchedEffect
+import com.vowifi.sw.manager.data.MessageConversationAction
+import com.vowifi.sw.manager.data.MessageConversationActionResult
+import kotlinx.coroutines.launch
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -23,6 +29,8 @@ import com.vowifi.sw.manager.ui.navigation.ConversationHandle
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.Messages
+import top.yukonga.miuix.kmp.icon.extended.Close
+import top.yukonga.miuix.kmp.icon.extended.Refresh
 
 internal const val FIXTURE_DISCLOSURE_TEXT = "桌面夹具数据，不代表 Android 后端可用。"
 
@@ -40,36 +48,57 @@ fun MessagesScreen(
     onSearchHistory: (String) -> Unit = {},
     onLoadMore: () -> Unit = {},
     selectionNotice: String? = null,
-) {
+    hasRegisteredEngine: Boolean = false,
+    onConversationAction: suspend (ConversationHandle, com.vowifi.sw.manager.data.MessageConversationAction) -> com.vowifi.sw.manager.data.MessageConversationActionResult = { _, _ -> com.vowifi.sw.manager.data.MessageConversationActionResult.FAILED },
+) = PhoneStyle {
+    val displayedState = rememberMessageRouteFrame(state)
     var pickerOpen by remember { mutableStateOf(false) }
     var editor by remember { mutableStateOf<MessageRemarkEditor?>(null) }
     var searchQuery by rememberMessageSearchQuery()
-    val page = projectMessageConversations(messageProjectionOwner(state), state)
-    val filteredRows = if (state is MessageUiState.Inbox) page.rows else filterMessageConversationRows(page.rows, searchQuery)
-    androidx.compose.runtime.LaunchedEffect(searchQuery) { onSearchHistory(searchQuery) }
-    AppPageScaffold(
-        title = appRootTitle(AppRoute.Messages),
-        actions = {
-            ManagerIconAction(MiuixIcons.Messages, "新建短信", ManagerAction.Navigate, onNewMessage)
-        },
-    ) {
-        if (state is MessageUiState.Available || historyChoices.lines.isNotEmpty()) {
-            item(key = "messages-search") { MessageSearchField(query = searchQuery, onQueryChange = { searchQuery = it }) }
+    var searching by rememberSaveable { mutableStateOf(searchQuery.isNotEmpty()) }
+    val page = projectMessageConversations(messageProjectionOwner(displayedState), displayedState)
+    var deletion by remember { mutableStateOf<ConversationHandle?>(null) }
+    var changing by remember { mutableStateOf(false) }
+    var operationNotice by remember { mutableStateOf<String?>(null) }
+    val active by rememberUpdatedState(LocalAppRouteActive.current)
+    val currentAction by rememberUpdatedState(onConversationAction)
+    val scope = rememberCoroutineScope()
+    LaunchedEffect(active, messageProjectionOwner(displayedState)) { deletion = null; operationNotice = null }
+    val applyAction: (ConversationHandle, MessageConversationAction) -> Unit = { handle, action ->
+        if (active && !changing) {
+            changing = true
+            scope.launch {
+                try {
+                    operationNotice = when (currentAction(handle, action)) {
+                        MessageConversationActionResult.APPLIED -> null
+                        MessageConversationActionResult.MISSING -> "该会话已不存在，请刷新列表。"
+                        MessageConversationActionResult.FAILED -> "无法确认操作结果，请刷新列表后确认。"
+                    }
+                } finally { changing = false }
+            }
         }
+    }
+    val filteredRows = if (displayedState is MessageUiState.Inbox) page.rows else filterMessageConversationRows(page.rows, searchQuery)
+    val inbox = displayedState as? MessageUiState.Inbox
+    val initialLoading = inbox?.let { it.page.items.isEmpty() && it.page.loading } == true
+    val initialFailure = inbox?.let { it.page.items.isEmpty() && it.page.failed && !it.page.loading } == true
+    val completedSearch = (inbox?.page?.query ?: searchQuery).isNotEmpty()
+    val knownEmptyHistory = displayedState == MessageUiState.Empty ||
+        displayedState is MessageUiState.Unavailable && historyChoices.storageAvailable && historyChoices.lines.isEmpty()
+    val now = kotlin.time.Clock.System.now().toEpochMilliseconds()
+    androidx.compose.runtime.LaunchedEffect(searchQuery) { onSearchHistory(searchQuery) }
+    MessagePageScaffold(onNewMessage, hasRegisteredEngine, searching, searchQuery,
+        { searching = true }, { searchQuery = boundedMessageSearchQuery(it) }, { searching = false; searchQuery = "" }) {
         if (historyChoices.lines.isNotEmpty()) {
             item(key = "message-line-entry") { MessageLineEntry(historyChoices) { pickerOpen = true } }
         }
+        operationNotice?.let { notice -> item(key = "conversation-action-notice") { CommunicationNotice(notice) } }
         selectionNotice?.let { notice ->
             item(key = "message-draft-recovery") {
                 androidx.compose.foundation.layout.Column {
                     CommunicationNotice(notice)
-                    ManagerTextAction("处理未绑定草稿", ManagerAction.Navigate, onNewMessage)
+                     CommunicationTextAction("处理未绑定草稿", onNewMessage)
                 }
-            }
-        }
-        if (onRefreshHistory != null && (state is MessageUiState.Failure || state is MessageUiState.Unavailable || state is MessageUiState.PermissionDenied)) {
-            item(key = "refresh-history") {
-                ManagerTextAction(label = "刷新短信历史", action = ManagerAction.Navigate, onClick = onRefreshHistory)
             }
         }
         if (notificationsEnabled == false) {
@@ -87,28 +116,48 @@ fun MessagesScreen(
                 )
             }
         }
-        messageFixtureDisclosure(AppRoute.Messages, state)?.let {
+        messageFixtureDisclosure(AppRoute.Messages, displayedState)?.let {
             item(key = "fixture-disclosure") { MessageFixtureDisclosureBand(it) }
         }
-        val compactNotice = messageRootCompactNotice(state)
+        val compactNotice = messageRootCompactNotice(displayedState)
         compactNotice?.let { notice ->
             item(key = "messages-compact-notice") { MessageRootReadOnlyNotice(notice) }
         }
-        if (compactNotice == null) {
-            messageStateSpec(state)?.let { panel ->
-                item(key = "messages-state") { StatePanel(panel) }
+        if (initialLoading) item(key = "messages-initial-loading") {
+            CommunicationListState(StatePanelSpec(MiuixIcons.Refresh, StatePanelTone.INTERACTIVE,
+                "正在读取消息", "完成后将显示短信会话。", loading = true))
+        } else if (initialFailure) item(key = "messages-initial-failure") {
+            CommunicationListState(StatePanelSpec(MiuixIcons.Close, StatePanelTone.ERROR,
+                "消息读取失败", "无法读取短信会话，请稍后重试。")) {
+                CommunicationTextAction("加载失败，重试加载", onLoadMore)
+            }
+        } else if (compactNotice == null && !knownEmptyHistory) {
+            messageStateSpec(displayedState)?.let { panel ->
+                item(key = "messages-state") {
+                    if (displayedState is MessageUiState.Available) CommunicationNotice(panel.title, panel.description)
+                    else CommunicationListState(panel) {
+                        if (onRefreshHistory != null && displayedState != MessageUiState.Loading) {
+                            CommunicationTextAction("刷新短信历史", onRefreshHistory)
+                        }
+                    }
+                }
             }
         }
-        if ((state is MessageUiState.Available || historyChoices.storageAvailable && historyChoices.lines.isEmpty()) &&
-            (state !is MessageUiState.Inbox || !state.page.loading && !state.page.failed)) {
-            if (page.rows.isEmpty()) {
-                item(key = "messages-empty") { MessageEmptyPanel() }
-            } else if (filteredRows.isEmpty()) {
-                item(key = "messages-search-empty") { StatePanel(messageSearchEmptySpec()) }
+        if ((displayedState is MessageUiState.Available || knownEmptyHistory) &&
+            (inbox == null || !inbox.page.loading && !inbox.page.failed)) {
+            if (filteredRows.isEmpty() && completedSearch) {
+                item(key = "messages-search-empty") { CommunicationListState(messageSearchEmptySpec().copy(icon = CommunicationSearch)) }
+            } else if (page.rows.isEmpty()) {
+                item(key = "messages-empty") { CommunicationListState(StatePanelSpec(MiuixIcons.Messages,
+                    StatePanelTone.NEUTRAL, "暂无会话", "发送或收到短信后，会话会显示在这里。")) {
+                    if (displayedState is MessageUiState.Unavailable && onRefreshHistory != null) {
+                        CommunicationTextAction("刷新短信历史", onRefreshHistory)
+                    }
+                } }
             }
         }
         items(filteredRows, key = { row -> row.handle.value }) { row ->
-            ConversationRow(
+            MessageConversationMenu(
                 modifier = Modifier.animateItem(
                     fadeInSpec = tween(messageContentAnimationContract().durationMillis),
                     placementSpec = null,
@@ -118,16 +167,21 @@ fun MessagesScreen(
                     peerDisplay = row.peerDisplay,
                     avatarText = row.avatarText,
                     preview = row.latestPreview,
-                    timeText = messageTimestampLabel(row.timestamp.epochMs),
+                    timeText = formatCommunicationTime(row.timestamp.epochMs, now) { messageDateSpec(it).label },
                     statusText = row.outgoingStatus,
                 ),
-                onClick = { onOpenThread(row.handle) },
+                onOpen = { onOpenThread(row.handle) },
+                onAction = { action ->
+                    if (action == MessageConversationAction.DELETE) deletion = row.handle
+                    else applyAction(row.handle, action)
+                },
+                enabled = !changing,
                 unreadCount = row.unreadCount,
             )
         }
-        if (state is MessageUiState.Inbox) item(key = "history-page-action") {
-            MessagePageAction(state.page.loading, state.page.failed, state.page.next != null, "加载更多会话",
-                if (state.page.query.isEmpty()) "已显示全部历史" else "已显示全部匹配会话", onLoadMore)
+        if (displayedState is MessageUiState.Inbox && filteredRows.isNotEmpty()) item(key = "history-page-action") {
+            MessagePageAction(displayedState.page.loading, displayedState.page.failed, displayedState.page.next != null, "加载更多会话",
+                if (displayedState.page.query.isEmpty()) "已显示全部历史" else "已显示全部匹配会话", onLoadMore)
         }
     }
     if (pickerOpen) MessageLinePicker(historyChoices, { pickerOpen = false }, {
@@ -135,9 +189,14 @@ fun MessagesScreen(
         onSelectHistoryOwner(it)
     }, {
         pickerOpen = false
-        editor = MessageRemarkEditor(it.owner, it.label?.remark.orEmpty(), it.label?.ordinal)
+        editor = MessageRemarkEditor(it.owner, it.label?.remark.orEmpty(), it.label?.ordinal, it.simLabel)
     }, onRefreshHistory)
     editor?.let { MessageRemarkDialog(it, { editor = null }, onSaveOwnerRemark) }
+    deletion?.takeIf { active }?.let { handle ->
+        CommunicationConfirmation("删除会话？", "将删除本机保存的该会话全部短信，无法撤销。", "删除", { deletion = null }, {
+            if (deletion == handle) { deletion = null; applyAction(handle, MessageConversationAction.DELETE) }
+        })
+    }
 }
 
 @Composable
@@ -147,8 +206,3 @@ internal fun MessageFixtureDisclosureBand(text: String = FIXTURE_DISCLOSURE_TEXT
 
 @Composable
 internal fun rememberMessageSearchQuery(): MutableState<String> = rememberSaveable { mutableStateOf("") }
-
-@Composable
-private fun MessageEmptyPanel() {
-    CommunicationNotice("暂无会话", "发送或收到短信后，会话会显示在这里。")
-}

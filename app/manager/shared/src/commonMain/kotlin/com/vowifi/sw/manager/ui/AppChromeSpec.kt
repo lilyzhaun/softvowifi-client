@@ -15,6 +15,7 @@ internal data class AppChromeSpec(
     val blurRadius: Float,
     val motionDurationMillis: Int,
     val pressedScale: Float,
+    val communicationLiquidGlass: Boolean = false,
 )
 
 internal fun appChromeSpec(
@@ -33,6 +34,7 @@ internal fun appChromeSpec(
         blurRadius = 25f,
         motionDurationMillis = 180,
         pressedScale = 0.96f,
+        communicationLiquidGlass = settings.liquidGlassRequested && blurSupported,
     )
 }
 

@@ -30,34 +30,5 @@ internal fun MessageRootReadOnlyNotice(
     text: String,
     modifier: Modifier = Modifier,
 ) {
-    val colors = LocalSoftVoWiFiColors.current
-    Surface(
-        modifier = modifier
-            .fillMaxWidth()
-            .padding(horizontal = 8.dp, vertical = 4.dp),
-        shape = RoundedCornerShape(18.dp),
-        color = colors.surfaceRaised,
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 12.dp, vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Icon(
-                imageVector = MiuixIcons.Info,
-                contentDescription = null,
-                modifier = Modifier.size(20.dp),
-                tint = colors.textSecondary,
-            )
-            Spacer(modifier = Modifier.width(8.dp))
-            Text(
-                text = text,
-                modifier = Modifier.weight(1f),
-                color = colors.textSecondary,
-                fontSize = 14.sp,
-                lineHeight = 20.sp,
-            )
-        }
-    }
+    CommunicationFootnote(text, modifier)
 }

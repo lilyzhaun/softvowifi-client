@@ -98,12 +98,13 @@ class SettingsScreenTest {
             listOf(
                 AppearancePreferenceKey.FLOATING_NAV,
                 AppearancePreferenceKey.BLUR_ENABLED,
+                AppearancePreferenceKey.LIQUID_GLASS_ENABLED,
             ),
             nonFloatingNavKeys,
         )
 
         val unsupportedLiquidSpec = unsupportedBlurSections[0].specs.first { it.key == AppearancePreferenceKey.LIQUID_GLASS_ENABLED }
-        assertEquals("当前设备不支持模糊，使用不透明指示器", unsupportedLiquidSpec.summary)
+        assertEquals("当前设备不支持模糊，使用不透明背景", unsupportedLiquidSpec.summary)
         val toggleRow = appearanceSpecToTogglePreference(unsupportedLiquidSpec)
         assertFalse(toggleRow.actionable)
         assertFalse(toggleRow.isVisuallyEnabled)

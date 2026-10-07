@@ -11,6 +11,8 @@ import androidx.compose.ui.unit.sp
 import top.yukonga.miuix.kmp.basic.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.RectangleShape
@@ -87,38 +89,56 @@ internal fun AppSubpageScene(
     }
     val contract = appSubpageSceneContract(route)
     val colors = LocalSoftVoWiFiColors.current
-    val backdrop = if (chromeSpec.effectiveBlur) rememberSoftVoWiFiBackdrop(chromeSpec) else null
-    val title = titleOverride ?: route.topBarTitle
+    val communication = route is AppRoute.MessageThread || route == AppRoute.NewMessage || route is AppRoute.CallHistoryDetail
+    val pageControl = remember(route) { mutableStateOf<CommunicationPageControl?>(null) }
+    val backdrop = if (communication) rememberCommunicationBackdrop()
+        else if (chromeSpec.effectiveBlur) rememberSoftVoWiFiBackdrop(chromeSpec) else null
+    val currentTitle = titleOverride ?: route.topBarTitle
+    val title = if (route is AppRoute.MessageThread) rememberMessageRouteFrame(currentTitle, route, routeActive) else currentTitle
     val expandedPeer = route is AppRoute.MessageThread && (LocalDensity.current.fontScale > 1.3f || title.length > 16)
+    val phoneDetail = communication
+    val canvas = if (phoneDetail) phoneColors().canvas else colors.canvas
+    PhoneStyle(enabled = phoneDetail) {
     Scaffold(
-        modifier = Modifier.fillMaxSize().background(colors.canvas.copy(alpha = 1f)),
+        modifier = Modifier.fillMaxSize().background(canvas.copy(alpha = 1f)),
         topBar = {
+            if (communication) CompositionLocalProvider(LocalCommunicationBackdrop provides backdrop) {
+                CommunicationNavigation(title, leading = {
+                    CommunicationIconAction(MiuixIcons.Back, "返回", onBack, enabled = routeActive)
+                }, trailing = { pageControl.value?.let { CommunicationIconAction(it.icon, it.label, it.action, enabled = routeActive) } },
+                    subtitle = pageControl.value?.subtitle)
+            } else {
             SmallTopAppBar(
                 modifier = chromeSurfaceModifier(Modifier, chromeSpec, backdrop, RectangleShape, blendAlpha = contract.topBarBlendAlpha),
                 title = if (expandedPeer) "" else title,
                 color = if (!chromeSpec.effectiveBlur && contract.topBarBlendAlpha > 0f) colors.canvas else Color.Transparent,
                 titleColor = colors.textPrimary,
                 navigationIcon = {
-                    ManagerIconAction(MiuixIcons.Back, "返回", ManagerAction.Navigate, onBack, enabled = routeActive)
+                    if (communication) CompositionLocalProvider(LocalCommunicationBackdrop provides backdrop) {
+                        CommunicationIconAction(MiuixIcons.Back, "返回", onBack, enabled = routeActive)
+                    } else ManagerIconAction(MiuixIcons.Back, "返回", ManagerAction.Navigate, onBack, enabled = routeActive)
                 },
                 bottomContent = {
                     if (expandedPeer) Text(title, modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, bottom = 12.dp), fontSize = 16.sp, lineHeight = 22.sp, textAlign = TextAlign.Center, color = colors.textPrimary)
                 },
             )
+            }
         },
-        containerColor = colors.canvas.copy(alpha = 1f),
+        containerColor = canvas.copy(alpha = 1f),
     ) { padding ->
         val capture = backdrop?.let { Modifier.layerBackdrop(it) } ?: Modifier
         Box(
-            Modifier.fillMaxSize().background(colors.canvas.copy(alpha = 1f)).then(capture),
+            Modifier.fillMaxSize().background(canvas.copy(alpha = 1f)).then(capture),
         ) {
             CompositionLocalProvider(
                 LocalSubpageTopContentInset provides padding.calculateTopPadding(),
                 LocalSubpageBottomContentInset provides padding.calculateBottomPadding(),
                 LocalAppRouteActive provides routeActive,
+                LocalCommunicationPageControl provides pageControl.takeIf { communication },
             ) {
                 content()
             }
         }
+    }
     }
 }

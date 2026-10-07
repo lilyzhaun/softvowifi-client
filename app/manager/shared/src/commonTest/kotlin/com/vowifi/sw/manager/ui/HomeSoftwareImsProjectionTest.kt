@@ -19,6 +19,15 @@ import kotlin.test.assertTrue
 
 class HomeSoftwareImsProjectionTest {
     @Test
+    fun stoppedSecondSimDoesNotMakeRegisteredServiceYellow() {
+        val result = dashboard(SimControlUiState.Ready(listOf(sim(), sim(1).copy(lifecycle = EngineLifecycle.STOPPED, runtime = null))))
+        assertEquals(SemanticTone.SUCCESS, result.hero.tone)
+        assertEquals("IMS 已注册", result.hero.title)
+        assertEquals(SemanticTone.SUCCESS, result.metrics.first().tone)
+        assertEquals("1 / 2 张活动 SIM 已注册", result.facts.first().value)
+    }
+
+    @Test
     fun twoActiveSimsIgnoreThreeHistoricalObserverSubscriptions() {
         val result = dashboard(ready(), stock("REGISTERED", "REGISTERED", "REGISTERED"))
         assertEquals("2", result.metrics.first().value)
@@ -60,13 +69,13 @@ class HomeSoftwareImsProjectionTest {
     }
 
     @Test
-    fun runningMissingOrUnrecognizedRuntimeIsUnknownNotZero() {
+    fun unknownOtherLineKeepsKnownRegistrationGreenAndReportsUnknownCount() {
         listOf(null, runtime().copy(ims = "unexpected"), runtime().copy(ims = "registered")).forEach { runtime ->
             val result = dashboard(SimControlUiState.Ready(listOf(sim(), sim(1).copy(runtime = runtime))))
-            assertEquals("未知", result.metrics.first().value)
+            assertEquals("1", result.metrics.first().value)
             assertEquals("1 / 2 张活动 SIM 已注册 · 1 张未知", result.facts.first().value)
-            assertEquals("IMS 状态待确认", result.hero.title)
-            assertFalse(result.hero.tone == SemanticTone.SUCCESS)
+            assertEquals("IMS 已注册", result.hero.title)
+            assertEquals(SemanticTone.SUCCESS, result.hero.tone)
         }
     }
 
@@ -79,16 +88,19 @@ class HomeSoftwareImsProjectionTest {
         val unconfigured = sim(1).copy(presence = SimPresence.ACTIVE_UNCONFIGURED, lifecycle = EngineLifecycle.CONFIG_MISSING)
         val partial = dashboard(SimControlUiState.Ready(listOf(sim(), unconfigured, retained)))
         assertEquals("1 / 2 张活动 SIM 已注册", partial.facts.first().value)
-        assertEquals("需要创建 SIM 配置", partial.hero.title)
+        assertEquals("IMS 已注册", partial.hero.title)
+        assertEquals(SemanticTone.SUCCESS, partial.hero.tone)
+        assertTrue(partial.notices.any { it.title == "SIM 尚未配置" })
     }
 
     @Test
-    fun oneRegisteredOneUnregisteredIsPartialNotGloballyReady() {
+    fun oneRegisteredOneUnregisteredIsRegisteredWithoutClaimingBothReady() {
         val result = dashboard(SimControlUiState.Ready(listOf(sim(), sim(1).copy(runtime = runtime().copy(ims = "UNREGISTERED")))))
         assertEquals("1", result.metrics.first().value)
-        assertEquals(SemanticTone.WARNING, result.metrics.first().tone)
-        assertEquals("部分 SIM 已注册", result.hero.title)
-        assertEquals(SemanticTone.WARNING, result.hero.tone)
+        assertEquals(SemanticTone.SUCCESS, result.metrics.first().tone)
+        assertEquals("IMS 已注册", result.hero.title)
+        assertEquals(SemanticTone.SUCCESS, result.hero.tone)
+        assertEquals("1 / 2 张活动 SIM 已注册", result.facts.first().value)
     }
 
     @Test
@@ -103,7 +115,7 @@ class HomeSoftwareImsProjectionTest {
     }
 
     @Test
-    fun environmentAndControlWarningsPreventReadyGreenWithoutHidingRegistration() {
+    fun registrationGreenDoesNotHideSeparateEnvironmentAndControlWarnings() {
         listOf(EnvironmentDiagnosticsUiState.Failure("failed"), EnvironmentDiagnosticsUiState.PermissionDenied("denied"),
             EnvironmentDiagnosticsUiState.Unavailable("unsupported"), EnvironmentDiagnosticsUiState.Loading,
             EnvironmentDiagnosticsUiState.Ready(DiagnosticCheckStatus.FAIL, emptyList()),
@@ -111,19 +123,22 @@ class HomeSoftwareImsProjectionTest {
         ).forEach { diagnostics ->
             val result = dashboard(ready(), diagnostics = diagnostics)
             assertEquals("2", result.metrics.first().value)
-            assertFalse(result.hero.tone == SemanticTone.SUCCESS)
+            assertEquals(SemanticTone.SUCCESS, result.hero.tone)
             if (diagnostics != EnvironmentDiagnosticsUiState.Loading) assertTrue(result.notices.isNotEmpty())
         }
-        assertFalse(dashboard(ready().copy(message = "control warning")).hero.tone == SemanticTone.SUCCESS)
-        assertFalse(dashboard(SimControlUiState.Ready(listOf(sim().copy(message = "instance warning")))).hero.tone == SemanticTone.SUCCESS)
+        assertEquals(SemanticTone.SUCCESS, dashboard(ready().copy(message = "control warning")).hero.tone)
+        assertTrue(dashboard(ready().copy(message = "control warning")).notices.isNotEmpty())
+        assertEquals(SemanticTone.SUCCESS, dashboard(SimControlUiState.Ready(listOf(sim().copy(message = "instance warning")))).hero.tone)
     }
 
     @Test
-    fun registeredButDisconnectedTunnelIsNotReady() {
+    fun registrationHeroDoesNotClaimTunnelReadiness() {
         val result = dashboard(SimControlUiState.Ready(listOf(sim().copy(runtime = runtime().copy(tunnel = "DISCONNECTED")))))
         assertEquals("1", result.metrics.first().value)
-        assertEquals("隧道未就绪", result.hero.statusText)
-        assertEquals(SemanticTone.WARNING, result.hero.tone)
+        assertEquals("已注册", result.hero.statusText)
+        assertEquals("IMS 已注册", result.hero.title)
+        assertEquals(SemanticTone.SUCCESS, result.hero.tone)
+        assertEquals(0, homeSoftwareImsProjection(SimControlUiState.Ready(listOf(sim().copy(runtime = runtime().copy(tunnel = "DISCONNECTED"))))).connected)
     }
 
     @Test

@@ -66,6 +66,8 @@ data class MessageHistoryLine(
     val label: com.vowifi.sw.manager.data.MessageOwnerLabel? = null,
     val active: Boolean? = null,
     val sendable: Boolean = connected,
+    val simLabel: String? = null,
+    val running: Boolean = false,
 ) {
     override fun toString(): String = "MessageHistoryLine(conversationCount=$conversationCount)"
 }

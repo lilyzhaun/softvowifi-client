@@ -20,6 +20,20 @@ import kotlin.test.assertTrue
 
 class MessageConversationProjectionTest {
     @Test
+    fun alphanumericSenderSurvivesListAndThreadWithoutBecomingReplyRecipient() {
+        val state = ready(incoming("sender-name", "ExampleVerify", "synthetic message", 100L))
+        val row = projectMessageConversations(owner(), state).rows.single()
+        assertEquals("ExampleVerify", row.peerDisplay)
+        assertEquals("E", row.avatarText)
+        val thread = checkNotNull(projectMessageThread(row.handle, owner(), state) {
+            MessageDateSpec("today", "今天")
+        })
+        assertEquals("ExampleVerify", thread.peerDisplay)
+        assertNull(thread.recipient)
+        assertEquals("未知号码", privateUiPhoneDisplay("ExampleVerify"))
+    }
+
+    @Test
     fun conversationRowsExposeGoogleMessagesFactsWithFullNumberAndAvatarFallback() {
         val state = ready(
             incoming("old", "+15550123", "older", 100L),

@@ -19,6 +19,24 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [33], application = SoftVoWiFiApplication::class, shadows = [RuntimeApplicationShadow::class])
 class LocalSocketCloseFailureHostTest {
+    @Test fun outputShutdownFailureStillClosesDescriptorAndCompletesPending() = runBlocking {
+        BlockingSocketClient().use { fixture ->
+            fixture.transport.connect()
+            fixture.socket.holdResponse = true
+            val pending = async(Dispatchers.Default) { runCatching { fixture.transport.request("getStatus") }.exceptionOrNull() }
+            withTimeout(5_000) { fixture.socket.requestReceived.await() }
+            val outputError = IOException("synthetic output shutdown")
+            fixture.socket.shutdownOutputFailure = outputError
+            assertSame(outputError, runCatching { fixture.transport.close() }.exceptionOrNull())
+            assertFalse(fixture.socket.descriptorOpen)
+            assertEquals(1, fixture.socket.closeCalls.get())
+            assertNull(fixture.connectedSocket)
+            assertTrue(withTimeout(1_000) { pending.await() } is EOFException)
+            fixture.transport.close()
+            assertEquals(1, fixture.socket.closeCalls.get())
+        }
+    }
+
     @Test fun shutdownFailureStillClosesDescriptorAndCompletesPending() = failedClose(shutdownFails = true, closeFails = false)
     @Test fun closeFailureStillClearsConnectionAndCompletesPending() = failedClose(shutdownFails = false, closeFails = true)
     @Test fun bothFailuresKeepShutdownErrorAndSuppressCloseError() = failedClose(shutdownFails = true, closeFails = true)

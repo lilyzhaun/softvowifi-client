@@ -176,7 +176,8 @@ class SmsProductionNavigationTest {
         }
         fun hasText(text: String) = nodes().any { node -> node.config.getOrNull(SemanticsProperties.Text)?.any { it.text == text } == true }
         fun click(text: String) {
-            val node = nodes().first { node -> node.config.getOrNull(SemanticsProperties.Text)?.any { it.text == text } == true && node.config.getOrNull(SemanticsActions.OnClick) != null }
+            val node = nodes().first { node -> (node.config.getOrNull(SemanticsProperties.Text)?.any { it.text == text } == true ||
+                node.config.getOrNull(SemanticsProperties.ContentDescription)?.contains(text) == true) && node.config.getOrNull(SemanticsActions.OnClick) != null }
             assertTrue(requireNotNull(node.config[SemanticsActions.OnClick].action).invoke())
             if (text == "搜索会话") searchOpen = true
             frame()

@@ -29,6 +29,8 @@ internal class EngineMessageSession(
     var activeRosterComplete = false
     var startupRecovered = false
     var automaticOwner: SimOwnerId? = null
+    var lineLabels: Map<SimOwnerId, String> = emptyMap()
+    var runningOwners: Set<SimOwnerId> = emptySet()
     var fallback: MessageUiState = MessageUiState.Loading
 
     fun isCurrent(line: MessageLiveSession): Boolean = !closed && line.attached && sessions[line.owner] === line
@@ -61,10 +63,15 @@ internal class EngineMessageSession(
 
     fun publish() {
         if (closed) return
+        automaticOwner = if (activeRosterComplete) activeOwners?.firstOrNull { owner ->
+            sessions[owner]?.let { it.attached && it.connected && it.registered && it.storageHealthy } == true
+        } ?: activeOwners?.firstOrNull { owner ->
+            sessions[owner]?.let { it.attached && it.connected && it.registered } == true
+        } else null
         selection.publishLive(fallback, sessions.mapValues { (_, line) ->
             val snapshot = line.snapshot()
             if (isAvailable(line.owner)) snapshot else snapshot.copy(composerEnabled = false, attachmentNotice = HISTORY_READ_ONLY)
-        }, activeOwners, automaticOwner, activeRosterComplete)
+        }, activeOwners, automaticOwner, activeRosterComplete, lineLabels, runningOwners)
     }
 }
 

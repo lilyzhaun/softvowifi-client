@@ -17,8 +17,8 @@ import top.yukonga.miuix.kmp.basic.Surface
 
 @Composable internal fun PhoneEmblem(icon: ImageVector) {
     Surface(shape = CircleShape, color = phoneColors().surface) {
-        Box(Modifier.size(72.dp), contentAlignment = Alignment.Center) {
-            Icon(icon, null, tint = phoneColors().accent, modifier = Modifier.size(32.dp))
+        Box(Modifier.size(88.dp), contentAlignment = Alignment.Center) {
+            Icon(icon, null, tint = phoneColors().accent, modifier = Modifier.size(36.dp))
         }
     }
 }

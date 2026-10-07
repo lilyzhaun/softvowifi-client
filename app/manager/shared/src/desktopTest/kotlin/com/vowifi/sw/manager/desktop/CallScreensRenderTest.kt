@@ -223,7 +223,8 @@ class CallScreensRenderTest {
     private fun click(scene: ImageComposeScene, label: String) { assertTrue(requireNotNull(button(scene, label).config[SemanticsActions.OnClick].action).invoke()) }
     private fun longClick(scene: ImageComposeScene, label: String) { assertTrue(requireNotNull(button(scene, label).config[SemanticsActions.OnLongClick].action).invoke()) }
     private fun clickText(scene: ImageComposeScene, label: String) {
-        val node = nodes(scene).first { it.config.getOrNull(SemanticsProperties.Text)?.any { it.text == label } == true && it.config.contains(SemanticsActions.OnClick) }
+        val node = nodes(scene).first { (it.config.getOrNull(SemanticsProperties.Text)?.any { it.text == label } == true ||
+            it.config.getOrNull(SemanticsProperties.ContentDescription)?.contains(label) == true) && it.config.contains(SemanticsActions.OnClick) }
         assertTrue(requireNotNull(node.config[SemanticsActions.OnClick].action).invoke())
     }
     private fun screenshot(scene: ImageComposeScene, name: String) {

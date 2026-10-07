@@ -13,7 +13,8 @@ class CallSourceAggregateTest {
         try {
             assertEquals(1, fixture.first.connectCalls)
             assertEquals(1, fixture.second.connectCalls)
-            assertNull(fixture.source.lines.value.outgoingBinding)
+            assertEquals(OWNER_A, fixture.source.lines.value.selectedOwner)
+            assertNotNull(fixture.source.lines.value.outgoingBinding)
             fixture.source.selectLine(OWNER_A)
             fixture.second.emitIncoming(CALL_TOKEN, "RINGING")
             val ready = assertIs<CallUiState.Ready>(fixture.source.state.value)
@@ -45,9 +46,8 @@ class CallSourceAggregateTest {
         } finally { fixture.source.close() }
     }
 
-    @Test fun automaticChoiceUsesFullRawRosterNotRunningCount() = runTest(UnconfinedTestDispatcher()) {
-        for (roster in listOf(null, listOf(CallAggregateFixture.ICCID_A, null),
-            listOf(CallAggregateFixture.ICCID_A, CallAggregateFixture.ICCID_B))) {
+    @Test fun automaticChoiceStillRequiresCompleteIdentityRoster() = runTest(UnconfinedTestDispatcher()) {
+        for (roster in listOf(null, listOf(CallAggregateFixture.ICCID_A, null))) {
             val fixture = CallAggregateFixture(coroutineContext, roster, onlyFirst = true)
             try {
                 assertNull(fixture.source.lines.value.selectedOwner)

@@ -6,6 +6,8 @@ import com.vowifi.sw.manager.model.ConfigurationUiState
 import com.vowifi.sw.manager.model.EngineLifecycle
 import java.io.IOException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.runInterruptible
 import kotlinx.coroutines.withContext
 
 internal class AndroidConfigurationCommands(
@@ -39,10 +41,10 @@ internal class AndroidConfigurationCommands(
     suspend fun applyTracked(iccid: String, payload: String): ConfigurationCommandApplyResult =
         withContext(Dispatchers.IO) {
             try {
-                configurationApplyResult(command.run(
+                configurationApplyResult(runInterruptible { command.run(
                     ConfigurationControlCommand.applyLine(iccid), payload,
                     ConfigurationControlCommand.APPLY_TIMEOUT_SECONDS,
-                ).toOutcome())
+                ) }.toOutcome())
             } catch (_: IOException) {
                 ConfigurationCommandApplyResult.Unconfirmed
             }
@@ -71,16 +73,17 @@ internal class AndroidConfigurationCommands(
         parse: (String) -> CommandRead,
     ): CommandRead = withContext(Dispatchers.IO) {
         try {
-            val result = if (stdinText == null) {
-                command.run(commandLine)
-            } else {
-                command.run(commandLine, stdinText, timeoutSeconds)
+            val result = runInterruptible {
+                if (stdinText == null) command.run(commandLine)
+                else command.run(commandLine, stdinText, timeoutSeconds)
             }
             val mapped = mapper(result.toOutcome())
             when {
                 mapped != null -> CommandRead.Mapped(mapped)
                 else -> parse(result.output)
             }
+        } catch (error: CancellationException) {
+            throw error
         } catch (error: ConfigurationFormatException) {
             CommandRead.Mapped(ConfigurationEvaluator.failure(error.message ?: "配置结果无法解析"))
         } catch (error: IOException) {

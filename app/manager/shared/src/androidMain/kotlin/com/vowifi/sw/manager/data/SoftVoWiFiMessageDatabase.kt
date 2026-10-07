@@ -58,6 +58,40 @@ internal data class MessageMetadataEntity(
 
 @Dao
 internal interface MessageDao {
+    @Query("SELECT message_id FROM messages WHERE sim_owner_id = :owner AND conversation_key = :key ORDER BY message_at_ms DESC, message_id DESC LIMIT 1")
+    suspend fun latestMessageId(owner: String, key: String): String?
+
+    @Query("SELECT COUNT(*) FROM messages WHERE sim_owner_id = :owner AND conversation_key = :key AND direction = 'INCOMING' AND `read` = 0")
+    suspend fun conversationUnreadCount(owner: String, key: String): Long
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun putManualUnread(entity: MessageMetadataEntity)
+
+    @Query("DELETE FROM message_metadata WHERE `key` = :key")
+    suspend fun removeManualUnread(key: String)
+
+    @Query("DELETE FROM message_metadata WHERE `key` = :key AND value IN (:ids)")
+    suspend fun clearObservedManualUnread(key: String, ids: List<String>): Int
+
+    @Query("DELETE FROM messages WHERE sim_owner_id = :owner AND conversation_key = :key")
+    suspend fun deleteConversation(owner: String, key: String)
+
+    @Transaction
+    suspend fun changeConversation(owner: String, key: String, action: MessageConversationAction): Boolean {
+        val anchor = latestMessageId(owner, key) ?: return false
+        val marker = "conversation_unread_v1:$owner:$key"
+        when (action) {
+            MessageConversationAction.MARK_UNREAD -> if (conversationUnreadCount(owner, key) == 0L) {
+                putManualUnread(MessageMetadataEntity(marker, anchor))
+            }
+            MessageConversationAction.DELETE -> {
+                removeManualUnread(marker)
+                deleteConversation(owner, key)
+            }
+        }
+        return true
+    }
+
     @Query("SELECT * FROM messages WHERE sim_owner_id = :ownerId AND conversation_key = :key AND direction = 'INCOMING' AND `read` = 0 ORDER BY message_at_ms DESC, message_id DESC LIMIT 6")
     suspend fun unreadNotificationPreview(ownerId: String, key: String): List<MessageEntity>
 
@@ -142,7 +176,7 @@ internal interface MessageDao {
     @Query("SELECT * FROM messages WHERE sim_owner_id = :owner AND conversation_key = :conversationKey ORDER BY message_at_ms ASC, message_id ASC")
     suspend fun listConversation(owner: String, conversationKey: String): List<MessageEntity>
 
-    @Query(COUNT_UNREAD_INCOMING_SQL)
+    @Query("SELECT COUNT(*) FROM messages WHERE (direction = 'INCOMING' AND `read` = 0) OR message_id IN (SELECT value FROM message_metadata WHERE `key` GLOB 'conversation_unread_v1:*')")
     suspend fun countUnreadIncoming(): Long
 
     @Query(MessageReadSql.LIST_OBSERVED_UNREAD)
@@ -166,11 +200,18 @@ internal interface MessageDao {
         conversationKey: String,
         observedIds: List<String>,
         nowMs: Long,
-    ): List<String> = markObservedUnreadChunked(
-        observedIds = observedIds,
-        listChunk = { chunk -> listObservedUnread(ownerId, conversationKey, chunk) },
-        markChunk = { chunk -> markObservedUnread(ownerId, conversationKey, chunk, nowMs) },
-    )
+    ): IncomingReadUpdate {
+        val updated = markObservedUnreadChunked(
+            observedIds = observedIds,
+            listChunk = { chunk -> listObservedUnread(ownerId, conversationKey, chunk) },
+            markChunk = { chunk -> markObservedUnread(ownerId, conversationKey, chunk, nowMs) },
+        )
+        var cleared = false
+        for (chunk in MessageReadSql.observedIdChunks(observedIds)) {
+            if (clearObservedManualUnread("conversation_unread_v1:$ownerId:$conversationKey", chunk) > 0) cleared = true
+        }
+        return IncomingReadUpdate.of(updated, cleared)
+    }
 
     @Transaction
     suspend fun applyReportedStatus(

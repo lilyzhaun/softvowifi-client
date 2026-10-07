@@ -34,11 +34,15 @@ internal class AndroidCallHistoryRepository(
     }
 
     override suspend fun listByOwner(ownerId: SimOwnerId): List<CallRecord> = storageCall {
-        calls.listByOwner(ownerId.wire()).map { entity -> entity.toWrite().toRecord() }
+        calls.listByOwner(ownerId.wire()).map { entity -> entity.toWrite().toRecord(ownerId) }
     }
 
     override suspend fun clearByOwner(ownerId: SimOwnerId) = storageCall {
         calls.clearByOwner(ownerId.wire())
+    }
+    override suspend fun deleteByIds(ownerId: SimOwnerId, ids: Set<com.vowifi.sw.manager.model.CallHistoryRecordId>) = storageCall {
+        val correlations = calls.listByOwner(ownerId.wire()).filter { it.toWrite().toRecord(ownerId).recordId in ids }.map { it.correlationId }
+        if (correlations.isNotEmpty()) calls.deleteByIds(ownerId.wire(), correlations)
     }
 
     override suspend fun interruptOpen(endedAtMs: Long) = storageCall {

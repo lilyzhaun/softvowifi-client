@@ -97,7 +97,7 @@ class PhoneInteractionRenderTest {
             click(scene, "5"); frame(scene)
             assertEquals(listOf('5'), digits)
             assertTrue(actions.isEmpty())
-            val scroll = nodes(scene).single { it.config.contains(SemanticsActions.ScrollBy) }
+            val scroll = nodes(scene).single { it.config.contains(SemanticsProperties.VerticalScrollAxisRange) && it.config.contains(SemanticsActions.ScrollBy) }
             requireNotNull(scroll.config[SemanticsActions.ScrollBy].action).invoke(0f, 4000f); frame(scene)
             val hangup = button(scene, "挂断")
             assertTrue(hangup.boundsInRoot.top >= 0 && hangup.boundsInRoot.bottom <= 740)
@@ -118,13 +118,20 @@ class PhoneInteractionRenderTest {
         try {
             frame(scene)
             val original = button(scene, "测试动作").boundsInRoot
+            fun visualWidth(): Float {
+                fun find(node: SemanticsNode): SemanticsNode? =
+                    if (node.config.getOrNull(SemanticsProperties.TestTag) == "phone-face-测试动作") node
+                    else node.children.firstNotNullOfOrNull(::find)
+                return scene.semanticsOwners.firstNotNullOf { find(it.unmergedRootSemanticsNode) }.boundsInRoot.width
+            }
             screenshot(scene, "motion-rest")
             scene.sendPointerEvent(PointerEventType.Press, original.center); delay(30)
             frame(scene, 3, 16_000_000L)
-            val early = button(scene, "测试动作").boundsInRoot.width
+            val early = visualWidth()
             screenshot(scene, "motion-mid")
             frame(scene)
-            val pressed = button(scene, "测试动作").boundsInRoot.width
+            val pressed = visualWidth()
+            assertEquals(original.width, button(scene, "测试动作").boundsInRoot.width, .1f, "按压不缩小触摸区域")
             screenshot(scene, "motion-pressed")
             assertTrue(early > pressed && early < original.width)
             assertEquals(original.width * .96f, pressed, .2f)
@@ -133,7 +140,7 @@ class PhoneInteractionRenderTest {
             assertEquals(original.width, button(scene, "测试动作").boundsInRoot.width, .2f)
             factor = 0f; frame(scene)
             scene.sendPointerEvent(PointerEventType.Press, original.center); delay(30); frame(scene, 2, 16_000_000L)
-            assertEquals(original.width * .96f, button(scene, "测试动作").boundsInRoot.width, .2f)
+            assertEquals(original.width * .96f, visualWidth(), .2f)
             scene.sendPointerEvent(PointerEventType.Release, original.center); frame(scene)
             assertEquals(2, calls)
         } finally { scene.close() }
