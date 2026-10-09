@@ -8,6 +8,19 @@
 
 > **必须配合兼容的 SoftVoWiFi Root 模块。** 单独 APK 不实现私有引擎、不安装特权后端，也不能自行提供 Wi-Fi Calling。项目仍在开发验收阶段，自动 Release 不证明完整设备／运营商兼容，请勿用于紧急呼叫。
 
+## 界面预览
+
+[![SoftVoWiFi](https://github.com/user-attachments/assets/fdced940-4009-4762-acdb-3b16f94c820c)](#视频)
+
+### 视频
+
+https://github.com/user-attachments/assets/973bcf68-27c4-4a6f-ad82-63140677de54
+
+<p align="center">
+  <a href="https://github.com/user-attachments/assets/c3ca8359-0e89-4311-aa53-e39da32ea12a"><img src="https://github.com/user-attachments/assets/c3ca8359-0e89-4311-aa53-e39da32ea12a" width="49%" alt="来电通知与原生通话界面" /></a>
+  <a href="https://github.com/user-attachments/assets/9d2e092e-fbee-45b7-ab4c-cc10e14a0dd0"><img src="https://github.com/user-attachments/assets/9d2e092e-fbee-45b7-ab4c-cc10e14a0dd0" width="49%" alt="短信提醒与会话界面" /></a>
+</p>
+
 ## App 功能
 
 | 页面 | 用途 |

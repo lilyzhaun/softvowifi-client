@@ -8,6 +8,19 @@ This repository receives versioned **app-only source snapshots** from the SoftVo
 
 > **A compatible SoftVoWiFi root module is required.** A standalone APK does not implement the private VoWiFi engine, install the privileged backend, or provide a working Wi-Fi Calling service by itself. The project is experimental; automated releases do not establish complete device/carrier compatibility. Do not rely on it for emergency calls.
 
+## Preview
+
+[![SoftVoWiFi](https://github.com/user-attachments/assets/fdced940-4009-4762-acdb-3b16f94c820c)](#video)
+
+### Video
+
+https://github.com/user-attachments/assets/973bcf68-27c4-4a6f-ad82-63140677de54
+
+<p align="center">
+  <a href="https://github.com/user-attachments/assets/c3ca8359-0e89-4311-aa53-e39da32ea12a"><img src="https://github.com/user-attachments/assets/c3ca8359-0e89-4311-aa53-e39da32ea12a" width="49%" alt="Incoming call and native call controls" /></a>
+  <a href="https://github.com/user-attachments/assets/9d2e092e-fbee-45b7-ab4c-cc10e14a0dd0"><img src="https://github.com/user-attachments/assets/9d2e092e-fbee-45b7-ab4c-cc10e14a0dd0" width="49%" alt="Message notification and conversation" /></a>
+</p>
+
 ## App features
 
 | Area | Purpose |
