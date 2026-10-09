@@ -4,7 +4,7 @@ import android.content.Context
 import android.telephony.SubscriptionManager
 import android.telephony.TelephonyManager
 import com.vowifi.sw.manager.model.CallBinding
-import com.vowifi.sw.manager.ui.homeCountryFlag
+import com.vowifi.sw.manager.ui.simCarrierTitle
 
 internal fun boundCallLine(context: Context, binding: CallBinding?): String {
     if (binding == null) return "当前线路尚未连接"
@@ -17,11 +17,12 @@ internal fun callLineLabel(context: Context, rawOwner: String): String {
         val info = context.getSystemService(SubscriptionManager::class.java)?.activeSubscriptionInfoList
             ?.singleOrNull { IccidNormalizer.normalize(it.iccId) == owner }
             ?: return "当前绑定线路 · SIM 信息不可用"
-        val manager = context.getSystemService(TelephonyManager::class.java)?.createForSubscriptionId(info.subscriptionId)
-        val name = homeCarrierLabel(manager?.simOperatorName).takeIf(OperationalLogRedactor::isPrivateUiText)
-        val flag = homeCountryFlag(manager?.simCountryIso)
-        val slot = info.simSlotIndex.takeIf { it >= 0 }?.let { "SIM ${it + 1}" } ?: "当前绑定线路"
-        listOfNotNull(slot, flag, name).joinToString(" · ")
+        simCarrierTitle(validatedSlotIndex(info.simSlotIndex), subscriptionHomeCarrierLabel(context, info.subscriptionId), validatedMcc(info.mccString))
     } catch (_: SecurityException) { "当前绑定线路 · SIM 信息不可用" }
     catch (_: IllegalStateException) { "当前绑定线路 · SIM 信息不可用" }
 }
+
+internal fun subscriptionHomeCarrierLabel(context: Context, subscriptionId: Int): String = try {
+    homeCarrierLabel(context.getSystemService(TelephonyManager::class.java)
+        ?.createForSubscriptionId(subscriptionId)?.simOperatorName)
+} catch (_: RuntimeException) { homeCarrierLabel(null) }

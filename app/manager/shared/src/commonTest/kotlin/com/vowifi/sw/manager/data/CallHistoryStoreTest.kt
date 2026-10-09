@@ -11,6 +11,25 @@ import kotlinx.coroutines.test.runTest
 
 class CallHistoryStoreTest {
     @Test
+    fun historyNamesComeFromOwnerBoundLabelsWithoutChangingRecordsOrSelection() = runTest(UnconfinedTestDispatcher()) {
+        val repository = FakeCallHistoryRepository()
+        val terminal = historyWrite(endedAtMs = T0 + 1, outcome = com.vowifi.sw.manager.model.CallOutcome.COMPLETED)
+        repository.upsert(OWNER_A, terminal)
+        repository.upsert(OWNER_B, terminal)
+        val before = repository.listByOwner(OWNER_A)
+        val titles = mapOf(OWNER_A to "T-Mobile · •••• 1234", OWNER_B to "T-Mobile · •••• 5678")
+        val store = CallHistoryStore(repository, coroutineContext, lineLabels = { owners -> titles.filterKeys { it in owners } })
+        try {
+            store.select(OWNER_A)
+            assertEquals(titles, store.owners.value.associate { it.owner to it.label })
+            assertEquals(before, repository.listByOwner(OWNER_A))
+            store.selectHistory(store.owners.value.single { it.owner == OWNER_B })
+            assertEquals(OWNER_B, repository.lastOwner())
+            assertEquals("T-Mobile · •••• 5678", store.owners.value.single { it.selected }.label)
+        } finally { store.close() }
+    }
+
+    @Test
     fun manualHistorySelectionKeepsOwnerButStillRefreshesNewRecords() = runTest(UnconfinedTestDispatcher()) {
         val repository = FakeCallHistoryRepository()
         repository.upsert(OWNER_A, historyWrite())

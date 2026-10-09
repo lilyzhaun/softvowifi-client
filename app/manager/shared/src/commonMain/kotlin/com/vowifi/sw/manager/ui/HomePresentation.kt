@@ -162,10 +162,7 @@ private fun homeSimAction(instance: SimControlInstance): HomeSimActionPresentati
         else -> "进程 ${processLabel(instance.pid)} · 隧道 ${homeSafeText(instance.runtime?.tunnel, "未连接", 24)} · IMS ${homeImsStatusLabel(instance.runtime?.ims)}"
     }
     return HomeSimActionPresentation(
-        title = listOfNotNull(instance.slotIndex?.let { "SIM ${it + 1}" }, listOfNotNull(
-            homeCountryFlag(CountryCatalogGenerated.countryForMcc(instance.mcc).uppercase()),
-            homeCarrierLabel(instance.homeCarrierLabel),
-        ).joinToString(" ")).joinToString(" · "),
+        title = simCarrierTitle(instance.slotIndex, instance.homeCarrierLabel, instance.mcc),
         summary = listOfNotNull(
             if (instance.mcc != null && instance.mnc != null) homeSafeText("PLMN ${instance.mcc}/${instance.mnc}", "网络未知", 24) else null,
             summary,
@@ -177,6 +174,11 @@ private fun homeSimAction(instance: SimControlInstance): HomeSimActionPresentati
         action = HomeActionPresentation(actionId, instance.handle, label, enabled, busy),
     )
 }
+
+internal fun simCarrierTitle(slotIndex: Int?, carrier: String?, mcc: String?): String = listOfNotNull(
+    slotIndex?.let { "SIM ${it + 1}" },
+    listOfNotNull(homeCountryFlag(CountryCatalogGenerated.countryForMcc(mcc).uppercase()), homeCarrierLabel(carrier)).joinToString(" "),
+).joinToString(" · ")
 
 private fun SimControlInstance.homeTone(): SemanticTone = when {
     message != null -> SemanticTone.ERROR

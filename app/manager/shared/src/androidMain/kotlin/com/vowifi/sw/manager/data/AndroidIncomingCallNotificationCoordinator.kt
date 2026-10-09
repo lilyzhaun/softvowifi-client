@@ -1,6 +1,7 @@
 package com.vowifi.sw.manager.data
 
 import android.app.KeyguardManager
+import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.content.Context
@@ -21,6 +22,7 @@ enum class IncomingCallRecoveryState {
     NONE,
     NOTIFICATIONS_DENIED,
     FULL_SCREEN_DENIED,
+    FOREGROUND_SERVICE_REQUIRED,
 }
 
 class AndroidIncomingCallNotificationCoordinator(
@@ -49,6 +51,34 @@ class AndroidIncomingCallNotificationCoordinator(
     @Volatile private var appForeground = false
     private var callForeground = false
     private var microphoneRunning = false
+    private var foregroundHost: Any? = null
+    private var foregroundPublish: ((Notification) -> Unit)? = null
+    private var foregroundRestore: (() -> Unit)? = null
+    private var foregroundOwnsIncoming = false
+
+    fun attachForegroundHost(owner: Any, publish: (Notification) -> Unit, restore: () -> Unit) {
+        if (foregroundHost === owner) return
+        if (foregroundOwnsIncoming) {
+            cancelCurrentNotification()
+            state = IncomingCallNotificationState(notificationKey = null, peerName = null)
+        }
+        foregroundHost = owner
+        foregroundPublish = publish
+        foregroundRestore = restore
+        if (collectJob != null) onCallStateChanged(callState.value)
+    }
+
+    fun detachForegroundHost(owner: Any) {
+        if (foregroundHost !== owner) return
+        foregroundHost = null
+        foregroundPublish = null
+        foregroundRestore = null
+        if (foregroundOwnsIncoming) {
+            foregroundOwnsIncoming = false
+            state = IncomingCallNotificationState(notificationKey = null, peerName = null)
+            notificationManager.cancel(NOTIFICATION_ID)
+        }
+    }
     fun setCallForeground(value: Boolean) { callForeground = value; refreshForeground() }
     fun setMicrophoneRunning(value: Boolean) { microphoneRunning = value; onCallStateChanged(callState.value) }
     private var state = IncomingCallNotificationState(
@@ -150,14 +180,22 @@ class AndroidIncomingCallNotificationCoordinator(
             IncomingCallRecoveryState.NONE
         }
 
-        val answerPending = builder.buildAnswerPendingIntent(notificationKey)
-        val rejectPending = builder.buildRejectPendingIntent(notificationKey)
-        val notification = builder.build(peerName, notificationKey, answerPending, rejectPending, policy)
-        notificationManager.notify(NOTIFICATION_ID, notification)
-        return true
+        val published = builder.post(peerName, notificationKey, policy,
+            notify = { notificationManager.notify(NOTIFICATION_ID, it) },
+            foregroundNotify = foregroundPublish?.let { publish -> { notification ->
+                publish(notification)
+                foregroundOwnsIncoming = true
+            } },
+        )
+        if (!published) mutableRecovery.value = IncomingCallRecoveryState.FOREGROUND_SERVICE_REQUIRED
+        return published
     }
 
     private fun cancelCurrentNotification() {
+        if (foregroundOwnsIncoming) {
+            foregroundRestore?.invoke()
+            foregroundOwnsIncoming = false
+        }
         notificationManager.cancel(NOTIFICATION_ID)
     }
 

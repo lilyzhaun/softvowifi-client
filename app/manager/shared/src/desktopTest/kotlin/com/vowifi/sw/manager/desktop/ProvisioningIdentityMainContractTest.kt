@@ -85,7 +85,9 @@ class ProvisioningIdentityMainContractTest {
         assertFalse(reader.contains("operatorName"))
         assertFalse(reader.contains("it.iccId.orEmpty() == iccid"))
         assertTrue(discovery.contains("IccidNormalizer.normalize(configIccid)"))
-        assertTrue(discovery.contains("IccidNormalizer.normalize(candidate.iccId)"))
+        assertTrue(discovery.contains("AndroidSubscriptionInventory(context).listActive()"))
+        assertTrue(discovery.contains("candidate.key == expected"))
+        assertTrue(discovery.indexOf("IccidNormalizer.normalize(configIccid)") < discovery.indexOf("candidate.key == expected"))
         assertFalse(discovery.contains("candidate.iccId.orEmpty() == configIccid"))
     }
 

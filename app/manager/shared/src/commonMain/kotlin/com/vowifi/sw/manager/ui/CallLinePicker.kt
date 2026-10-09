@@ -43,7 +43,7 @@ internal fun CallLineChoice.callFacts(complete: Boolean): String = listOf(
     val live = running.isNotEmpty()
     val display = if (live) lines.choices.firstOrNull { it.owner == lines.selectedOwner }?.label ?: label
         else historyOwners.firstOrNull { it.selected }?.let { history ->
-            lines.choices.firstOrNull { it.owner == history.owner }?.label ?: history.label
+            history.label
         } ?: "选择通话记录线路"
     CommunicationLineChip(display, if (live) "出向线路" else "通话记录线路", { show = true }, enabled && active)
     if (show) {
@@ -60,7 +60,7 @@ internal fun CallLineChoice.callFacts(complete: Boolean): String = listOf(
             }
             else if (historyOwners.isEmpty()) CommunicationFootnote("暂无本地通话记录")
             else historyOwners.forEach { history ->
-                val name = lines.choices.firstOrNull { it.owner == history.owner }?.label ?: history.label
+                val name = history.label
                  CommunicationLineRow(name, "本机通话记录", history.selected,
                     { if (interactive) sheet.close { onSelectHistory(history); show = false } }, enabled = interactive)
             }

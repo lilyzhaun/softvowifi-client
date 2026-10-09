@@ -8,6 +8,8 @@ import com.vowifi.sw.manager.model.SimControlInstance
 import com.vowifi.sw.manager.model.SimControlUiState
 import com.vowifi.sw.manager.model.SimHandle
 import com.vowifi.sw.manager.model.SimPresence
+import com.vowifi.sw.manager.model.SubscriptionDiscovery
+import com.vowifi.sw.manager.data.homeCarrierLabel
 import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.Close
 import top.yukonga.miuix.kmp.icon.extended.Info
@@ -142,7 +144,11 @@ private fun simConfigurationRows(
 ): List<ConfigurationRowPresentation> {
     val configurations = configurationInstances(state).associateBy { it.instanceId }
     return sims.sortedBy { it.slotIndex }.mapNotNull { sim ->
-        val label = safeConfigurationLabel(sim.displayLabel)
+        val tail = safeConfigurationLabel(sim.displayLabel).substringAfterLast(" · ").takeIf { MASKED_TAIL.matches(it) }
+        val details = listOfNotNull(if (sim.mcc != null && sim.mnc != null) "${sim.mcc} / ${sim.mnc}" else null, tail)
+            .joinToString(" · ").takeIf { it.isNotBlank() }
+        val label = if (sim.slotIndex == null) safeConfigurationLabel(sim.displayLabel)
+            else listOfNotNull(simCarrierTitle(sim.slotIndex, sim.homeCarrierLabel, sim.mcc), details).joinToString(" · ")
         when (sim.presence) {
             SimPresence.ACTIVE_UNCONFIGURED -> ConfigurationRowPresentation(
                 key = sim.handle.value,
@@ -175,7 +181,9 @@ private fun configuredSimRow(
         key = sim.handle.value,
         label = label,
         kind = ConfigurationRowKind.CONFIGURED,
-        instance = configuration.copy(displayLabel = label),
+        instance = configuration.copy(displayLabel = label,
+            systemSubscription = (configuration.systemSubscription as? SubscriptionDiscovery.Matched)
+                ?.copy(carrierLabel = homeCarrierLabel(sim.homeCarrierLabel)) ?: configuration.systemSubscription),
         canApply = sim.canApply && canApplyConfiguration(state, id),
     )
 }
@@ -236,3 +244,4 @@ private fun panel(
 ) = ConfigurationPresentation(false, false, null, kind, StatePanelSpec(icon, tone, title, description, loading))
 
 private val LONG_DIGIT_RUN = Regex("""\d{15,}""")
+private val MASKED_TAIL = Regex("•••• [0-9]{4}")

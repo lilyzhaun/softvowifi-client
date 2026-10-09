@@ -12,8 +12,9 @@ import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
 
-internal class AndroidMessageRepository(
+internal class AndroidMessageRepository @JvmOverloads constructor(
     private val database: SoftVoWiFiMessageDatabase,
+    private val lineNames: AndroidHistoryLineNames? = null,
 ) : MessageRepository {
     private val messages = database.messageDao()
     private val metadata = database.metadataDao()
@@ -29,11 +30,12 @@ internal class AndroidMessageRepository(
 
     override suspend fun ownerLabels(owners: List<SimOwnerId>): Map<SimOwnerId, MessageOwnerLabel> = storageCall {
         val labels = metadata.ownerLabels(owners.map { it.wire() })
-        owners.associateWith { labels.getValue(it.wire()) }
+        val defaults = lineNames?.labels(owners).orEmpty()
+        owners.associateWith { labels.getValue(it.wire()).copy(defaultName = defaults[it]) }
     }
 
     override suspend fun saveOwnerRemark(owner: SimOwnerId, remark: MessageOwnerRemark): MessageOwnerLabel = storageCall {
-        metadata.saveOwnerRemark(owner.wire(), remark.value)
+        metadata.saveOwnerRemark(owner.wire(), remark.value).copy(defaultName = lineNames?.labels(listOf(owner))?.get(owner))
     }
 
     override suspend fun insertQueued(
@@ -216,6 +218,7 @@ internal class AndroidMessageRepository(
             context: Context,
             hmac: AndroidSimOwnerHmac,
             queryContext: CoroutineContext = Dispatchers.IO.limitedParallelism(1),
+            lineNames: AndroidHistoryLineNames = AndroidHistoryLineNames(context, hmac::ownerIdFor),
         ): AndroidMessageRepository {
             val appContext = context.applicationContext
             requireCredentialEncryptedStorage(appContext.isDeviceProtectedStorage)
@@ -236,7 +239,7 @@ internal class AndroidMessageRepository(
                 .setJournalMode(RoomDatabase.JournalMode.WRITE_AHEAD_LOGGING)
                 .setQueryCoroutineContext(queryContext)
                 .build()
-            val repository = AndroidMessageRepository(database)
+            val repository = AndroidMessageRepository(database, lineNames)
             val current = hmac.probe() ?: run {
                 database.close()
                 throw MessageStorageException()

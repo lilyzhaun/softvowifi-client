@@ -23,6 +23,7 @@ class AndroidCallSource(
     private val microphone = CallMicrophoneLease()
     private val audio = AndroidCallAudioController(context, microphone)
     private val hmac = AndroidSimOwnerHmac()
+    private val historyNames = AndroidHistoryLineNames(context, hmac::ownerIdFor, knownKeys = { historyKeys() })
     private val delegate: CallSource = CallSourceAggregate(
         runtime = EngineMessageRuntime(
             listInstances = ::listInstances,
@@ -44,6 +45,7 @@ class AndroidCallSource(
         },
         nextCorrelation = { UUID.randomUUID().toString() },
         lineLabel = { callLineLabel(context, it) },
+        historyLineLabels = historyNames::labels,
     )
 
     val lifecycle = AndroidCallLifecycle(context, delegate, microphone, { audio.interrupt() }, audio.controls, audio::interrupt)
@@ -110,6 +112,12 @@ class AndroidCallSource(
             else -> EngineControlScriptCodec.instances(result.output)
         }
     }
+
+    private suspend fun historyKeys(): List<String> = try {
+        listInstances().map { it.iccid }
+    } catch (_: MessagePermissionException) { emptyList() }
+    catch (_: IllegalStateException) { emptyList() }
+    catch (_: IllegalArgumentException) { emptyList() }
 
     private companion object {
         const val CONTROL_SCRIPT = "/data/adb/modules/vowifi_sw/control.sh"

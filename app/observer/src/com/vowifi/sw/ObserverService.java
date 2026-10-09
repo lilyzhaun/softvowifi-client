@@ -33,6 +33,9 @@ public final class ObserverService extends Service {
     public void onCreate() {
         super.onCreate();
         startForeground(NOTIFICATION_ID, createNotification());
+        if (getApplication() instanceof ProcessRuntimeStarter) {
+            ((ProcessRuntimeStarter) getApplication()).onObserverReady(this);
+        }
         registerObservers();
     }
 
@@ -40,6 +43,7 @@ public final class ObserverService extends Service {
     public int onStartCommand(Intent intent, int flags, int startId) {
         if (getApplication() instanceof ProcessRuntimeStarter) {
             ((ProcessRuntimeStarter) getApplication()).startRuntime();
+            ((ProcessRuntimeStarter) getApplication()).onObserverReady(this);
         }
         return START_STICKY;
     }
@@ -51,6 +55,9 @@ public final class ObserverService extends Service {
 
     @Override
     public void onDestroy() {
+        if (getApplication() instanceof ProcessRuntimeStarter) {
+            ((ProcessRuntimeStarter) getApplication()).onObserverDestroyed(this);
+        }
         try {
             for (RegistrationObserver observer : observers.values()) {
                 try {
@@ -78,6 +85,10 @@ public final class ObserverService extends Service {
                 .setContentText(getString(R.string.observer_running))
                 .setOngoing(true)
                 .build();
+    }
+
+    public void restoreObserverNotification() {
+        startForeground(NOTIFICATION_ID, createNotification());
     }
 
     private void registerObservers() {

@@ -12,10 +12,11 @@ internal class CallHistoryRecorder(
     private val binding: CallHistoryBinding?,
     private val clock: () -> Long,
     parentContext: CoroutineContext,
+    lineLabels: suspend (List<SimOwnerId>) -> Map<SimOwnerId, String> = { emptyMap() },
 ) {
     private val lock = Any()
     private val open = mutableMapOf<Key, OpenCall>()
-    private val store = CallHistoryStore(binding?.repository, parentContext, clock, ::canClear)
+    private val store = CallHistoryStore(binding?.repository, parentContext, clock, ::canClear, lineLabels)
     val state: StateFlow<CallHistoryState> = store.state
     val owners = store.owners
     fun selectHistory(choice: CallHistoryOwnerChoice) = store.selectHistory(choice)

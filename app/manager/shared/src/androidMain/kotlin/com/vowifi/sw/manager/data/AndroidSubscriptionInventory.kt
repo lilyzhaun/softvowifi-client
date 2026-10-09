@@ -3,7 +3,6 @@ package com.vowifi.sw.manager.data
 import android.content.Context
 import android.telephony.SubscriptionInfo
 import android.telephony.SubscriptionManager
-import android.telephony.TelephonyManager
 import com.vowifi.sw.manager.model.SimActiveJoinInput
 
 internal class AndroidSubscriptionInventory(
@@ -110,17 +109,8 @@ internal class AndroidSubscriptionInventory(
             mcc = validatedMcc(info.mccString),
             mnc = validatedMnc(info.mncString),
             lastFour = fourDigitTail(key),
-            homeCarrierLabel = readHomeCarrierLabel(info.subscriptionId),
+            homeCarrierLabel = subscriptionHomeCarrierLabel(context, info.subscriptionId),
         )
-    }
-
-    private fun readHomeCarrierLabel(subscriptionId: Int): String? = try {
-        val name = context.getSystemService(TelephonyManager::class.java)
-            ?.createForSubscriptionId(subscriptionId)?.simOperatorName
-        homeCarrierLabel(name)
-            .takeIf(OperationalLogRedactor::isPrivateUiText)
-    } catch (_: RuntimeException) {
-        null
     }
 
     private class Watcher(val onChanged: () -> Unit)

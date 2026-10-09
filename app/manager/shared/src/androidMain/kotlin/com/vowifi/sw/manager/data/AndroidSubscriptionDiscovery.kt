@@ -1,7 +1,6 @@
 package com.vowifi.sw.manager.data
 
 import android.content.Context
-import android.telephony.SubscriptionManager
 import com.vowifi.sw.manager.model.SubscriptionDiscovery
 
 internal class AndroidSubscriptionDiscovery(
@@ -11,24 +10,22 @@ internal class AndroidSubscriptionDiscovery(
 
     fun discover(configIccids: List<String>): List<SubscriptionDiscovery> {
         return try {
-            val manager = context.getSystemService(SubscriptionManager::class.java)
+            val active = (AndroidSubscriptionInventory(context).listActive() as? SubscriptionInventoryResult.Active)?.subscriptions
                 ?: return configIccids.map { SubscriptionDiscovery.Unavailable }
-            val active = manager.activeSubscriptionInfoList
-            if (active.isNullOrEmpty()) {
+            if (active.isEmpty()) {
                 return configIccids.map { SubscriptionDiscovery.Missing }
             }
             configIccids.map { configIccid ->
                 val expected = IccidNormalizer.normalize(configIccid)
                     ?: return@map SubscriptionDiscovery.Missing
                 val info = active.firstOrNull { candidate ->
-                    IccidNormalizer.normalize(candidate.iccId) == expected
+                    candidate.key == expected
                 } ?: return@map SubscriptionDiscovery.Missing
-                matchedSubscription(
-                    info.carrierName?.toString(),
-                    info.displayName?.toString(),
-                    info.simSlotIndex,
-                    info.mccString,
-                    info.mncString,
+                SubscriptionDiscovery.Matched(
+                    homeCarrierLabel(info.homeCarrierLabel),
+                    validatedSlotIndex(info.slotIndex),
+                    info.mcc,
+                    info.mnc,
                 )
             }
         } catch (_: SecurityException) {

@@ -15,7 +15,7 @@ class MessageOwnerRemark private constructor(val value: String) {
     }
 }
 
-data class MessageOwnerLabel(val ordinal: Long, val remark: String) {
+data class MessageOwnerLabel(val ordinal: Long, val remark: String, val defaultName: String? = null) {
     override fun toString(): String = "MessageOwnerLabel"
 }
 

@@ -7,9 +7,11 @@ import com.vowifi.sw.manager.data.MessageRemarkSaveResult
 import com.vowifi.sw.manager.data.SimOwnerId
 import com.vowifi.sw.manager.model.MessageHistoryLine
 
-internal fun MessageHistoryLine.lineTitle(): String = simLabel?.let { sim ->
+internal fun MessageHistoryLine.lineTitle(): String = if (!running && label?.defaultName != null) {
+    label.remark.ifBlank { label.defaultName }
+} else simLabel?.let { sim ->
     label?.remark?.takeIf { it.isNotBlank() }?.let { "$sim · $it" } ?: sim
-} ?: label?.let { it.remark.ifBlank { "历史线路 ${it.ordinal}" } } ?: "正在读取线路"
+} ?: label?.let { it.remark.ifBlank { it.defaultName ?: "历史线路 ${it.ordinal}" } } ?: "正在读取线路"
 
 internal fun MessageHistoryLine.lineSummary(): String {
     val activity = when (active) {
@@ -24,6 +26,7 @@ internal fun MessageHistoryLine.lineSummary(): String {
 internal fun filterMessageLines(lines: List<MessageHistoryLine>, query: String): List<MessageHistoryLine> {
     val term = query.trim()
     return lines.filter { it.lineTitle().contains(term, ignoreCase = true) ||
+        it.label?.defaultName?.contains(term, ignoreCase = true) == true ||
         it.label?.let { label -> "历史线路 ${label.ordinal}".contains(term, ignoreCase = true) } == true }
 }
 

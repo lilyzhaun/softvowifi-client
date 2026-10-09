@@ -15,12 +15,13 @@ class CallSourceAggregate(
     private val ownerIdFor: (String) -> SimOwnerId?,
     nextCorrelation: () -> String,
     private val lineLabel: (String) -> String = { "SIM" },
+    historyLineLabels: suspend (List<SimOwnerId>) -> Map<SimOwnerId, String> = { emptyMap() },
 ) : CallSource {
     private val scope = CoroutineScope(parentContext.minusKey(Job) + SupervisorJob())
     private val rosterMutex = Mutex()
     internal val lock = Any()
     private val audio = CallSessionAudio(audio)
-    private val recorder = CallHistoryRecorder(CallHistoryBinding(repository, ownerIdFor, nextCorrelation), runtime.clock, parentContext)
+    private val recorder = CallHistoryRecorder(CallHistoryBinding(repository, ownerIdFor, nextCorrelation), runtime.clock, parentContext, historyLineLabels)
     internal val mutableState = MutableStateFlow<CallUiState>(CallUiState.Loading)
     internal val mutableLines = MutableStateFlow(CallLineState())
     override val state = mutableState.asStateFlow()

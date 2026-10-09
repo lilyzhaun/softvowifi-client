@@ -67,4 +67,5 @@ tasks.withType<Test>().configureEach {
     jvmArgs("-XX:ActiveProcessorCount=1")
     systemProperty("java.io.tmpdir", temporaryDir.absolutePath)
     systemProperty("message.schema.directory", rootProject.file("shared/schemas").absolutePath)
+    systemProperty("cellular.source.directory", project.file("src/main/java/com/vowifi/sw/network").absolutePath)
 }

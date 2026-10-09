@@ -122,7 +122,7 @@ class ConfigurationJoinTest {
             ),
         )
 
-        assertEquals("实例 ••••", row.label)
+        assertEquals("SIM 1 · 归属运营商未知 · 001 / 01", row.label)
         assertFalse(row.visibleText().contains("/data/"))
         assertFalse(Regex("""\d{15,}""").containsMatchIn(row.visibleText()))
     }

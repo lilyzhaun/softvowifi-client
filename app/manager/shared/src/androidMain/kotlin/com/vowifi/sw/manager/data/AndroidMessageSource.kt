@@ -31,7 +31,8 @@ class AndroidMessageSource(
     init {
         opened = try {
             val hmac = AndroidSimOwnerHmac()
-            val repository = AndroidMessageRepository.open(context, hmac)
+            val names = AndroidHistoryLineNames(context, hmac::ownerIdFor, knownKeys = { historyKeys() })
+            val repository = AndroidMessageRepository.open(context, hmac, lineNames = names)
             notifications?.bindPreviewLookup(previewScope, repository::unreadNotificationPreview)
             Opened(
                 repository = repository,
@@ -121,6 +122,12 @@ class AndroidMessageSource(
             else -> EngineControlScriptCodec.instances(result.output)
         }
     }
+
+    private suspend fun historyKeys(): List<String> = try {
+        listInstances().map { it.iccid }
+    } catch (_: MessagePermissionException) { emptyList() }
+    catch (_: IllegalStateException) { emptyList() }
+    catch (_: IllegalArgumentException) { emptyList() }
 
     private data class Opened(
         val repository: MessageRepository,

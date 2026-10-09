@@ -22,6 +22,7 @@ internal class CallHistoryStore(
     parentContext: CoroutineContext,
     clock: () -> Long = { Clock.System.now().toEpochMilliseconds() },
     private val canClear: () -> Boolean = { true },
+    private val lineLabels: suspend (List<SimOwnerId>) -> Map<SimOwnerId, String> = { emptyMap() },
 ) {
     private val job = SupervisorJob()
     private val scope = CoroutineScope(parentContext.minusKey(Job) + job)
@@ -171,8 +172,9 @@ internal class CallHistoryStore(
     private suspend fun publish(selected: CallHistorySelection) {
         val records = repository?.listByOwner(selected.owner).orEmpty()
         val available = (repository?.listOwners().orEmpty() + selected.owner).distinct().sortedBy { it.wire() }
+        val labels = lineLabels(available)
         val choices = available.mapIndexed { index, candidate ->
-            CallHistoryOwnerChoice(candidate, "历史线路 ${index + 1}", candidate == selected.owner)
+            CallHistoryOwnerChoice(candidate, labels[candidate] ?: "历史线路 ${index + 1}", candidate == selected.owner)
         }
         val next = if (records.isEmpty()) CallHistoryState.Empty else CallHistoryState.Ready(records, selected.owner)
         snapshot.update { current ->

@@ -15,6 +15,29 @@ internal class IncomingCallNotificationBuilder(
 ) {
     private val appContext = context.applicationContext
 
+    fun post(
+        peerName: String,
+        notificationKey: String,
+        policy: NotificationPolicyDecision,
+        notify: (Notification) -> Unit,
+        foregroundNotify: ((Notification) -> Unit)?,
+    ): Boolean {
+        val answer = buildAnswerPendingIntent(notificationKey)
+        val reject = buildRejectPendingIntent(notificationKey)
+        val notification = build(peerName, notificationKey, answer, reject, policy)
+        try {
+            notify(notification)
+        } catch (error: IllegalArgumentException) {
+            if (error.message?.contains("CallStyle notifications must be for a foreground service") != true) throw error
+            // HyperOS 4 CN 的 MIUIOP(10021) 拒绝会清空 FSI，且不标记标准 FSI 拒绝。
+            // 由已运行的 ObserverService 真实持有同一 CallStyle，不伪造 FGS flag 或降为普通模板。
+            // 若厂商保留标准拒绝标志且实机验证可直接发布，这条准入处理即可删除。
+            val publish = foregroundNotify ?: return false
+            publish(notification)
+        }
+        return true
+    }
+
     fun build(
         peerName: String,
         notificationKey: String,
@@ -30,7 +53,6 @@ internal class IncomingCallNotificationBuilder(
             .setSmallIcon(android.R.drawable.ic_menu_call)
             .setContentTitle(peerName)
             .setContentText("来电")
-            .setStyle(Notification.CallStyle.forIncomingCall(person, rejectPending, answerPending))
             .setCategory(Notification.CATEGORY_CALL)
             .setOngoing(true)
             .setVisibility(Notification.VISIBILITY_PRIVATE)
@@ -38,6 +60,8 @@ internal class IncomingCallNotificationBuilder(
                 .setSmallIcon(android.R.drawable.ic_menu_call).setContentTitle("SoftVoWiFi").setContentText("有来电").build())
             .setAutoCancel(false)
             .setContentIntent(buildOpenCallsPending(notificationKey))
+
+        builder.setStyle(Notification.CallStyle.forIncomingCall(person, rejectPending, answerPending))
 
         if (shouldPostIncomingCallNotification(policy)) {
             builder.setFullScreenIntent(buildFullScreenPending(notificationKey), true)

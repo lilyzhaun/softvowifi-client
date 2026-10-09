@@ -189,7 +189,7 @@ fun MessagesScreen(
         onSelectHistoryOwner(it)
     }, {
         pickerOpen = false
-        editor = MessageRemarkEditor(it.owner, it.label?.remark.orEmpty(), it.label?.ordinal, it.simLabel)
+        editor = MessageRemarkEditor(it.owner, it.label?.remark.orEmpty(), it.label?.ordinal, it.label?.defaultName ?: it.simLabel)
     }, onRefreshHistory)
     editor?.let { MessageRemarkDialog(it, { editor = null }, onSaveOwnerRemark) }
     deletion?.takeIf { active }?.let { handle ->

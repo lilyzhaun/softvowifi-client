@@ -137,7 +137,7 @@ internal fun MessageRemarkDialog(editor: MessageRemarkEditor, onDismiss: () -> U
                 editor.error?.let { Text(it, modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
                     fontSize = MessageLineLayout.secondary, lineHeight = MessageLineLayout.secondaryLine,
                     color = LocalSoftVoWiFiColors.current.error) }
-                CommunicationFootnote("清除后显示SIM名称或历史线路编号")
+                CommunicationFootnote("清除后显示运营商名称；同名线路以后四位区分")
                  CommunicationTextAction("清除备注", {
                     if (sheet.visible && !editor.busy) {
                         editor.input = ""

@@ -2,6 +2,7 @@ package com.vowifi.sw.manager.desktop
 
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.ui.ImageComposeScene
 import androidx.compose.ui.Modifier
@@ -22,6 +23,7 @@ import java.nio.file.Path
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestCoroutineScheduler
@@ -37,6 +39,28 @@ class MessagePagingRenderTest {
     private var time = 0L
     private val scheduler = TestCoroutineScheduler()
 
+    @Test fun renderedFramesDrainQueuedEffectsOnTheirBlockingOwner() = runBlocking {
+        var effectCompleted = false
+        val scene = ImageComposeScene(width = 100, height = 100, coroutineContext = coroutineContext) {
+            LaunchedEffect(Unit) { effectCompleted = true }
+        }
+        try {
+            frame(scene)
+            assertTrue(effectCompleted, "rendered frames left the owning event loop's effect queued")
+        } finally { scene.close() }
+    }
+
+    @Test fun renderedFramesAdvanceTheControlledSceneClockForDelayedEffects() = runBlocking {
+        var effectCompleted = false
+        val scene = ImageComposeScene(width = 100, height = 100, coroutineContext = StandardTestDispatcher(scheduler)) {
+            LaunchedEffect(Unit) { delay(1); effectCompleted = true }
+        }
+        try {
+            frame(scene)
+            assertTrue(effectCompleted, "rendered frames advanced while the scene scheduler remained at zero")
+        } finally { scene.close() }
+    }
+
     @Test fun initialPagingDoesNotDependOnAnIdleUnconfinedEventLoop() = runBlocking(Dispatchers.Unconfined) {
         MessagePagingRenderTest().olderActionPrependsAndKeepsVisibleMessageInsteadOfJumpingToNewest()
     }
@@ -47,7 +71,7 @@ class MessagePagingRenderTest {
         val scope = CoroutineScope(StandardTestDispatcher(scheduler))
         val selection = MessageHistorySelection(repository, scope, MessagePersistenceObserver { _, _, _ -> })
         selection.refreshInbox()
-        val scene = ImageComposeScene(width = 420, height = 900) {
+        val scene = ImageComposeScene(width = 420, height = 900, coroutineContext = StandardTestDispatcher(scheduler)) {
             SoftVoWiFiTheme(forceDark = false) { Scaffold(Modifier.fillMaxSize()) {
                 MessagesScreen(selection.state.collectAsState().value, {}, {},
                     historyChoices = selection.historyChoices.collectAsState().value,
@@ -84,7 +108,7 @@ class MessagePagingRenderTest {
         val lifecycle = object : LifecycleOwner {
             override val lifecycle = LifecycleRegistry.createUnsafe(this).apply { currentState = Lifecycle.State.RESUMED }
         }
-        val scene = ImageComposeScene(width = 420, height = 900) {
+        val scene = ImageComposeScene(width = 420, height = 900, coroutineContext = StandardTestDispatcher(scheduler)) {
             CompositionLocalProvider(LocalLifecycleOwner provides lifecycle) {
                 SoftVoWiFiTheme(forceDark = false) { Scaffold(Modifier.fillMaxSize()) {
                     MessageThreadScreen(identity.handle, selection.state.collectAsState().value, { _, _ -> }, onLoadOlder = selection::loadOlder)
@@ -127,7 +151,8 @@ class MessagePagingRenderTest {
         } finally { scene.close(); selection.close(); scope.cancel() }
     }
 
-    private fun frame(scene: ImageComposeScene) { repeat(12) { scheduler.runCurrent(); time += 100_000_000L; scene.render(time).close() } }
+    // Repository and scene effects share virtual time instead of the runner's ambient event loop.
+    private fun frame(scene: ImageComposeScene) { repeat(12) { scheduler.advanceTimeBy(100); scheduler.runCurrent(); time += 100_000_000L; scene.render(time).close() } }
     private fun nodes(scene: ImageComposeScene): List<SemanticsNode> = scene.semanticsOwners.flatMap { owner ->
         fun descend(node: SemanticsNode): List<SemanticsNode> = listOf(node) + node.children.flatMap(::descend)
         descend(owner.rootSemanticsNode)
