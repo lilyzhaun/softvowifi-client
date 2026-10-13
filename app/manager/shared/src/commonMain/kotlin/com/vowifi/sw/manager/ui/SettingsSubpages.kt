@@ -3,6 +3,9 @@ package com.vowifi.sw.manager.ui
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.key
 import androidx.compose.ui.unit.dp
@@ -21,6 +24,7 @@ import top.yukonga.miuix.kmp.basic.SmallTitle
 import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.Info
 import top.yukonga.miuix.kmp.icon.extended.Phone
+import top.yukonga.miuix.kmp.icon.extended.Refresh
 
 internal data class SettingsConfigurationActions(
     val onSubmit: com.vowifi.sw.manager.model.ConfigurationSubmit,
@@ -45,6 +49,13 @@ internal fun SettingsConfigurationScreen(
 ) {
     val presentation = configurationPresentation(state, simState)
     val expansionState = rememberConfigurationExpansionState()
+    val topBar = LocalSubpageTopBarAction.current
+    val refresh by rememberUpdatedState(actions.onRefresh)
+    val refreshEnabled = configurationRefreshEnabled(state)
+    DisposableEffect(topBar, refreshEnabled) {
+        topBar?.value = SubpageTopBarAction(MiuixIcons.Refresh, "刷新配置", ManagerAction.Refresh, refreshEnabled) { refresh() }
+        onDispose { topBar?.value = null }
+    }
     AppPageScaffold(title = "SIM 与网络配置", showTopBar = false) {
         configurationItems(
             state = state,

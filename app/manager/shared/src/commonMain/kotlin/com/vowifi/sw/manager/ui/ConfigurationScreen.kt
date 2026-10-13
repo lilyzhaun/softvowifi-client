@@ -21,6 +21,8 @@ import com.vowifi.sw.manager.model.SimControlUiState
 import com.vowifi.sw.manager.model.SimHandle
 import top.yukonga.miuix.kmp.basic.BasicComponent
 import top.yukonga.miuix.kmp.basic.Text
+import top.yukonga.miuix.kmp.icon.MiuixIcons
+import top.yukonga.miuix.kmp.icon.extended.Refresh
 
 internal data class ConfigurationActions(
     val submit: ConfigurationSubmit,
@@ -58,10 +60,11 @@ internal fun LazyListScope.configurationItems(
     actions: ConfigurationActions,
 ) {
     item(key = "draft-session") {
-        BasicComponent(title = "编辑配置", summary = "未保存修改仅在本次应用会话保留")
-        ManagerTextAction("刷新配置", ManagerAction.Refresh, actions.refresh,
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-            enabled = state !is ConfigurationUiState.Ready || state.applyingInstanceId == null)
+        val topBar = LocalSubpageTopBarAction.current
+        BasicComponent(title = "编辑配置", summary = "未保存修改仅在本次应用会话保留", endActions = {
+            if (topBar == null) ManagerIconAction(MiuixIcons.Refresh, "刷新配置", ManagerAction.Refresh, actions.refresh,
+                enabled = configurationRefreshEnabled(state))
+        })
     }
     presentation.disclosure?.let { disclosure ->
         item(key = "fixture-disclosure") { FixtureDisclosureBand(disclosure) }
@@ -99,6 +102,9 @@ internal fun LazyListScope.configurationItems(
         }
     }
 }
+
+internal fun configurationRefreshEnabled(state: ConfigurationUiState): Boolean =
+    state !is ConfigurationUiState.Ready || state.applyingInstanceId == null
 
 @Composable
 private fun FixtureDisclosureBand(text: String) {

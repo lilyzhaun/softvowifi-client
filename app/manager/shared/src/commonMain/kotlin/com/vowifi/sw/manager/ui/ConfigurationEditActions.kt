@@ -1,7 +1,7 @@
 package com.vowifi.sw.manager.ui
 
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
@@ -26,23 +26,24 @@ internal fun ConfigurationEditActions(
     var confirmation by remember(draft) { mutableStateOf<ConfigurationEditConfirmation?>(null) }
     val enabled = model.enabled && !draft.pending
     LaunchedEffect(model.instance, enabled) { confirmation = null }
-    BasicComponent(title = "编辑状态", summary = configurationEditSummary(draft))
-    Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        ManagerTextAction(
-            if (draft.pending) "正在保存配置" else "保存配置", ManagerAction.SaveConfiguration,
-            onClick = {
-                if (enabled && !draft.pending) {
-                    if (draft.dirty && draft.validate() && model.instance.lifecycle in
-                        setOf(ConfigurationLifecycle.RUNNING, ConfigurationLifecycle.STARTING)
-                    ) confirmation = ConfigurationEditConfirmation.Restart
-                    else draft.submit(submit)
-                }
-            }, enabled = enabled && draft.dirty, busy = draft.pending,
-        )
-        if (!draft.pending) ManagerTextAction("放弃修改", ManagerAction.Rejected, onClick = {
-            if (draft.dirty) confirmation = ConfigurationEditConfirmation.Discard else draft.discard()
-        }, enabled = draft.dirty)
+    BasicComponent(title = "编辑状态", summary = configurationEditFooter(draft, model.instance.lifecycle))
+    if (configurationEditActionsVisible(draft)) {
+        Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            ManagerTextAction("放弃修改", ManagerAction.Rejected, onClick = {
+                if (draft.dirty) confirmation = ConfigurationEditConfirmation.Discard else draft.discard()
+            }, modifier = Modifier.weight(1f), enabled = draft.dirty && !draft.pending)
+            ManagerTextAction(
+                configurationSubmitLabel(draft, model.instance.lifecycle), ManagerAction.SaveConfiguration,
+                onClick = {
+                    if (enabled && !draft.pending) {
+                        if (draft.dirty && draft.validate() && configurationSaveRestarts(model.instance.lifecycle))
+                            confirmation = ConfigurationEditConfirmation.Restart
+                        else draft.submit(submit)
+                    }
+                }, modifier = Modifier.weight(1f), enabled = enabled && draft.dirty, busy = draft.pending, primary = true,
+            )
+        }
     }
     val selected = confirmation
     OverlayDialog(
@@ -52,8 +53,8 @@ internal fun ConfigurationEditActions(
             else "保存后将重启当前引擎实例，连接会暂时中断。",
         onDismissRequest = { confirmation = null },
     ) {
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            ManagerTextAction("取消", ManagerAction.Rejected, { confirmation = null })
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            ManagerTextAction("取消", ManagerAction.Rejected, { confirmation = null }, modifier = Modifier.weight(1f))
             ManagerTextAction(
                 if (selected == ConfigurationEditConfirmation.Discard) "放弃修改" else "保存并重启",
                 if (selected == ConfigurationEditConfirmation.Discard) ManagerAction.Rejected else ManagerAction.SaveConfiguration,
@@ -64,13 +65,30 @@ internal fun ConfigurationEditActions(
                         ConfigurationEditConfirmation.Restart -> if (enabled) draft.submit(submit)
                         null -> Unit
                     }
-                }, enabled = !draft.pending,
+                }, modifier = Modifier.weight(1f), enabled = !draft.pending, primary = true,
             )
         }
     }
 }
 
 private enum class ConfigurationEditConfirmation { Discard, Restart }
+
+internal fun configurationSaveRestarts(lifecycle: ConfigurationLifecycle): Boolean =
+    lifecycle == ConfigurationLifecycle.RUNNING || lifecycle == ConfigurationLifecycle.STARTING
+
+internal fun configurationEditActionsVisible(draft: ConfigurationEditorDraft): Boolean = draft.dirty || draft.pending
+
+internal fun configurationSubmitLabel(draft: ConfigurationEditorDraft, lifecycle: ConfigurationLifecycle): String = when {
+    draft.pending -> "正在保存"
+    configurationSaveRestarts(lifecycle) -> "保存并重启"
+    else -> "保存配置"
+}
+
+internal fun configurationEditFooter(draft: ConfigurationEditorDraft, lifecycle: ConfigurationLifecycle): String =
+    listOfNotNull(
+        configurationEditSummary(draft),
+        configurationApplyConsequence(lifecycle).takeIf { draft.dirty && !draft.pending },
+    ).joinToString("\n")
 
 internal fun configurationEditSummary(draft: ConfigurationEditorDraft): String = when (draft.status) {
     ConfigurationEditStatus.Saving -> "正在保存配置，请稍候"

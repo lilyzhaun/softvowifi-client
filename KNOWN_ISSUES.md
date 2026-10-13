@@ -1,4 +1,4 @@
-# Known issues for the local source candidate
+# Known issues for SoftVoWiFi Client
 
 - `SmsInnerPagingRenderTest` previously failed on its initial latest-message assertion in a desktop test. The cause is unproven and the failure remains historical and unresolved; changing license materials does not fix it.
 - The archived 2026-09-20 Android build belongs to an earlier snapshot. Each new source revision needs its own independent build receipt; a host build does not establish phone or carrier acceptance.

@@ -1,6 +1,6 @@
-SoftVoWiFi client third-party source notice, local candidate
+SoftVoWiFi client third-party source notice
 
-This is a source-material index, not a fresh dependency resolution, an authenticated rights approval, or binary-release clearance. The App-only candidate retains the ten GPL-3.0-only KernelSU-derived drag and liquid/refraction source files listed in the source snapshot's root NOTICE, adapted from KernelSU manager commit befbcd388bb6c10befd3645311ad08e556d362ac. KernelSU manager upstream is GPL-3.0-or-later; the local adaptations' GPL-3.0-only headers remain unchanged. The complete GPL version 3 text is in GPL-3.0.txt and the source snapshot's root LICENSE.
+Client-owned snapshot source is offered under GPL-3.0-only, with applicable earlier MIT and third-party grants retained. This source-material index is not an authenticated rights approval or binary-release clearance. The ten KernelSU-derived drag and liquid/refraction files retain GPL-3.0-only and original headers, adapted from KernelSU manager commit befbcd388bb6c10befd3645311ad08e556d362ac. Upstream is GPL-3.0-or-later; keep that grant distinct. Full GPLv3 is in GPL-3.0.txt and the snapshot root LICENSE. The private Go engine is not licensed by this App notice.
 
 The retained LICENSE is the earlier client-owned MIT text, Copyright (c) 2026 lilyzhaun; it applies to material granted under that earlier MIT scope, not to GPL or third-party files. Earlier MIT copies and grants are not retroactively revoked by this GPL client-source proposal.
 
@@ -8,4 +8,4 @@ MaterialKolor project MIT: MaterialKolor-MIT.txt, Copyright (c) 2025 Jordon de H
 
 The country table is extracted from AOSP MccTable.java, Apache-2.0, Copyright (C) 2006 The Android Open Source Project. AOSP-country-NOTICE.txt records its pinned source and modification. That existing asset describes a prior MIT choice for client-owned files; it is historical wording, not a license for this GPL candidate or for AOSP data. The public country table is not private carrier policy.
 
-The archived candidate's Android runtime graph is historical reference only, not a freshly resolved graph. No Go toolchain or private-core packaging assertion is made for this App-only source candidate. Review current binary notices and corresponding-source scope separately; IPC is not an automatic exception.
+Archived Android runtime graphs are historical references, not fresh binary clearance. No private Go engine license is granted by this App-only index. Review the current resolved artifacts, embedded binary notices and corresponding-source scope for each release; IPC is not an automatic exception.

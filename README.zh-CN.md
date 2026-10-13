@@ -2,7 +2,7 @@
 
 **SoftVoWiFi 的原生 Android 管理 App。**
 
-[English](README.md) · [下载 Release](https://github.com/lilyzhaun/softvowifi-client/releases) · [开发主仓](https://github.com/lilyzhaun/softvowifi) · [已知问题](KNOWN_ISSUES.md)
+[English](README.md) · [下载 Release](https://github.com/lilyzhaun/softvowifi-client/releases) · [贡献](CONTRIBUTING.md) · [安全](SECURITY.md) · [已知问题](KNOWN_ISSUES.md)
 
 本仓接收主仓按版本导出的 **App-only 源码快照**，包含管理 App、特权 observer、共享模型、Android 接线、测试和独立重建客户端所需的公开输入。界面使用 Kotlin／Compose、miuix 和 Navigation3，是原生 App，不是 Web UI。
 
@@ -30,7 +30,7 @@ https://github.com/user-attachments/assets/973bcf68-27c4-4a6f-ad82-63140677de54
 | 短信 | 会话、短信动作、搜索和 App 私有消息历史 |
 | 设置 | 配置、诊断、脱敏日志、通知能力和 App 偏好 |
 
-通信和管理动作已经接入模块／引擎协议，但注册成功不等于短信送达或电话接通／人耳可听。完整语音、通知、恢复、无障碍和双卡隔离仍有验收缺口，见 [已知问题](KNOWN_ISSUES.md) 及 [主仓证据台账](https://github.com/lilyzhaun/softvowifi/blob/master/docs/00-文档索引.md)。
+通信和管理动作已经接入模块／引擎协议，但注册成功不等于短信送达或电话接通／人耳可听。完整语音、通知、恢复、无障碍和双卡隔离仍有验收缺口，见 [已知问题](KNOWN_ISSUES.md)。开发主仓和实机证据保持私有；构建客户端或提交公开问题不要求访问它们。
 
 desktop 仅用于测试和预览，不是桌面电话客户端。eSIM profile 管理、联系人、系统短信库、默认拨号器、RCS、附件、保持／会议不属于当前范围。
 
@@ -45,7 +45,9 @@ desktop 仅用于测试和预览，不是桌面电话客户端。eSIM profile �
 | `SHA256SUMS` | APK、ZIP、元数据及存在时 APK `.idsig` 侧车的 SHA-256 |
 | `RELEASE.json` | 版本、版本码、模块名称／大小／摘要和导出源码内容摘要 |
 
-模块 ZIP 是单独分发的二进制资产，不是私有引擎源码，也不使本仓成为完整后端的公开实现。自动化不改变仓库可见性或再分发权利；两仓目前均为 PRIVATE。
+模块 ZIP 是单独分发的二进制资产，**Go 引擎源码保持私有**。客户端源码采用 GPL-3.0-only，并保留下文列出的第三方和早前授权；这不使整个后端开源。仓库可见性、二进制再分发资格和自动化分别判断。
+
+新打包路线在模块内附 `APP-SOURCE.json`、客户端 GPL／NOTICE 和实际链接引擎依赖的完整许可／NOTICE，并绑定模块 App 与导出源码。**既有 v0.3.40–v0.3.43 资产早于该路线**，其内置 App 不同于净化客户端，旧对应源码／OEM 再分发审查仍待；不能靠新包追认旧资产，也不能假设当前源码覆盖所有 ZIP，请查各版本自己的材料。
 
 1. 准备 Root ARM64 Android 13+、兼容 KernelSU / Magisk、Qualcomm QMI / QRTR 与合适的 XFRM/IPsec、活动 SIM 和运营商 ePDG 访问。满足 Android 版本不代表适配完成。
 2. 下载同版本模块 ZIP 并核对摘要，经 Root 管理器安装和必要重启。模块内已有特权管理 App 与后端。
@@ -89,6 +91,8 @@ app/manager/androidApp/build/outputs/apk/release/androidApp-release-unsigned.apk
 
 App 版本读取 `app/manager/version.properties`，由主仓模块版本同步，不独立修改成不匹配的客户端版本。
 
+工作分支可以包含尚未发版的已审源码变化。`RELEASE.json`描述其不可变版本标签，而非其后所有工作分支快照；检查某次已发布APK的源码请切到对应tag。准备阶段的纯源码刷新不移动tag、不改版本、不签名，也不替换发布资产。
+
 ## 源码结构与边界
 
 ```text
@@ -117,17 +121,17 @@ tools/release/       单独维护的构建／签名／验证控制文件
 
 无需手工复制源码、打 tag、上传 APK 或镜像 ZIP。测试失败、版本／摘要不匹配、控制文件漂移时停止；不覆盖既有 tag／资产，相同已完成版本不会由主仓发布器再次 dispatch APK 构建。
 
-普通同步包含本 README 和中文版，但保留单独维护的 `.github/workflows/`／`tools/release/`。本仓不存主仓跨仓库凭据；签名与 release 写权限 job 分离。手动 dispatch 只用于受控失败恢复，不是日常发版步骤。
+普通同步包含 README、贡献／安全说明和源归属，CI、发布 helper、issue 表单单独受保护。未回流的人工修改会阻止导出，而不是静默覆盖。本仓不存主仓跨仓库凭据；构建不接签名秘密，新 runner 使用可信 dispatch 控制码签名，另一个 job 发布。手动 dispatch 只用于受控失败恢复。
 
 ## 贡献与问题反馈
 
-希望下次导出仍保留的修改应同步到主仓。直接改客户端 App 或 README 可能被下一版快照覆盖；控制文件采用单独审核更新。
+可以直接在本仓提交公开问题和客户端源码 PR，无需私有主仓权限。维护者审核、回流开发主仓后再导出，详见 [CONTRIBUTING.md](CONTRIBUTING.md)。漏洞报告请走 [SECURITY.md](SECURITY.md) 的私密渠道，不在公开 issue 上传秘密。
 
 反馈提供 App／模块版本、机型、Android 版本、公开运营商 PLMN、网络条件和**脱敏**错误摘要，区分“注册”“短信受理”“报告”“真正收件”“可听电话”。不提交 SIM 身份、完整配置、鉴权材料、凭据、正文或原始通信捕获；未经授权不为复现盲目实发／拨号／消耗 OTP。
 
 ## 许可证与归属
 
-[`LICENSE`](LICENSE) 是客户端源码许可路线的原文 GNU GPL version 3。十份 KernelSU 改编 UI 文件保留 `GPL-3.0-only`；上游 KernelSU manager 是 GPL version 3 or later，两者不得混同，原 header 和版权保留。
+本快照的项目自有客户端源码采用 **GPL-3.0-only**；[`LICENSE`](LICENSE) 是完整原文 GPLv3。十份 KernelSU 改编 UI 文件保留 `GPL-3.0-only`；上游 KernelSU manager 是 GPL version 3 or later，两者与原作者归属分别保留，不抹去适用的早前 MIT 授权。
 
 其他 MIT／Apache-2.0 许可及早前 MIT 快照授权不被撤销或覆盖。见 [`NOTICE`](NOTICE)、[国家源 NOTICE](https://github.com/lilyzhaun/softvowifi-client/blob/master/export/country-source/NOTICE) 和 `app/manager/androidApp/src/main/assets/third_party_notices/`。
 

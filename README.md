@@ -2,7 +2,7 @@
 
 **The native Android management app for SoftVoWiFi.**
 
-[简体中文](README.zh-CN.md) · [Download releases](https://github.com/lilyzhaun/softvowifi-client/releases) · [Upstream project](https://github.com/lilyzhaun/softvowifi) · [Known issues](KNOWN_ISSUES.md)
+[简体中文](README.zh-CN.md) · [Download releases](https://github.com/lilyzhaun/softvowifi-client/releases) · [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md) · [Known issues](KNOWN_ISSUES.md)
 
 This repository receives versioned **app-only source snapshots** from the SoftVoWiFi development repository. It contains the management app, privileged observer, shared models, Android integration, tests, and the source inputs needed to rebuild the client independently. The interface is a native Kotlin / Compose app with miuix components and Navigation3—not a web UI.
 
@@ -30,7 +30,7 @@ https://github.com/user-attachments/assets/973bcf68-27c4-4a6f-ad82-63140677de54
 | **Messages** | Conversations, SMS actions, search, and app-private message history |
 | **Settings** | Configuration, diagnostics, redacted logs, notification settings, and app preferences |
 
-SMS, call, and management actions are wired to the module/engine protocol. Successful registration is not proof of SMS delivery or a connected, audible call. Full voice, notification, recovery, accessibility, and dual-SIM isolation acceptance still have gaps; see [known issues](KNOWN_ISSUES.md) and the [upstream evidence ledger](https://github.com/lilyzhaun/softvowifi/blob/master/docs/00-文档索引.md).
+SMS, call, and management actions are wired to the module/engine protocol. Successful registration is not proof of SMS delivery or a connected, audible call. Full voice, notification, recovery, accessibility, and dual-SIM isolation acceptance still have gaps; see [known issues](KNOWN_ISSUES.md). The development repository and its device evidence are private; they are not required to build the client or submit a public report.
 
 The desktop target exists for tests and previews, not as a desktop calling client. eSIM profile management, contacts, the system SMS database, default-dialer integration, RCS, attachments, call hold, and conferencing are outside the current scope.
 
@@ -45,7 +45,9 @@ Each [GitHub Release](https://github.com/lilyzhaun/softvowifi-client/releases) c
 | `SHA256SUMS` | SHA-256 checksums for the APK, ZIP, and metadata; also covers the APK `.idsig` sidecar when present |
 | `RELEASE.json` | Version, version code, module filename/size/checksum, and exported-source content digest |
 
-The module ZIP is a separately distributed binary asset. It is **not** private engine source and does not make this an open implementation of the complete backend. Repository visibility and redistribution rights are not changed by automation; both repositories currently remain private.
+The module ZIP is a separately distributed binary asset with a **private-source Go engine**. The client source is GPL-3.0-only, with retained third-party and earlier grants described below; this does not make the complete backend open source. Repository visibility and binary redistribution clearance are separate from automation.
+
+The source/notice-aware packaging route includes `APP-SOURCE.json`, the client GPL/NOTICE and actual linked-engine dependency licenses/NOTICE files in new module ZIPs. It binds the embedded App to the exported client source. **The existing v0.3.40–v0.3.43 assets predate that route:** their embedded App differs from this filtered client, and legacy corresponding-source/OEM redistribution review remains pending. A new package does not retroactively fix an old asset; consult the release-specific materials rather than assuming the current tree covers every ZIP.
 
 ### Installation
 
@@ -93,6 +95,8 @@ This output is **unsigned** and cannot replace the installed official app as-is.
 
 The generated app version is read from `app/manager/version.properties`; it is synchronized from the upstream module version. Do not edit that file independently to create a mismatched client release.
 
+The working branch can contain reviewed source changes ahead of a release tag. `RELEASE.json` describes its immutable release tag, not every later working-branch snapshot. Check out that tag when inspecting a published APK's source. A preparation-only source refresh does not move tags, change versions, sign an APK or replace release assets.
+
 ## Source layout
 
 ```text
@@ -121,17 +125,17 @@ The upstream maintainer increments **both** `version` and `versionCode` in `modu
 
 No manual source copying, tagging, APK upload, or ZIP mirroring is needed in that path. Failed tests, mismatched versions/checksums, or changed protected controls stop publication. Existing release tags and published assets are not overwritten; a matching completed release is not dispatched for another APK build by the upstream publisher.
 
-Ordinary source synchronization includes this README and its Chinese translation, but preserves the separately managed `.github/workflows/` and `tools/release/` files. The client stores no upstream cross-repository credential. Signing is separated from jobs with release-write permission. Manual dispatch exists for controlled recovery, not as a normal release step.
+Ordinary source synchronization includes the README, contribution/security guidance and source notices, but preserves separately managed CI, release helpers and issue forms. Unabsorbed community edits stop an export instead of being silently replaced. The client stores no upstream cross-repository credential. Builds have no signing secrets; a fresh runner signs using the trusted dispatch control commit, and a separate job publishes. Manual dispatch exists for controlled recovery, not as a normal release step.
 
 ## Contributing and reporting problems
 
-Changes intended to survive the next source export must also be made upstream. Direct edits to managed app files or README material can be replaced by the next version snapshot; CI control files follow a separate reviewed update process.
+Submit issues and client-source pull requests here; private repository access is not required. Maintainers review and integrate the patch into the development tree before the next export. See [CONTRIBUTING.md](CONTRIBUTING.md); report vulnerabilities through [SECURITY.md](SECURITY.md), not a secret-bearing public issue.
 
 Report the app/module version, device model, Android version, public carrier PLMN, network conditions, and a **redacted** error summary. Distinguish “registered,” “SMS accepted,” “delivery report,” “message received,” and “call audible.” Never attach SIM identities, full configuration, authentication material, credentials, message bodies, or raw communication captures. Do not send real SMS/calls or consume OTP merely to reproduce a report without authorization.
 
 ## License and attribution
 
-[`LICENSE`](LICENSE) contains the unmodified GNU GPL version 3 text for the client-source licensing route. The ten retained KernelSU-derived UI adaptations remain marked `GPL-3.0-only`; the upstream KernelSU manager grants GPL version 3 or later. Keep those statements distinct and preserve the source headers.
+Client-owned source in this snapshot is offered under **GPL-3.0-only**; [`LICENSE`](LICENSE) is the unmodified full GPLv3 text. The ten retained KernelSU-derived UI adaptations retain their `GPL-3.0-only` headers; upstream KernelSU manager grants GPL version 3 or later. Keep those statements and original author attribution distinct. Applicable earlier MIT copies and third-party grants below are not revoked.
 
 Other applicable MIT and Apache-2.0 grants and earlier MIT snapshots are not revoked or replaced. See [`NOTICE`](NOTICE), the [country-source notice](https://github.com/lilyzhaun/softvowifi-client/blob/master/export/country-source/NOTICE), and `app/manager/androidApp/src/main/assets/third_party_notices/` for provenance and license texts.
 

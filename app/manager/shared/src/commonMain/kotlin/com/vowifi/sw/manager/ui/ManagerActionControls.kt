@@ -16,6 +16,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import top.yukonga.miuix.kmp.basic.Button
+import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.basic.CircularProgressIndicator
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.IconButton
@@ -50,12 +51,16 @@ internal fun ManagerTextAction(
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
     busy: Boolean = false,
+    primary: Boolean = false,
 ) {
     val feedback = managerActionFeedback(action, enabled && !busy)
     val handler = rememberManagerActionHandler(feedback, onClick)
     val interaction = remember { MutableInteractionSource() }
+    val colors = LocalSoftVoWiFiColors.current
     Button(
         onClick = handler, enabled = enabled && !busy, minHeight = 48.dp,
+        colors = if (primary) ButtonDefaults.buttonColors(color = colors.interactive, contentColor = colors.surface)
+            else ButtonDefaults.buttonColors(),
         insideMargin = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
         interactionSource = interaction, indication = null,
         modifier = modifier.managerPressScale(feedback, interaction).semantics {

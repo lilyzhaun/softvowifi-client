@@ -11,8 +11,11 @@ import androidx.compose.ui.unit.sp
 import top.yukonga.miuix.kmp.basic.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.RectangleShape
@@ -71,6 +74,16 @@ internal fun subpageTopBarContract(route: AppRoute.Subpage): SubpageTopBarContra
     return SubpageTopBarContract(true, 48, 0, true)
 }
 
+internal data class SubpageTopBarAction(
+    val icon: ImageVector,
+    val label: String,
+    val action: ManagerAction,
+    val enabled: Boolean,
+    val onClick: () -> Unit,
+)
+
+internal val LocalSubpageTopBarAction = staticCompositionLocalOf<MutableState<SubpageTopBarAction?>?> { null }
+
 internal fun subpageTitleOverride(route: AppRoute.Subpage, messageThreadTitle: String?): String? =
     messageThreadTitle.takeIf { route is AppRoute.MessageThread }
 
@@ -91,6 +104,7 @@ internal fun AppSubpageScene(
     val colors = LocalSoftVoWiFiColors.current
     val communication = route is AppRoute.MessageThread || route == AppRoute.NewMessage || route is AppRoute.CallHistoryDetail
     val pageControl = remember(route) { mutableStateOf<CommunicationPageControl?>(null) }
+    val topBarAction = remember(route) { mutableStateOf<SubpageTopBarAction?>(null) }
     val backdrop = if (communication) rememberCommunicationBackdrop()
         else if (chromeSpec.effectiveBlur) rememberSoftVoWiFiBackdrop(chromeSpec) else null
     val currentTitle = titleOverride ?: route.topBarTitle
@@ -118,6 +132,11 @@ internal fun AppSubpageScene(
                         CommunicationIconAction(MiuixIcons.Back, "返回", onBack, enabled = routeActive)
                     } else ManagerIconAction(MiuixIcons.Back, "返回", ManagerAction.Navigate, onBack, enabled = routeActive)
                 },
+                actions = {
+                    topBarAction.value?.let {
+                        ManagerIconAction(it.icon, it.label, it.action, it.onClick, enabled = routeActive && it.enabled)
+                    }
+                },
                 bottomContent = {
                     if (expandedPeer) Text(title, modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, bottom = 12.dp), fontSize = 16.sp, lineHeight = 22.sp, textAlign = TextAlign.Center, color = colors.textPrimary)
                 },
@@ -135,6 +154,7 @@ internal fun AppSubpageScene(
                 LocalSubpageBottomContentInset provides padding.calculateBottomPadding(),
                 LocalAppRouteActive provides routeActive,
                 LocalCommunicationPageControl provides pageControl.takeIf { communication },
+                LocalSubpageTopBarAction provides topBarAction.takeIf { !communication },
             ) {
                 content()
             }

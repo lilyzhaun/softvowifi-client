@@ -108,6 +108,30 @@ class ConfigurationScreenTest {
     }
 
     @Test
+    fun editActionsAppearOnlyForUnsavedOrPendingDraftAndNameTheRestart() {
+        val draft = ConfigurationEditorDraft(instance())
+        assertFalse(configurationEditActionsVisible(draft))
+        draft.dns.edit { append("user.invalid") }
+        assertTrue(configurationEditActionsVisible(draft))
+        assertEquals("保存配置", configurationSubmitLabel(draft, ConfigurationLifecycle.STOPPED))
+        assertEquals("保存并重启", configurationSubmitLabel(draft, ConfigurationLifecycle.RUNNING))
+        assertEquals("保存并重启", configurationSubmitLabel(draft, ConfigurationLifecycle.STARTING))
+        assertEquals("有未保存修改\n保存后将重启当前引擎实例。", configurationEditFooter(draft, ConfigurationLifecycle.RUNNING))
+        draft.submit { _, _, _ -> com.vowifi.sw.manager.model.ConfigurationApplyAcceptance.Accepted }
+        assertTrue(draft.pending)
+        assertTrue(configurationEditActionsVisible(draft))
+        assertEquals("正在保存", configurationSubmitLabel(draft, ConfigurationLifecycle.RUNNING))
+        assertEquals("正在保存配置，请稍候", configurationEditFooter(draft, ConfigurationLifecycle.RUNNING))
+    }
+
+    @Test
+    fun refreshIsBlockedOnlyWhileAnInstanceIsBeingSaved() {
+        assertTrue(configurationRefreshEnabled(ready()))
+        assertTrue(configurationRefreshEnabled(ConfigurationUiState.Loading))
+        assertFalse(configurationRefreshEnabled(ready(applyingInstanceId = instance().instanceId)))
+    }
+
+    @Test
     fun configurationScreenRequiresTypedSubmitAndExplicitRefresh() {
         assertNotNull(::typedConfigurationScreenCall)
     }

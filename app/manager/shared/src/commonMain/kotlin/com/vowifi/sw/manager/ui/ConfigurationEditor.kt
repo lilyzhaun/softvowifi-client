@@ -84,7 +84,6 @@ internal fun ConfigurationEditor(
                 if (instance.draftOwnerId == null) {
                     BasicComponent(title = "草稿保留范围", summary = "身份暂无法稳定确认；重建页面数据源后不会恢复未保存修改")
                 }
-                BasicComponent(title = "保存影响", summary = configurationApplyConsequence(instance.lifecycle))
                 ConfigurationEditActions(model, draft, onSubmit)
             }
         }

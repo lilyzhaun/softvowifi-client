@@ -1,6 +1,6 @@
-SoftVoWiFi client source candidate, attribution and scope
+SoftVoWiFi client source, attribution and scope
 
-This is local proposed source-license material only. It is not approval to publish source, distribute an APK, or license a private engine or combined binary. Ordinary IPC separation alone does not decide the corresponding-source or combined-work boundary.
+Client-owned source in this snapshot is offered under GPL-3.0-only. This statement does not revoke applicable earlier MIT copies, change third-party grants, or license the private Go engine. Binary corresponding-source and OEM redistribution review are separate; ordinary IPC separation alone does not decide the combined-work boundary. The current filtered source is not the corresponding source of the legacy v0.3.40-v0.3.43 module Apps.
 
 The following ten source files in app/manager/shared/src/commonMain/kotlin/com/vowifi/sw/manager/ retain their GPL-3.0-only headers and are closely adapted from KernelSU manager source at commit befbcd388bb6c10befd3645311ad08e556d362ac:
 
@@ -15,12 +15,12 @@ ui/liquid/InteractiveHighlight.kt
 ui/liquid/InnerShadow.kt
 ui/liquid/Vibrancy.kt
 
-KernelSU manager upstream is GPL version 3 or later; the retained local adapted file headers say GPL-3.0-only. Keep both statements distinct. Their original provenance is recorded in their source headers. This proposal does not replace either grant or erase the authors' attribution. The full GPL version 3 text is in LICENSE and app/manager/androidApp/src/main/assets/third_party_notices/GPL-3.0.txt.
+KernelSU manager upstream is GPL version 3 or later; the retained local adapted file headers say GPL-3.0-only. Keep both statements distinct. Their original provenance is recorded in their source headers. This source grant does not erase the authors' original rights or attribution. The full GPL version 3 text is in LICENSE and app/manager/androidApp/src/main/assets/third_party_notices/GPL-3.0.txt.
 
-Earlier MIT grants to applicable client-owned snapshot material remain valid for those copies. This proposed GPL client source route does not retroactively revoke them. The original MIT notice for applicable client-owned material is retained byte-for-byte in app/manager/androidApp/src/main/assets/third_party_notices/LICENSE. It does not relicense KernelSU-derived, AOSP, or other third-party material.
+Earlier MIT grants to applicable client-owned snapshot material remain valid for those copies. The GPL client source route does not retroactively revoke them. The original MIT notice for applicable client-owned material is retained byte-for-byte in app/manager/androidApp/src/main/assets/third_party_notices/LICENSE. It does not relicense KernelSU-derived, AOSP, or other third-party material.
 
 The generated CountryCatalogGenerated.kt is derived only from the pinned AOSP MccTable.java MCC-to-ISO2 entries, Copyright (C) 2006 The Android Open Source Project, Apache-2.0. Its source is commit 307806916047d68377ff74674f95ca499243e068, raw SHA-256 68a2ed822151f0cdacc023fb924c1dff9bc7e913bcad5220dd1f42503e715840. Original header and extracted-data modifications are described in export/country-source/NOTICE and app/manager/androidApp/src/main/assets/third_party_notices/AOSP-country-NOTICE.txt. Neither MIT nor this root GPL text erases that separate attribution.
 
 MaterialKolor project MIT terms, Copyright (c) 2025 Jordon de Hoog, remain in MaterialKolor-MIT.txt. Its material-color-utilities module is separately Apache-2.0, Copyright 2021 Google LLC; its full original text and appendix are in MaterialColorUtilities-Apache-2.0.txt. Do not substitute the root POM MIT label for this module's terms. Guava listenablefuture 1.0 inherits Apache-2.0 via guava-parent 26.0-android. miuix 0.9.3 pinned source commit c36fab72391801d1e3ea5a00f966bf16bac28d4c is Apache-2.0; the checked pinned tree had no NOTICE blob. Preserve applicable copyright and Apache text, including Apache-2.0.txt in the asset directory. The Gradle wrapper is separate third-party material under Apache-2.0.
 
-The previous snapshot's Android runtime graph in its archived NOTICE is a historical reference, not a freshly resolved dependency graph for this candidate. Binary notices, embedded upstream notices, source scope and rights still need review. This App-only index makes no claim about Go toolchain or private-core packaging.
+Earlier archived runtime graphs are historical references, not fresh binary clearance. Current resolved artifacts, embedded notices, source scope and redistribution rights must be checked for each release. This App-only index makes no claim about the private engine's rights; new module packaging records its actual linked dependency notices separately.

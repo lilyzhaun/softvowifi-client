@@ -112,6 +112,7 @@ class ConfigurationPolicyRenderTest {
                 assertTrue("ims.spark.co.nz\n来源：$digestSource" in texts)
                 assertFalse(draft.dirty)
                 assertEquals(0, submissions)
+                assertFalse(texts.any { it == "保存配置" || it == "放弃修改" })
                 for ((index, value) in listOf("Digest.Example.test", "").withIndex()) {
                     val input = nodes(scene).last { it.config.getOrNull(SemanticsActions.SetText) != null }
                     assertTrue(requireNotNull(input.config[SemanticsActions.SetText].action).invoke(AnnotatedString(value)))
@@ -184,8 +185,17 @@ class ConfigurationPolicyRenderTest {
                 }
             }
             assertEquals(0, submissions)
+            val save = clickable(scene, "保存配置").boundsInRoot
+            val discard = clickable(scene, "放弃修改").boundsInRoot
+            assertEquals(discard.top, save.top)
+            assertTrue(discard.right <= save.left)
+            assertEquals(discard.width, save.width, 1f)
             click(scene, "放弃修改")
             repeat(8) { scene.render((it + 10) * 100_000_000L).close() }
+            val cancel = clickable(scene, "取消").boundsInRoot
+            val confirm = clickable(scene, "放弃修改").boundsInRoot
+            assertEquals(cancel.top, confirm.top)
+            assertTrue(cancel.right <= confirm.left)
             click(scene, "取消")
             assertEquals("swu_udp_aka", draft.imsSipSecurity)
             assertEquals("tcp_ipsec_3gpp", instance.imsPolicy.security)
@@ -205,11 +215,13 @@ class ConfigurationPolicyRenderTest {
         return scene.semanticsOwners.flatMap { descend(it.rootSemanticsNode) }
     }
 
+    private fun clickable(scene: ImageComposeScene, label: String): SemanticsNode = nodes(scene).last { node ->
+        node.config.getOrNull(SemanticsProperties.Text)?.any { it.text == label } == true &&
+            node.config.getOrNull(SemanticsActions.OnClick) != null
+    }
+
     private fun click(scene: ImageComposeScene, label: String) {
-        val node = nodes(scene).last { node ->
-            node.config.getOrNull(SemanticsProperties.Text)?.any { it.text == label } == true &&
-                node.config.getOrNull(SemanticsActions.OnClick) != null
-        }
+        val node = clickable(scene, label)
         assertTrue(requireNotNull(node.config[SemanticsActions.OnClick].action).invoke())
     }
 }
