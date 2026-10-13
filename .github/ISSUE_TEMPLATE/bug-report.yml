@@ -1,0 +1,33 @@
+name: 客户端问题 / Client issue
+description: 仅提交脱敏的客户端或模块问题 / Redacted client or module report
+body:
+  - type: markdown
+    attributes:
+      value: |
+        请勿粘贴 ICCID/IMSI/IMEI/MSISDN、完整配置、密钥、token、OTP、短信正文或抓包。
+        Do not post subscriber identities, full configuration, keys, tokens, OTPs, messages or raw captures.
+        安全问题先读 SECURITY.md / Read SECURITY.md before reporting a security issue.
+  - type: input
+    id: version
+    attributes:
+      label: App / module version
+      description: 只填版本号，不上传 APK 或 ZIP / Version numbers only
+    validations:
+      required: true
+  - type: input
+    id: device
+    attributes:
+      label: Device model / Android version
+      description: 不填设备序列号或 IMEI / No serial number or IMEI
+  - type: input
+    id: carrier
+    attributes:
+      label: Public carrier PLMN / Network conditions
+      description: 只填公开 MCC/MNC 与 Wi-Fi/蜂窝类型 / Public MCC/MNC and transport only
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Minimal reproduction and redacted result
+      description: 区分注册、受理、报告、实际收件、可听语音；不要为复现擅自实发或拨号。
+    validations:
+      required: true

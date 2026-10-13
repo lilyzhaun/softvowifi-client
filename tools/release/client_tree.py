@@ -5,9 +5,10 @@ import os
 from pathlib import Path
 import subprocess
 
-ROOT_FILES = frozenset({"README.md", "README.zh-CN.md", "LICENSE", "NOTICE", ".gitignore", "KNOWN_ISSUES.md", "RELEASE.json"})
+ROOT_FILES = frozenset({"README.md", "README.zh-CN.md", "LICENSE", "NOTICE", ".gitignore", "KNOWN_ISSUES.md", "RELEASE.json", "CONTRIBUTING.md", "SECURITY.md"})
 BOOTSTRAP_PATHS = frozenset({
     ".github/workflows/release.yml", ".github/workflows/ci.yml",
+    ".github/ISSUE_TEMPLATE/bug-report.yml", ".github/ISSUE_TEMPLATE/config.yml",
     *(f"tools/release/{name}" for name in (
         "github.py", "version.py", "signing.py", "verify.py", "build-apk.sh",
         "linux-tools.sh", "client_tree.py",

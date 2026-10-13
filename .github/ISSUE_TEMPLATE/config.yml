@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security / 安全问题
+    url: https://github.com/lilyzhaun/softvowifi-client/blob/master/SECURITY.md
+    about: Read the private-reporting and sensitive-data rules before disclosure.
