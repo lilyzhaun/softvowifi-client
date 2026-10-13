@@ -42,7 +42,11 @@ class GitHub:
     def check_repo(self, expected_id):
         raw = self.command(["api", f"repos/{self.repo}"])
         repo = json.loads(raw)
-        if repo["id"] != expected_id or not repo["private"] or repo["default_branch"] != "master":
+        known = {"lilyzhaun/softvowifi": 1360754180, "lilyzhaun/softvowifi-client": 1373788867}
+        if (known.get(self.repo) != expected_id or repo["id"] != expected_id
+                or repo["full_name"] != self.repo or repo["default_branch"] != "master"
+                or type(repo["private"]) is not bool
+                or (self.repo == "lilyzhaun/softvowifi" and not repo["private"])):
             raise ValueError("repository identity or visibility changed")
 
     def tag(self, tag, commit):
@@ -92,11 +96,16 @@ class GitHub:
             self.api(f"releases/{release['id']}", {"draft": False}, method="PATCH")
 
 
-def finish_client(dist):
+def finish_client(dist, requested_tag, expected_commit):
     directory = Path(dist)
     metadata = json.loads((directory / "RELEASE.json").read_text())
+    if metadata["tag"] != requested_tag or len(expected_commit) != 40:
+        raise ValueError("release artifact does not match requested version")
     github = GitHub("lilyzhaun/softvowifi-client")
     github.check_repo(1373788867)
+    ref = github.api(f"git/ref/tags/{requested_tag}")
+    if ref["object"]["type"] != "commit" or ref["object"]["sha"] != expected_commit:
+        raise ValueError("release tag changed after trusted handoff")
     release = github.find_release(metadata["tag"])
     if release is None:
         raise ValueError("source release handoff is missing")
@@ -131,7 +140,9 @@ def verify_recovery(run_id, artifact_id, tag):
             or run["display_title"] != f"发布客户端 {tag}"
             or artifact["name"] != "client-release" or artifact["expired"]
             or artifact["workflow_run"]["id"] != int(run_id)
-            or not any(job["name"] == "build" and job["conclusion"] == "success" for job in jobs)):
+             or not any(job["name"] == "build" and job["conclusion"] == "success" for job in jobs)
+             or (any(job["name"] == "sign" for job in jobs)
+                 and not any(job["name"] == "sign" and job["conclusion"] == "success" for job in jobs))):
         raise ValueError("artifact is not from a successful trusted release build")
     print("Trusted signed release artifact verified; no rebuild requested")
 
@@ -141,4 +152,4 @@ if __name__ == "__main__":
     if sys.argv[1] == "verify-recovery":
         verify_recovery(*sys.argv[2:])
     else:
-        finish_client(sys.argv[1])
+        finish_client(*sys.argv[1:])

@@ -10,13 +10,15 @@ import sys
 from pathlib import Path
 
 from version import parse_version
+from client_tree import BOOTSTRAP_PATHS, candidate_digest, committed_files, git
+from github import GitHub
 
 
 def metadata():
     result = json.loads(Path("RELEASE.json").read_text())
     fields = {"schema", "version", "version_code", "tag", "module_name", "module_sha256",
               "module_size", "client_tree_sha256"}
-    if set(result) != fields or result["schema"] != 1:
+    if set(result) != fields or type(result["schema"]) is not int or result["schema"] != 1:
         raise ValueError("invalid public release handoff")
     version = parse_version(Path("app/manager/version.properties").read_text())
     if (result["version"] != version.name or result["version_code"] != version.code
@@ -25,7 +27,42 @@ def metadata():
             or re.fullmatch(r"[0-9a-f]{64}", result["client_tree_sha256"]) is None
             or type(result["module_size"]) is not int or result["module_size"] <= 0):
         raise ValueError("client/module version mismatch or invalid checksum")
+    if candidate_digest(committed_files()) != result["client_tree_sha256"]:
+        raise ValueError("actual client source digest differs from release metadata")
     return result
+
+
+def trusted_tag(tag, recovery=False):
+    """Bind tag ancestry and bootstrap to the immutable master dispatch control commit."""
+    github = GitHub("lilyzhaun/softvowifi-client")
+    github.check_repo(1373788867)
+    trusted = os.environ["GITHUB_SHA"]
+    if re.fullmatch(r"[0-9a-f]{40}", trusted) is None or re.fullmatch(r"v[0-9A-Za-z.+-]+", tag) is None:
+        raise ValueError("invalid trusted release reference")
+    if git(["rev-parse", "HEAD"]).decode().strip() != trusted:
+        raise ValueError("control checkout differs from dispatch commit")
+    ref = github.api(f"git/ref/tags/{tag}")
+    if ref["object"]["type"] != "commit":
+        raise ValueError("release tag must be a lightweight commit reference")
+    commit = ref["object"]["sha"]
+    comparison = github.api(f"compare/{commit}...{trusted}")
+    if comparison["status"] not in {"ahead", "identical"}:
+        raise ValueError("release source is not in trusted master history")
+    if not recovery:
+        control = github.api(f"git/trees/{trusted}?recursive=1")
+        source = github.api(f"git/trees/{commit}?recursive=1")
+        if control.get("truncated") or source.get("truncated"):
+            raise ValueError("trusted release tree is truncated")
+        expected = {entry["path"]: (entry["mode"], entry["sha"]) for entry in control["tree"]
+                    if entry["path"] in BOOTSTRAP_PATHS and entry["type"] == "blob"}
+        actual = {entry["path"]: (entry["mode"], entry["sha"]) for entry in source["tree"]
+                  if entry["path"] in BOOTSTRAP_PATHS and entry["type"] == "blob"}
+        if set(expected) != BOOTSTRAP_PATHS or actual != expected:
+            raise ValueError("release tag bootstrap differs from trusted control plane")
+    if os.environ.get("GITHUB_OUTPUT"):
+        with open(os.environ["GITHUB_OUTPUT"], "a") as output:
+            output.write(f"client_commit={commit}\n")
+    print("Trusted client release tag verified")
 
 
 def verify_apk(path, data):
@@ -42,6 +79,9 @@ def verify_apk(path, data):
 
 def main():
     command, value = sys.argv[1:]
+    if command in {"trusted-tag", "trusted-recovery-tag"}:
+        trusted_tag(value, recovery=command == "trusted-recovery-tag")
+        return
     data = metadata()
     if command == "metadata":
         if value != data["tag"]:
@@ -63,6 +103,9 @@ def main():
         (directory / "SHA256SUMS").write_text("".join(
             f"{hashlib.sha256(path.read_bytes()).hexdigest()}  {path.name}\n" for path in files
         ))
+    elif command == "release-artifact":
+        if (Path(value) / "RELEASE.json").read_bytes() != Path("RELEASE.json").read_bytes():
+            raise ValueError("signed artifact metadata differs from committed source")
     else:
         raise ValueError("unknown release check")
     print("Client release handoff verified")
