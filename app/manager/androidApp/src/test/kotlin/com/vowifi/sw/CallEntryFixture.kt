@@ -60,6 +60,7 @@ internal class CallEntryFixture : AutoCloseable {
         ReflectionHelpers.setField(runtime, "calls", source)
         ReflectionHelpers.setField(runtime, "history", repository)
         ReflectionHelpers.setField(runtime, "notifications", notifications)
+        ReflectionHelpers.setField(runtime, "networkObserver", com.vowifi.sw.manager.data.AndroidUnderlayObserver(context, publish = { false }))
     }
 
     fun instanceJson(): String = buildJsonArray {
@@ -84,6 +85,7 @@ internal class CallEntryFixture : AutoCloseable {
     }
 
     override fun close() {
+        runtime.stopObservingNetworks()
         runtime.notifications.stop()
         source.close()
         first.close(); second.close(); repository.close()

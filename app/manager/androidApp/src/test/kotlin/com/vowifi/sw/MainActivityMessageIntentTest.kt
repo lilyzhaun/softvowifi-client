@@ -78,6 +78,9 @@ class RuntimeApplicationShadow : org.robolectric.shadows.ShadowApplication() {
     var runtimeStarts = 0
         private set
     private val runtime by lazy { testShell(SoftVoWiFiRuntime::class.java).also {
+        ReflectionHelpers.setField(it, "networkObserver", com.vowifi.sw.manager.data.AndroidUnderlayObserver(
+            org.robolectric.RuntimeEnvironment.getApplication(), publish = { false },
+        ))
         val fixture = callFixture ?: CallPlatformFixture()
         ReflectionHelpers.setField(it, "calls", fixture.facade(org.robolectric.RuntimeEnvironment.getApplication()))
         ReflectionHelpers.setField(it, "notifications", fixture.coordinator(org.robolectric.RuntimeEnvironment.getApplication()))

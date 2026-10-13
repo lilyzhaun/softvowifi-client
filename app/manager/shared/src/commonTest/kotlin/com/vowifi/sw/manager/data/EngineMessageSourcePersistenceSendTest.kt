@@ -27,6 +27,25 @@ import kotlinx.coroutines.test.runTest
 
 class EngineMessageSourcePersistenceSendTest {
     @Test
+    fun acceptedWithoutDeliveryReportSurvivesSessionCloseAndReopen() = runTest(UnconfinedTestDispatcher()) {
+        val repository = FakeMessageRepository()
+        val transport = FakeEngineMessageTransport(sendResult = sendOk(MO_ID, 202, 66))
+        val source = sourceOf(listOf(running(ICCID_A)), transport, repository)
+        source.sendSms(SYNTH_NUMBER, SYNTH_TEXT)
+        transport.emitSent(MO_ID, SmsEngineStatus.ACCEPTED)
+        source.close()
+
+        val replacement = FakeEngineMessageTransport()
+        val reopened = sourceOf(listOf(running(ICCID_A)), replacement, repository)
+        val record = assertIs<MessageRecord.Outgoing>(inspectInboxThreads(reopened).records.single())
+        assertEquals(OutgoingMessageStatus.ACCEPTED, record.status)
+        assertEquals(SmsEngineStatus.ACCEPTED, record.engineStatus)
+        assertEquals(1, transport.requests.size)
+        assertTrue(replacement.requests.isEmpty())
+        reopened.close()
+    }
+
+    @Test
     fun readBackFailureBeforeRequestSendsNothing() = runTest(UnconfinedTestDispatcher()) {
         val repository = FakeMessageRepository()
         val transport = FakeEngineMessageTransport(sendResult = sendOk(MO_ID, 202, 66))

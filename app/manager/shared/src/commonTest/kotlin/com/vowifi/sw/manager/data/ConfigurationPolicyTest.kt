@@ -96,4 +96,13 @@ class ConfigurationPolicyTest {
         assertEquals(ConfigurationEditStatus.Unconfirmed, draft.status)
         assertEquals("swu_udp_aka", draft.imsSipSecurity)
     }
+
+    @Test fun advancedAuthenticatedPaniReadbackRemainsCompatibleAndIsNotClearedByOlderEditor() {
+        val prior = ConfigurationCodec.show(show)
+        val withAdvanced = ConfigurationCodec.show(show.dropLast(1) + """, "paniAuthenticated":"wlan-node-country","paniAuthenticatedSource":"user"}""")
+        assertEquals(prior.imsPolicy, withAdvanced.imsPolicy)
+        val patch = Json.parseToJsonElement(ConfigurationCodec.encodeChanges(baseline, baseline.copy(dns = "9.9.9.9"))) as JsonObject
+        assertEquals(setOf("dns"), patch.keys)
+        assertFalse(patch.containsKey("paniAuthenticated"))
+    }
 }

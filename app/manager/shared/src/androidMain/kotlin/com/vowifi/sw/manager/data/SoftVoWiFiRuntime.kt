@@ -11,7 +11,11 @@ class SoftVoWiFiRuntime internal constructor(
     val messages: AndroidMessageSource,
     val messageNotifications: AndroidMessageNotifications,
     val callNotificationSettings: AndroidCallNotificationSettingsSource,
-)
+    private val networkObserver: AndroidUnderlayObserver,
+) {
+    fun observeNetworks() = networkObserver.start()
+    fun stopObservingNetworks() = networkObserver.stop()
+}
 
 class SoftVoWiFiRuntimeHolder(context: Context, private val activityClass: Class<*>, private val messageIconRes: Int) {
     private val appContext = context.applicationContext
@@ -74,6 +78,7 @@ class SoftVoWiFiRuntimeHolder(context: Context, private val activityClass: Class
                 messages = messages,
                 messageNotifications = messageNotifications,
                 callNotificationSettings = AndroidCallNotificationSettingsSource(appContext),
+                networkObserver = AndroidUnderlayObserver(appContext),
             )
         } catch (error: Exception) {
             callNotifications?.stop()

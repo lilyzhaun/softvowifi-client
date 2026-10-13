@@ -21,6 +21,7 @@ class SoftVoWiFiApplication : Application(), ProcessRuntimeStarter {
     override fun onObserverReady(service: ObserverService) {
         if (getSystemService(UserManager::class.java)?.isUserUnlocked != true || isDeviceProtectedStorage) return
         val notifications = runtime().notifications
+        runtime().observeNetworks()
         observerNotifications = notifications
         notifications.attachForegroundHost(service,
             publish = { service.startForeground(AndroidIncomingCallNotificationCoordinator.NOTIFICATION_ID, it) },
@@ -29,5 +30,6 @@ class SoftVoWiFiApplication : Application(), ProcessRuntimeStarter {
     }
     override fun onObserverDestroyed(service: ObserverService) {
         observerNotifications?.detachForegroundHost(service)
+        runtime().stopObservingNetworks()
     }
 }

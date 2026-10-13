@@ -1,10 +1,10 @@
 {
-  "client_tree_sha256": "3e51f313e9be1a54dbc9d04355268f7fb41650f505e64d9a7c950f478ff451a8",
-  "module_name": "SoftVoWiFi-ksu-v0.3.42.zip",
-  "module_sha256": "48388774751f4e8b7c60bd5b4c6124b7a9caec4e27b1ecfe92063ee7cfa23d53",
-  "module_size": 14068071,
+  "client_tree_sha256": "64303741293fe489146a847b1dabb2eeb177fcc4186ecb774baa7a6ec7d1e6b3",
+  "module_name": "SoftVoWiFi-ksu-v0.3.43.zip",
+  "module_sha256": "fd2ef85f97f103049c3837c5b932fbc1b9a2a9e6f12b47c8ea4fcd2af7e1e015",
+  "module_size": 14013651,
   "schema": 1,
-  "tag": "v0.3.42",
-  "version": "0.3.42",
-  "version_code": 45
+  "tag": "v0.3.43",
+  "version": "0.3.43",
+  "version_code": 46
 }
