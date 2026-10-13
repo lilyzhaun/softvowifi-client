@@ -5,7 +5,8 @@ import os
 from pathlib import Path
 import subprocess
 
-ROOT_FILES = frozenset({"README.md", "README.zh-CN.md", "LICENSE", "NOTICE", ".gitignore", "KNOWN_ISSUES.md", "RELEASE.json", "CONTRIBUTING.md", "SECURITY.md"})
+ROOT_FILES = frozenset({"README.md", "README.zh-CN.md", "LICENSE", "NOTICE", ".gitignore", "KNOWN_ISSUES.md", "RELEASE.json", "SOURCE.json", "CONTRIBUTING.md", "SECURITY.md"})
+GENERATED_METADATA = frozenset({"RELEASE.json", "SOURCE.json"})
 BOOTSTRAP_PATHS = frozenset({
     ".github/workflows/release.yml", ".github/workflows/ci.yml",
     ".github/ISSUE_TEMPLATE/bug-report.yml", ".github/ISSUE_TEMPLATE/config.yml",
@@ -37,6 +38,16 @@ def candidate_digest(files):
 
 def blob_id(raw):
     return hashlib.sha1(f"blob {len(raw)}\0".encode() + raw).hexdigest()
+
+
+def source_state_digest(files):
+    """Bind reviewed snapshot paths/modes/Git blobs, excluding release/snapshot metadata."""
+    digest = hashlib.sha256(b"softvowifi-client-reviewed-source-blobs-v1\0")
+    for path, (mode, oid) in sorted(files.items()):
+        if path in GENERATED_METADATA:
+            continue
+        digest.update((path + "\0" + mode + "\0" + oid + "\0").encode("ascii"))
+    return digest.hexdigest()
 
 
 def git(arguments, data=None):
@@ -84,6 +95,6 @@ def committed_files():
         working_mode = "100755" if target.stat().st_mode & 0o100 else "100644"
         if target.is_symlink() or working_mode != mode or target.read_bytes() != content:
             raise ValueError("client working source differs from committed tree")
-        if path != "RELEASE.json":
+        if path not in GENERATED_METADATA:
             result[path] = (mode, content)
     return result
