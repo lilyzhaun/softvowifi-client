@@ -10,6 +10,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -74,34 +75,49 @@ internal fun communicationSurfaceModifier(
 internal fun CommunicationIconAction(icon: ImageVector, label: String, onClick: () -> Unit, enabled: Boolean = true) {
     val colors = LocalSoftVoWiFiColors.current
     val interaction = remember { MutableInteractionSource() }
-    val feedback = managerActionFeedback(ManagerAction.Navigate, enabled)
+    val actionable = enabled && LocalAppRouteActive.current
+    val feedback = managerActionFeedback(ManagerAction.Navigate, actionable)
+    val motion = rememberManagerPressMotion(interaction, actionable, ManagerPressStyle.Icon)
     Box(
-        Modifier.size(48.dp).managerPressScale(feedback, interaction)
+        Modifier.size(48.dp)
             .clip(CircleShape)
-            .clickable(enabled = enabled, role = Role.Button, interactionSource = interaction, indication = null,
+            .managerPressInputGate(actionable)
+            .clickable(enabled = actionable, role = Role.Button, interactionSource = interaction, indication = null,
                 onClick = rememberManagerActionHandler(feedback, onClick))
-            .semantics { contentDescription = label },
+            .managerKeyboardFocusRing(interaction, actionable, CircleShape, communicationColors().accent)
+            .semantics { contentDescription = label }
+            .drawBehind { drawCircle(colors.textPrimary.copy(alpha = motion.tintAlpha.value), radius = 20.dp.toPx()) },
         contentAlignment = Alignment.Center,
-    ) { Icon(icon, null, Modifier.size(24.dp), tint = if (enabled) communicationColors().accent else colors.textDisabled) }
+    ) {
+        Icon(icon, null, Modifier.size(24.dp).managerPressDrawing(motion), tint = if (enabled) communicationColors().accent else colors.textDisabled)
+    }
 }
 
 @Composable
 internal fun CommunicationLineChip(label: String, actionLabel: String, onClick: () -> Unit, enabled: Boolean = true) {
     val colors = LocalSoftVoWiFiColors.current
     val interaction = remember { MutableInteractionSource() }
-    val feedback = managerActionFeedback(ManagerAction.Navigate, enabled)
-    Row(
-        Modifier.widthIn(min = 48.dp).heightIn(min = 48.dp).managerPressScale(feedback, interaction)
+    val actionable = enabled && LocalAppRouteActive.current
+    val feedback = managerActionFeedback(ManagerAction.Navigate, actionable)
+    val motion = rememberManagerPressMotion(interaction, actionable, ManagerPressStyle.Solid)
+    Box(
+        Modifier.widthIn(min = 48.dp).heightIn(min = 48.dp)
             .clip(RoundedCornerShape(10.dp))
-            .clickable(enabled = enabled, role = Role.Button, interactionSource = interaction, indication = null,
-                onClick = rememberManagerActionHandler(feedback, onClick))
-            .semantics { contentDescription = actionLabel }
-            .padding(horizontal = 8.dp, vertical = 10.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically,
+            .managerPressInputGate(actionable)
+             .clickable(enabled = actionable, role = Role.Button, interactionSource = interaction, indication = null,
+                 onClick = rememberManagerActionHandler(feedback, onClick))
+             .managerKeyboardFocusRing(interaction, actionable, RoundedCornerShape(10.dp), communicationColors().accent)
+             .semantics { contentDescription = actionLabel },
+        contentAlignment = Alignment.Center,
     ) {
-        Text(label, modifier = Modifier.weight(1f, fill = false), fontSize = 15.sp, lineHeight = 20.sp,
-            color = if (enabled) communicationColors().accent else colors.textDisabled)
-        Icon(CommunicationChevronDown, null, Modifier.size(14.dp), tint = communicationColors().accent)
+        Row(
+            Modifier.managerPressDrawing(motion).padding(horizontal = 8.dp, vertical = 10.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(label, modifier = Modifier.weight(1f, fill = false), fontSize = 15.sp, lineHeight = 20.sp,
+                color = if (enabled) communicationColors().accent else colors.textDisabled)
+            Icon(CommunicationChevronDown, null, Modifier.size(14.dp), tint = communicationColors().accent)
+        }
     }
 }
 

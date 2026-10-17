@@ -19,11 +19,28 @@ import kotlinx.coroutines.flow.asStateFlow
 
 class AndroidCallNotificationSettingsSource(private val context: Context) : CallNotificationSettingsSource {
     private val manager = context.getSystemService(NotificationManager::class.java)
-    private val mutableState = MutableStateFlow(readSnapshot())
+    private val mutableState = MutableStateFlow(initialSnapshot())
     override val state = mutableState.asStateFlow()
 
     override fun refresh() {
+        refreshSnapshot()
+    }
+
+    override suspend fun refreshAndAwait(): RefreshResult = refreshSnapshot()
+
+    private fun refreshSnapshot(): RefreshResult = try {
         mutableState.value = readSnapshot()
+        RefreshResult.Completed
+    } catch (_: SecurityException) {
+        mutableState.value = mutableState.value.copy(freshness = NotificationSnapshotFreshness.STALE)
+        RefreshResult.Failed("无法读取通知设置")
+    }
+
+    private fun initialSnapshot(): CallNotificationSettingsSnapshot = try {
+        readSnapshot()
+    } catch (_: SecurityException) {
+        CallNotificationSettingsSnapshot(NotificationPermissionStatus.UNAVAILABLE,
+            FullScreenStatus.UNAVAILABLE, freshness = NotificationSnapshotFreshness.STALE)
     }
 
     override fun openSettings(action: SettingsAction): CallNotificationSettingsLaunchResult {

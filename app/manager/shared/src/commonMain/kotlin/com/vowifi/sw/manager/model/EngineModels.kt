@@ -41,6 +41,16 @@ enum class EngineLifecycle {
     STOPPING,
 }
 
+enum class EngineControlAction { Start, Stop }
+enum class EngineControlOutcome { Completed, Failed }
+
+/** A low-frequency result of an accepted control command, never a poll or a read error. */
+data class EngineControlCompletion(
+    val sequence: Long,
+    val action: EngineControlAction,
+    val outcome: EngineControlOutcome,
+)
+
 data class EngineInstanceState(
     val iccid: String,
     val lifecycle: EngineLifecycle,
@@ -48,6 +58,8 @@ data class EngineInstanceState(
     val runtime: EngineRuntimeStatus? = null,
     val message: String? = null,
     val clientCapabilities: ClientCapabilitiesResult? = null,
+    val operationPending: Boolean = false,
+    val controlCompletion: EngineControlCompletion? = null,
 )
 
 sealed interface EngineControlUiState {

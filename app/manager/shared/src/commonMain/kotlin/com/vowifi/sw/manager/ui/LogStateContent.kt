@@ -17,25 +17,34 @@ internal fun LazyListScope.operationalLogItems(
     state: OperationalLogUiState,
     actions: SettingsLogsActions,
     exportBusy: Boolean,
+    onRetry: (() -> Unit)? = null,
+    retryEnabled: Boolean = true,
 ) {
+    item(key = "operational-logs-state") {
+        val spec = when (state) {
+            is OperationalLogUiState.Ready, is OperationalLogUiState.Warning -> null
+            else -> operationalLogStateSpec(state)
+        }
+        RefreshFailurePresentation(spec?.copy(retryDescription =
+            if (onRetry != null && !spec.loading) "重试读取日志" else null),
+            onRetry = onRetry, retryEnabled = retryEnabled)
+    }
     when (state) {
-        OperationalLogUiState.Loading,
-        OperationalLogUiState.Empty,
-        is OperationalLogUiState.Failure,
-        is OperationalLogUiState.PermissionDenied,
-        is OperationalLogUiState.Unavailable,
-        -> item(key = "operational-logs-state") { StatePanel(operationalLogStateSpec(state)) }
-
         is OperationalLogUiState.Ready -> operationalLogDataItems(
             state = state,
             actions = actions,
             exportBusy = exportBusy,
+            onRetry = onRetry,
+            retryEnabled = retryEnabled,
         )
         is OperationalLogUiState.Warning -> operationalLogDataItems(
             state = state,
             actions = actions,
             exportBusy = exportBusy,
+            onRetry = onRetry,
+            retryEnabled = retryEnabled,
         )
+        else -> Unit
     }
 }
 
@@ -43,6 +52,8 @@ private fun LazyListScope.operationalLogDataItems(
     state: OperationalLogUiState,
     actions: SettingsLogsActions,
     exportBusy: Boolean,
+    onRetry: (() -> Unit)?,
+    retryEnabled: Boolean,
 ) {
     val files = when (state) {
         is OperationalLogUiState.Ready -> state.files
@@ -85,7 +96,10 @@ private fun LazyListScope.operationalLogDataItems(
                 if (state is OperationalLogUiState.Warning) {
                     item(key = "operational-logs-warning") {
                         StatePanel(
-                            spec = operationalLogWarningSpec(state),
+                            spec = operationalLogWarningSpec(state).copy(retryDescription =
+                                if (state.loadInfo.issue != null && onRetry != null) "重试读取日志" else null),
+                             onRetry = if (state.loadInfo.issue != null) onRetry else null,
+                             retryEnabled = retryEnabled,
                             modifier = Modifier.padding(bottom = gap),
                         )
                     }
@@ -108,13 +122,16 @@ private fun LazyListScope.operationalLogDataItems(
                 item(key = "operational-log-read-status") {
                     val labels = listOfNotNull(
                         if (loadInfo.legacy) "旧模块兼容模式：文件序号可能随目录变化，未启用缓存" else null,
-                        if (loadInfo.cached) "缓存快照 · 刷新可重新读取" else null,
+                         if (loadInfo.issue != null) "上次快照 · 本次读取失败，不能作为当前结果" else if (loadInfo.cached) "缓存快照 · 刷新可重新读取" else null,
                         if (loadInfo.reading) "正在读取所选日志" else null,
                         loadInfo.issue,
                     )
                     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        labels.forEach { label -> Text(label, modifier = Modifier.padding(bottom = gap),
-                            color = LocalSoftVoWiFiColors.current.textSecondary, fontSize = 14.sp, lineHeight = 20.sp) }
+                         labels.forEach { label -> Text(label, modifier = Modifier.padding(bottom = gap),
+                             color = LocalSoftVoWiFiColors.current.textSecondary, fontSize = 14.sp, lineHeight = 20.sp) }
+                         if (loadInfo.issue != null && onRetry != null) {
+                             ManagerTextAction("重试读取日志", ManagerAction.Refresh, onRetry, enabled = retryEnabled)
+                         }
                     }
                 }
                 if (filteredEntries.isEmpty() && !loadInfo.reading && loadInfo.issue == null) {
@@ -207,7 +224,7 @@ internal fun operationalLogWarningStatus(state: OperationalLogUiState.Warning): 
         },
         summary = buildString {
             append("已显示可用的运行事件。")
-            if (state.truncated) append("最多显示最近50条运行记录；更早记录未在此窗口显示。")
+            if (state.truncated) append("每个来源最多显示最近50条运行记录；更早记录未在此窗口显示。")
             if (parseIssues) append("有${state.issues.size}处日志格式无法解析。")
             if (readFailed) append("本次日志读取未完成，请刷新重试。")
         },

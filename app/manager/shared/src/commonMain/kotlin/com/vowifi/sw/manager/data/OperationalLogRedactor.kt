@@ -91,7 +91,7 @@ object OperationalLogRedactor {
         return redact(value) != value ||
             sensitiveAssignment.containsMatchIn(labelScan) ||
             identityUriPrefix.containsMatchIn(labelScan) ||
-            unbracketedPlaceholder.containsMatchIn(labelScan)
+            invalidWirePlaceholder.containsMatchIn(labelScan)
     }
 
     internal fun requiresWireRedaction(value: String): Boolean {
@@ -99,7 +99,7 @@ object OperationalLogRedactor {
         return redactInternal(value, includeNetworkAddresses = false) != value ||
             sensitiveUiAssignment.containsMatchIn(labelScan) ||
             identityUriPrefix.containsMatchIn(labelScan) ||
-            unbracketedPlaceholder.containsMatchIn(labelScan)
+            invalidWirePlaceholder.containsMatchIn(labelScan)
     }
 
     internal fun isPrivateUiText(value: String): Boolean {
@@ -107,7 +107,7 @@ object OperationalLogRedactor {
         if (redactInternal(value, includeNetworkAddresses = false) != value) return false
         if (sensitiveUiAssignment.containsMatchIn(labelScan)) return false
         if (identityUriPrefix.containsMatchIn(labelScan)) return false
-        if (unbracketedPlaceholder.containsMatchIn(labelScan)) return false
+        if (invalidWirePlaceholder.containsMatchIn(labelScan)) return false
         if (allowedWirePlaceholder.containsMatchIn(value)) return false
         if (privatePath.containsMatchIn(value) || longHex.containsMatchIn(value) || longDigits.containsMatchIn(value)) {
             return false
@@ -125,6 +125,10 @@ object OperationalLogRedactor {
         """(?i)\b(iccid|imsi|msisdn|phone|impi|impu|pid|recipient|caller|callee|peer|from|to|sms|sms_body|sms_text|body|payload|text|ck|ik|res|autn|rand|kasme|psk|password|token|certificate)\b\s*[:=]""",
     )
     private val identityUriPrefix = Regex("""(?i)\b(?:sip|tel):""")
-    private val unbracketedPlaceholder = Regex("""(?i)\b(?:identity|secret)\b""")
+    // Ordinary protocol sentences can contain these words. Reject placeholder-only
+    // messages, noncanonical bracketed placeholders, and labeled private values.
+    private val invalidWirePlaceholder = Regex(
+        """(?im)\[(?:identity|secret)]|\b(?:identity|secret)\b["']?\s*[:=]|(?:^\s*|]\s+)(?:identity|secret)(?:\s+(?:identity|secret))*\s*$""",
+    )
     private val allowedWirePlaceholder = Regex("""\[(?:identity|secret|path)]""")
 }

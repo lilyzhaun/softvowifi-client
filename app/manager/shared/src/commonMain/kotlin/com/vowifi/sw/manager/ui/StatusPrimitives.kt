@@ -1,6 +1,8 @@
 package com.vowifi.sw.manager.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.indication
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -15,6 +17,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -35,6 +38,7 @@ import top.yukonga.miuix.kmp.basic.CardDefaults
 import top.yukonga.miuix.kmp.basic.CircularProgressIndicator
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.Button
+import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.Refresh
@@ -70,7 +74,7 @@ internal val statePanelLayoutContract = StatePanelLayoutContract()
 fun StatePanel(
     spec: StatePanelSpec,
     modifier: Modifier = Modifier,
-    onRetry: (() -> Unit)? = null,
+    onRetry: (() -> Unit)? = null, retryEnabled: Boolean = true,
 ) {
     val colors = LocalSoftVoWiFiColors.current
     val accent = when (spec.tone) {
@@ -112,12 +116,22 @@ fun StatePanel(
             },
             bottomAction = {
                 if (onRetry != null && spec.retryDescription != null) {
-                    val feedback = managerActionFeedback(ManagerAction.Refresh, enabled = !spec.loading)
+                    val routeActive = LocalAppRouteActive.current
+                    val businessEnabled = !spec.loading && retryEnabled
+                    val actionable = businessEnabled && routeActive
+                    val feedback = managerActionFeedback(ManagerAction.Refresh, enabled = actionable)
                     val handler = rememberManagerActionHandler(feedback, onRetry)
+                    val interaction = remember { MutableInteractionSource() }
+                    val indication = rememberManagerPressIndication(ManagerPressStyle.Solid, actionable)
                     Button(
                         onClick = handler,
-                        enabled = !spec.loading,
-                        modifier = Modifier.heightIn(min = statePanelLayoutContract.retryMinimumTouchDp.dp).managerPressScale(feedback),
+                        enabled = actionable,
+                        interactionSource = interaction,
+                        indication = null,
+                        colors = ButtonDefaults.buttonColors().preservingPressBusinessColors(businessEnabled, routeActive),
+                        modifier = Modifier.heightIn(min = statePanelLayoutContract.retryMinimumTouchDp.dp)
+                            .managerKeyboardFocusRing(interaction, actionable)
+                            .managerPressInputGate(actionable).indication(interaction, indication),
                     ) {
                         Icon(
                             imageVector = MiuixIcons.Refresh,

@@ -2,6 +2,7 @@ package com.vowifi.sw.manager.desktop
 
 import com.vowifi.sw.manager.data.ConfigurationEvaluator
 import com.vowifi.sw.manager.data.ConfigurationSource
+import com.vowifi.sw.manager.data.RefreshResult
 import com.vowifi.sw.manager.model.ConfigurationInstance
 import com.vowifi.sw.manager.model.ConfigurationApplyAcceptance
 import com.vowifi.sw.manager.model.ConfigurationApplyOutcome
@@ -9,6 +10,9 @@ import com.vowifi.sw.manager.model.ConfigurationWriteResult
 import com.vowifi.sw.manager.model.ConfigurationInstanceId
 import com.vowifi.sw.manager.model.ConfigurationLifecycle
 import com.vowifi.sw.manager.model.ConfigurationOverrides
+import com.vowifi.sw.manager.model.ConfigurationProvisionCompletion
+import com.vowifi.sw.manager.model.ConfigurationProvisionOutcome
+import com.vowifi.sw.manager.model.ConfigurationProvisionState
 import com.vowifi.sw.manager.model.ConfigurationTransport
 import com.vowifi.sw.manager.model.ConfigurationUiState
 import com.vowifi.sw.manager.model.SimHandle
@@ -41,13 +45,37 @@ class FixtureConfigurationSource(
 
     private val mutableState = MutableStateFlow(fixture(mode))
     override val state: StateFlow<ConfigurationUiState> = mutableState.asStateFlow()
+    private val mutableProvisioning = MutableStateFlow(ConfigurationProvisionState())
+    override val provisioning: StateFlow<ConfigurationProvisionState> = mutableProvisioning.asStateFlow()
+    private var provisionSequence = 0L
+    private var closed = false
 
-    override fun refresh() {
-        mutableState.value = when (mode) {
+    override fun refresh() { readSnapshot() }
+    override suspend fun refreshAndAwait(): RefreshResult = readSnapshot()
+    override suspend fun refreshIdentitiesAndAwait(): RefreshResult = readSnapshot()
+    override fun close() {
+        if (closed) return
+        closed = true
+        val current = mutableProvisioning.value
+        mutableProvisioning.value = current.copy(pending = emptySet(), completions = current.completions +
+            current.pending.associateWith { ConfigurationProvisionCompletion(++provisionSequence, ConfigurationProvisionOutcome.Cancelled) })
+    }
+
+    private fun readSnapshot(): RefreshResult {
+        if (closed) return RefreshResult.Unsupported
+        if (mutableProvisioning.value.pending.isNotEmpty()) return RefreshResult.Busy
+        val snapshot = when (mode) {
             ConfigurationFixtureMode.SIM_1 -> ready(listOf(FIRST_ID))
             ConfigurationFixtureMode.SIM_2 -> ready(listOf(SECOND_ID))
             ConfigurationFixtureMode.EMPTY -> ConfigurationUiState.Empty
             else -> ready()
+        }
+        mutableState.value = snapshot
+        return when (snapshot) {
+            is ConfigurationUiState.Ready, ConfigurationUiState.Empty -> RefreshResult.Completed
+            is ConfigurationUiState.Failure -> RefreshResult.Failed(snapshot.message)
+            is ConfigurationUiState.PermissionDenied -> RefreshResult.Failed(snapshot.message)
+            is ConfigurationUiState.Unavailable, ConfigurationUiState.Loading -> RefreshResult.Unsupported
         }
     }
 
@@ -56,6 +84,8 @@ class FixtureConfigurationSource(
         overrides: ConfigurationOverrides,
         onComplete: (ConfigurationApplyOutcome) -> Unit,
     ): ConfigurationApplyAcceptance {
+        if (closed) return ConfigurationApplyAcceptance.Unavailable
+        if (mutableProvisioning.value.pending.isNotEmpty()) return ConfigurationApplyAcceptance.Busy
         val current = mutableState.value as? ConfigurationUiState.Ready ?: return ConfigurationApplyAcceptance.Unavailable
         if (current.applyingInstanceId != null) return ConfigurationApplyAcceptance.Busy
         val previous = current.instances.firstOrNull { it.instanceId == instanceId } ?: return ConfigurationApplyAcceptance.Unavailable
@@ -90,18 +120,34 @@ class FixtureConfigurationSource(
     }
 
     override fun provision(handle: SimHandle) {
+        if (closed) return
+        if (mutableProvisioning.value.pending.isNotEmpty()) return
         val id = when (handle.value) {
             FIRST_ID.value -> FIRST_ID
             SECOND_ID.value -> SECOND_ID
             else -> return
         }
         val current = (mutableState.value as? ConfigurationUiState.Ready)?.instances.orEmpty()
+        val previous = current.firstOrNull { it.instanceId == id }
+        mutableProvisioning.value = mutableProvisioning.value.copy(pending = setOf(handle))
+        if (closed) return
         val updated = (current.filterNot { it.instanceId == id } + instance(id))
             .sortedBy { if (it.instanceId == FIRST_ID) 0 else 1 }
         mutableState.value = ConfigurationEvaluator.ready(
             instances = updated,
             message = "配置已创建",
             isFixture = true,
+        )
+        val readback = (mutableState.value as? ConfigurationUiState.Ready)?.instances?.firstOrNull { it.instanceId == id }
+        val outcome = when {
+            readback == null -> ConfigurationProvisionOutcome.Unconfirmed
+            previous == null -> ConfigurationProvisionOutcome.Created
+            readback == previous -> ConfigurationProvisionOutcome.Unchanged
+            else -> ConfigurationProvisionOutcome.Updated
+        }
+        if (!closed) mutableProvisioning.value = mutableProvisioning.value.copy(
+            pending = emptySet(),
+            completions = mutableProvisioning.value.completions + (handle to ConfigurationProvisionCompletion(++provisionSequence, outcome)),
         )
     }
 

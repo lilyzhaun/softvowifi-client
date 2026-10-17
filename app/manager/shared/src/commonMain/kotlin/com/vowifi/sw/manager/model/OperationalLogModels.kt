@@ -6,6 +6,11 @@ enum class OperationalLogKind {
     IMS,
 }
 
+enum class OperationalLogOrigin {
+    ENGINE,
+    STARTUP,
+}
+
 enum class OperationalLogLevel {
     INFO,
     WARN,
@@ -36,6 +41,7 @@ data class OperationalLogEntry(
     val safeSummary: String,
     val safeDetail: String = safeSummary,
     val detailTruncated: Boolean = false,
+    val origin: OperationalLogOrigin = OperationalLogOrigin.ENGINE,
 )
 
 internal fun operationalLogSafeSummary(entry: OperationalLogEntry): String = entry.safeSummary
@@ -54,6 +60,7 @@ data class OperationalLogFile(
     val id: String,
     val name: String,
     val suffix: String,
+    val groupKey: String? = null,
 )
 
 data class OperationalLogList(

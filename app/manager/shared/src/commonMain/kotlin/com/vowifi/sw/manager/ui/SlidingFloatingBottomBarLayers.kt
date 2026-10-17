@@ -31,6 +31,7 @@ import top.yukonga.miuix.kmp.blur.Backdrop
 import top.yukonga.miuix.kmp.blur.LayerBackdrop
 import top.yukonga.miuix.kmp.blur.blur
 import top.yukonga.miuix.kmp.blur.drawBackdrop
+import top.yukonga.miuix.kmp.blur.layerBackdrop
 import top.yukonga.miuix.kmp.blur.rememberLayerBackdrop
 
 @Composable
@@ -44,13 +45,14 @@ internal fun SlidingBarLayers(
     tabWidthPx: Float,
     panelOffset: Float,
     drag: DampedDragAnimation,
+    position: () -> Float,
     ltr: Boolean,
     onMeasured: (Int) -> Unit,
 ) {
     if (liquidEnabled && backdrop != null) {
-        LiquidSlidingBarLayers(modifier, items, selectedIndex, onSelected, backdrop, tabWidthPx, panelOffset, drag, ltr, onMeasured)
+        LiquidSlidingBarLayers(modifier, items, selectedIndex, onSelected, backdrop, tabWidthPx, panelOffset, drag, position, ltr, onMeasured)
     } else {
-        OpaqueSlidingBarLayers(modifier, items, selectedIndex, onSelected, tabWidthPx, panelOffset, drag, ltr, onMeasured)
+        OpaqueSlidingBarLayers(modifier, items, selectedIndex, onSelected, tabWidthPx, panelOffset, drag, position, ltr, onMeasured)
     }
 }
 
@@ -64,17 +66,19 @@ private fun LiquidSlidingBarLayers(
     tabWidthPx: Float,
     panelOffset: Float,
     drag: DampedDragAnimation,
+    position: () -> Float,
     ltr: Boolean,
     onMeasured: (Int) -> Unit,
 ) {
-    val tabsBackdrop = rememberLayerBackdrop()
-    val combinedBackdrop = rememberCombinedBackdrop(backdrop, tabsBackdrop)
+    // The bubble rests on the frosted bar, so it refracts the bar's rendered layer (glass, shadow and
+    // tabs) over the page; sampling the page alone let it see through the bar to the sharp content.
+    val barBackdrop = rememberLayerBackdrop()
+    val combinedBackdrop = rememberCombinedBackdrop(backdrop, barBackdrop)
     val highlight = rememberInteractiveHighlight(rememberCoroutineScope()) { size, _ ->
         androidx.compose.ui.geometry.Offset(size.width / 2f, size.height / 2f)
     }
-    BarFrame(modifier, items, selectedIndex, onSelected, panelOffset, onMeasured, backdrop) {
-        HiddenTabs(items, tabsBackdrop, panelOffset)
-        LiquidIndicator(tabWidthPx, panelOffset, drag, ltr, combinedBackdrop, highlight)
+    BarFrame(modifier, items, selectedIndex, onSelected, panelOffset, onMeasured, backdrop, barBackdrop) {
+        LiquidIndicator(tabWidthPx, panelOffset, drag, ltr, combinedBackdrop, highlight, position)
     }
 }
 
@@ -87,11 +91,12 @@ private fun OpaqueSlidingBarLayers(
     tabWidthPx: Float,
     panelOffset: Float,
     drag: DampedDragAnimation,
+    position: () -> Float,
     ltr: Boolean,
     onMeasured: (Int) -> Unit,
 ) {
-    BarFrame(modifier, items, selectedIndex, onSelected, panelOffset, onMeasured, null) {
-        OpaqueIndicator(tabWidthPx, panelOffset, drag, ltr)
+    BarFrame(modifier, items, selectedIndex, onSelected, panelOffset, onMeasured, null, null) {
+        OpaqueIndicator(tabWidthPx, panelOffset, drag, ltr, position)
     }
 }
 
@@ -104,6 +109,7 @@ private fun BarFrame(
     panelOffset: Float,
     onMeasured: (Int) -> Unit,
     backdrop: Backdrop?,
+    capture: LayerBackdrop?,
     overlay: @Composable () -> Unit,
 ) {
     val colors = LocalSoftVoWiFiColors.current
@@ -111,7 +117,7 @@ private fun BarFrame(
     val layout = floatingRowLayoutContract()
     val isInDark = isSystemInDarkTheme()
     val pillShape = CircleShape
-    val base = Modifier
+    val base = (capture?.let { Modifier.layerBackdrop(it) } ?: Modifier)
         .graphicsLayer {
             translationX = panelOffset
         }

@@ -84,7 +84,8 @@ class LogStateLanguageTest {
         val status = operationalLogWarningStatus(state)
         assertEquals(ManagerStatusKind.Unavailable, status.kind)
         assertEquals("最近日志窗口", status.title)
-        assertEquals("已显示可用的运行事件。最多显示最近50条运行记录；更早记录未在此窗口显示。", status.summary)
+        // U4 unified groups retain a bounded window per source, not a fictitious 50-row merged cap.
+        assertEquals("已显示可用的运行事件。每个来源最多显示最近50条运行记录；更早记录未在此窗口显示。", status.summary)
         assertEquals(StatePanelTone.NEUTRAL, status.toStatePanelSpec().tone)
         assertFalse(status.summary.contains("不可用"))
         assertEquals(info, state.loadInfo)

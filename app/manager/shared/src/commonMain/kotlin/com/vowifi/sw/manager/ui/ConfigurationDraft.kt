@@ -3,6 +3,7 @@ package com.vowifi.sw.manager.ui
 import androidx.compose.foundation.text.input.TextFieldState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.setValue
 import com.vowifi.sw.manager.model.ConfigurationInstance
 import com.vowifi.sw.manager.model.ConfigurationInstanceId
@@ -74,6 +75,10 @@ internal class ConfigurationEditorDraft(
     val imsDigestRealm = TextFieldState(baseline.imsDigestRealm)
     var status by mutableStateOf(if (retained?.unconfirmed == true) ConfigurationEditStatus.Unconfirmed else ConfigurationEditStatus.Idle)
         private set
+    var completionSequence by mutableLongStateOf(0L)
+        private set
+    var completionStatus: ConfigurationEditStatus? by mutableStateOf(null)
+        private set
     private var validationRequested by mutableStateOf(false)
     val errors: Map<ConfigurationFieldKey, String>
         get() = if (validationRequested) configurationFieldErrors(overrides()) else emptyMap()
@@ -116,9 +121,10 @@ internal class ConfigurationEditorDraft(
         if (!validate()) return
         val submitted = currentValues().copy(paniCountry = com.vowifi.sw.manager.data.paniCountryValue(paniCountry.text.toString()))
         val submittedId = instanceId
+        val beforeCompletion = completionSequence
         status = ConfigurationEditStatus.Saving
         val acceptance = apply(submittedId, overrides()) { outcome ->
-            if (!pending) return@apply
+            if (!pending || completionSequence != beforeCompletion) return@apply
             status = when (outcome) {
                 ConfigurationApplyOutcome.Failed -> ConfigurationEditStatus.Failed
                 ConfigurationApplyOutcome.Unconfirmed -> ConfigurationEditStatus.Unconfirmed
@@ -136,6 +142,9 @@ internal class ConfigurationEditorDraft(
                     }
                 }
             }
+            // Actual typed callback only: synchronous completion may never render a Saving frame.
+            completionStatus = status
+            completionSequence++
         }
         when (acceptance) {
             ConfigurationApplyAcceptance.Accepted -> Unit

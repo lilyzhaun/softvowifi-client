@@ -31,8 +31,10 @@ internal fun HomeNoticeCard(
     modifier: Modifier = Modifier,
 ) {
     val colors = LocalSoftVoWiFiColors.current
-    val feedback = managerActionFeedback(ManagerAction.Navigate, enabled = true)
+    val actionable = LocalAppRouteActive.current
+    val feedback = managerActionFeedback(ManagerAction.Navigate, enabled = actionable)
     val actionHandler = rememberManagerActionHandler(feedback, onClick)
+    val indication = rememberManagerPressIndication(ManagerPressStyle.CardRow, actionable)
 
     Card(
         modifier = modifier.fillMaxWidth(),
@@ -42,7 +44,7 @@ internal fun HomeNoticeCard(
             contentColor = colors.textPrimary,
         ),
     ) {
-        CompositionLocalProvider(LocalIndication provides NoVisualIndication) {
+        CompositionLocalProvider(LocalIndication provides indication) {
             ArrowPreference(
                 title = notice.title,
                 summary = notice.summary,
@@ -56,10 +58,9 @@ internal fun HomeNoticeCard(
                             .size(24.dp),
                     )
                 },
-                onClick = actionHandler,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .managerPressScale(feedback),
+                onClick = actionHandler.takeIf { actionable },
+                enabled = true,
+                modifier = Modifier.fillMaxWidth().managerPressInputGate(actionable),
             )
         }
     }

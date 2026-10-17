@@ -9,6 +9,8 @@ import com.vowifi.sw.manager.data.messageSenderDisplay
 import com.vowifi.sw.manager.model.MessageOrigin
 import com.vowifi.sw.manager.model.MessageRecord
 import com.vowifi.sw.manager.model.MessageUiState
+import com.vowifi.sw.manager.model.OutgoingMessageStatus
+import com.vowifi.sw.manager.model.SmsEngineStatus
 import com.vowifi.sw.manager.ui.navigation.AppRoute
 import com.vowifi.sw.manager.ui.navigation.ConversationHandle
 
@@ -73,6 +75,7 @@ internal data class MessageConversationRow(
     val recordCount: Int,
     val unreadCount: Int,
     val outgoingStatus: String?,
+    val statusFailed: Boolean = false,
 ) {
     override fun toString(): String = "MessageConversationRow(recordCount=$recordCount, unreadCount=$unreadCount)"
 }
@@ -100,6 +103,7 @@ internal sealed interface MessageThreadItem {
         val timestamp: MessageTimestampSpec,
         val status: String,
         val statusNote: String?,
+        val statusFailed: Boolean = false,
     ) : MessageThreadItem {
         val isIncoming: Boolean = false
         override fun toString(): String = "OutgoingBubble"
@@ -124,7 +128,8 @@ internal fun projectMessageConversations(
     if (state is MessageUiState.Inbox) return MessageConversationPage(state.page.items.map { summary ->
         MessageConversationRow(summary.identity.handle, summary.peerDisplay, messageAvatarFallback(summary.peerDisplay),
             summary.latestPreview, MessageTimestampSpec(summary.timestampMs), summary.messageCount.coerceAtMost(Int.MAX_VALUE.toLong()).toInt(),
-            summary.unreadCount.coerceAtMost(Int.MAX_VALUE.toLong()).toInt(), summary.outgoingStatus?.let { messageStatusLabel(it, summary.engineStatus) })
+            summary.unreadCount.coerceAtMost(Int.MAX_VALUE.toLong()).toInt(), summary.outgoingStatus?.let { messageStatusLabel(it, summary.engineStatus) },
+            summary.outgoingStatus == OutgoingMessageStatus.FAILED || summary.engineStatus == SmsEngineStatus.FAILED)
     }, state.composeSpec())
     val groups = if (state is MessageUiState.Ready) ConversationGrouping.group(state.records) else emptyList()
     return MessageConversationPage(
@@ -189,6 +194,8 @@ private fun ConversationGroup.toRow(ownerId: SimOwnerId): MessageConversationRow
         recordCount = records.size,
         unreadCount = records.count { record -> record is MessageRecord.Incoming && !record.isRead },
         outgoingStatus = (latest as? MessageRecord.Outgoing)?.let(::messageRecordStatusLabel),
+        statusFailed = latest is MessageRecord.Outgoing &&
+            (latest.status == OutgoingMessageStatus.FAILED || latest.engineStatus == SmsEngineStatus.FAILED),
     )
 }
 
@@ -207,6 +214,7 @@ private fun MessageRecord.toThreadItem(): MessageThreadItem = when (this) {
         timestamp = MessageTimestampSpec(timestampMs),
         status = messageRecordStatusLabel(this),
         statusNote = messageStatusNote(this),
+        statusFailed = status == OutgoingMessageStatus.FAILED || engineStatus == SmsEngineStatus.FAILED,
     )
 }
 

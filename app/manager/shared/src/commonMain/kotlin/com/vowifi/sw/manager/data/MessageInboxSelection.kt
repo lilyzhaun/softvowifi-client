@@ -4,6 +4,7 @@ import com.vowifi.sw.manager.model.MessageHistoryChoices
 import com.vowifi.sw.manager.model.MessageHistoryLine
 import com.vowifi.sw.manager.model.MessageInboxPage
 import com.vowifi.sw.manager.model.MessageUiState
+import com.vowifi.sw.manager.model.HistoryListScope
 import com.vowifi.sw.manager.ui.boundedMessageSearchQuery
 import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -28,6 +29,8 @@ internal class MessageInboxSelection(
     private var target: SimOwnerId? = null
     private var query = ""
     private var page = MessageInboxPage()
+    private var listScope = HistoryListScope()
+    private var changeVersion = 0L
     private var requestedItemCount = MESSAGE_HISTORY_PAGE_SIZE
     private var retryAppend = false
     private var indexRevision = 0L
@@ -51,7 +54,7 @@ internal class MessageInboxSelection(
         } catch (_: MessageStorageException) { MessageRemarkSaveResult.Failed }
     }
 
-    fun refresh() {
+    fun refresh(mutation: MessageHistoryMutation? = null) {
       synchronized(lock) {
         if (initialOwners.isCancelled) initialOwners = CompletableDeferred()
         val token = ++indexRevision
@@ -75,7 +78,7 @@ internal class MessageInboxSelection(
                     owners = rows
                     labels = if (remarkToken == remarkRevision) names else names + labels
                     indexLoading = false
-                    target?.let { load(it, append = false) }
+                    target?.let { load(it, append = false, mutation = mutation) }
                 }
                 initialOwners.complete(rows.map { it.owner })
             } catch (cancelled: CancellationException) { throw cancelled
@@ -106,6 +109,7 @@ internal class MessageInboxSelection(
         val bounded = boundedMessageSearchQuery(value).trim()
         if (bounded == query) return
         query = bounded
+        listScope = HistoryListScope()
         page = MessageInboxPage(query)
         requestedItemCount = MESSAGE_HISTORY_PAGE_SIZE
         target?.let { load(it, append = false) }
@@ -121,8 +125,8 @@ internal class MessageInboxSelection(
       changed()
     }
 
-    fun refreshPage(showLoading: Boolean = true) {
-        synchronized(lock) { target?.let { load(it, append = false, showLoading = showLoading) } }
+    fun refreshPage(showLoading: Boolean = true, mutation: MessageHistoryMutation? = null) {
+        synchronized(lock) { target?.let { load(it, append = false, showLoading = showLoading, mutation = mutation) } }
         changed()
     }
 
@@ -163,6 +167,7 @@ internal class MessageInboxSelection(
             sessions.values.none { it.composerEnabled }) return@synchronized live
         if (target != owner) {
             target = owner
+            listScope = HistoryListScope()
             page = MessageInboxPage(query)
             requestedItemCount = MESSAGE_HISTORY_PAGE_SIZE
             load(owner, append = false)
@@ -186,8 +191,9 @@ internal class MessageInboxSelection(
         pageJob?.cancel()
     }
 
-    private fun load(owner: SimOwnerId, append: Boolean, showLoading: Boolean = true) {
+    private fun load(owner: SimOwnerId, append: Boolean, showLoading: Boolean = true, mutation: MessageHistoryMutation? = null) {
         val token = ++pageRevision
+        val selectedScope = listScope
         pageJob?.cancel()
         val request = MessageSummaryRequest(owner, query, if (append) page.next else null)
         if (append) requestedItemCount = maxOf(requestedItemCount, page.items.size + MESSAGE_HISTORY_PAGE_SIZE)
@@ -203,8 +209,10 @@ internal class MessageInboxSelection(
                 }
                 synchronized(lock) {
                     if (token != pageRevision || owner != target) return@launch
-                    page = page.copy(items = (if (append) page.items + loaded else loaded).distinctBy { it.identity.key },
-                        next = result.next, loading = false)
+                    val items = (if (append) page.items + loaded else loaded).distinctBy { it.identity.key }
+                    val change = inboxHistoryChange(page, items, owner, selectedScope, changeVersion + 1, append, mutation)
+                    changeVersion = maxOf(changeVersion, change?.version ?: 0)
+                    page = page.copy(items = items, next = result.next, loading = false, change = change)
                 }
             } catch (cancelled: CancellationException) { throw cancelled
             } catch (_: MessageStorageException) {

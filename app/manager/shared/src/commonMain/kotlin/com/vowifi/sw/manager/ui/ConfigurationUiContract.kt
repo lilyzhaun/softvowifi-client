@@ -2,7 +2,8 @@ package com.vowifi.sw.manager.ui
 
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.mutableStateMapOf
-import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.Saver
+import androidx.compose.runtime.saveable.rememberSaveable
 import com.vowifi.sw.manager.data.systemSubscriptionSummary
 import com.vowifi.sw.manager.model.ConfigurationInstance
 import com.vowifi.sw.manager.model.ConfigurationInstanceId
@@ -117,11 +118,22 @@ internal class ConfigurationExpansionState(
     fun setExpanded(id: ConfigurationInstanceId, expanded: Boolean) {
         expandedMap[id.value] = expanded
     }
+
+    companion object {
+        val StateSaver = Saver<ConfigurationExpansionState, List<String>>(
+            save = { state -> state.expandedMap.filterValues { it }.keys.toList() },
+            restore = { keys ->
+                ConfigurationExpansionState(mutableStateMapOf<String, Boolean>().apply {
+                    keys.forEach { put(it, true) }
+                })
+            },
+        )
+    }
 }
 
 @Composable
 internal fun rememberConfigurationExpansionState(): ConfigurationExpansionState =
-    remember { ConfigurationExpansionState() }
+    rememberSaveable(saver = ConfigurationExpansionState.StateSaver) { ConfigurationExpansionState() }
 
 internal data class SimCardPresentationContract(
     val cardGapDp: Int,

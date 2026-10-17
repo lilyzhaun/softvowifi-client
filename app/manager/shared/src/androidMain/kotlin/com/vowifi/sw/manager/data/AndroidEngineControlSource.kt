@@ -1,6 +1,10 @@
 package com.vowifi.sw.manager.data
 
 import com.vowifi.sw.manager.model.ClientCapabilitiesResult
+import com.vowifi.sw.manager.model.ClientCapabilitiesFailure
+import com.vowifi.sw.manager.model.EngineControlAction
+import com.vowifi.sw.manager.model.EngineControlCompletion
+import com.vowifi.sw.manager.model.EngineControlOutcome
 import com.vowifi.sw.manager.model.EngineControlUiState
 import com.vowifi.sw.manager.model.EngineInstanceState
 import com.vowifi.sw.manager.model.EngineLifecycle
@@ -9,7 +13,10 @@ import java.io.IOException
 import java.util.concurrent.TimeUnit
 import kotlin.coroutines.CoroutineContext
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
@@ -52,6 +59,9 @@ class AndroidEngineControlSource internal constructor(
     private val scope = CoroutineScope(parentContext.minusKey(Job) + SupervisorJob())
     private val operations = Mutex()
     private val pendingOwners = mutableSetOf<String>()
+    private var refreshInFlight: CompletableDeferred<RefreshResult>? = null
+    private var controlSequence = 0L
+    private val controlCompletions = mutableMapOf<String, EngineControlCompletion>()
     @Volatile
     private var closed = false
     private val mutableState = MutableStateFlow<EngineControlUiState>(EngineControlUiState.Loading)
@@ -63,18 +73,50 @@ class AndroidEngineControlSource internal constructor(
     }
 
     override fun refresh() {
-        if (closed || !operations.tryLock()) return
-        scope.launch { refreshLocked() }.invokeOnCompletion { operations.unlock() }
+        requestRefresh()
+    }
+
+    override suspend fun refreshAndAwait(): RefreshResult = requestRefresh().await()
+
+    private fun requestRefresh(): Deferred<RefreshResult> {
+        var producer: Job? = null
+        val accepted = synchronized(pendingOwners) {
+            if (closed) return@synchronized CompletableDeferred(RefreshResult.Unsupported)
+            refreshInFlight?.let { return@synchronized it }
+            if (!operations.tryLock()) return@synchronized CompletableDeferred(RefreshResult.Busy)
+            val completion = CompletableDeferred<RefreshResult>()
+            refreshInFlight = completion
+            var result: RefreshResult? = null
+            producer = scope.launch(start = CoroutineStart.LAZY) { result = refreshLocked() }.also { job ->
+                job.invokeOnCompletion { error ->
+                    synchronized(pendingOwners) { refreshInFlight = null }
+                    // Unlock and notify outside the short state lock: queued control/callers may resume inline.
+                    operations.unlock()
+                    when (error) {
+                        null -> completion.complete(checkNotNull(result))
+                        is CancellationException -> completion.cancel(error)
+                        else -> completion.completeExceptionally(error)
+                    }
+                }
+            }
+            completion
+        }
+        producer?.start()
+        return accepted
     }
 
     override fun start(iccid: String) {
         launchOperation(iccid, EngineLifecycle.STOPPED) {
             updateInstance(iccid) { it.copy(lifecycle = EngineLifecycle.STARTING, message = null) }
             runCatching { runControl("start", iccid) }
-                .onSuccess { refreshLocked() }
+                .onSuccess {
+                    refreshLocked()
+                    completeControl(iccid, EngineControlAction.Start, EngineControlOutcome.Completed)
+                }
                 .onFailure { error ->
                     if (error is CancellationException) throw error
                     updateFailure(iccid, error)
+                    completeControl(iccid, EngineControlAction.Start, EngineControlOutcome.Failed)
                 }
         }
     }
@@ -102,6 +144,8 @@ class AndroidEngineControlSource internal constructor(
             if (failure != null) removeClient(iccid)
             refreshLocked()
             failure?.let { error -> updateInstance(iccid) { it.copy(message = error.message ?: "引擎停止失败") } }
+            completeControl(iccid, EngineControlAction.Stop,
+                if (failure == null) EngineControlOutcome.Completed else EngineControlOutcome.Failed)
         }
     }
 
@@ -110,20 +154,25 @@ class AndroidEngineControlSource internal constructor(
             if (closed || !pendingOwners.add(owner)) return
         }
         scope.launch {
+            // Publish acceptance before waiting for the existing operation lock, not a fake phase.
+            synchronized(pendingOwners) { publishPending() }
             operations.withLock {
                 if (closed) return@withLock
                 val current = mutableState.value as? EngineControlUiState.Ready
                 if (current != null && current.instances.none { it.iccid == owner && it.lifecycle == eligible }) return@withLock
                 operation()
             }
-        }.invokeOnCompletion { synchronized(pendingOwners) { pendingOwners.remove(owner) } }
+        }.invokeOnCompletion {
+            synchronized(pendingOwners) { pendingOwners.remove(owner); publishPending() }
+        }
     }
 
-    private suspend fun refreshLocked() {
+    private suspend fun refreshLocked(): RefreshResult {
+        var readFailed = false
         val refreshed = try {
             val listed = EngineControlScriptCodec.instances(runControl("list", null))
             val running = listed.map { instance ->
-                if (instance.lifecycle == EngineLifecycle.RUNNING) status(instance) else instance
+                if (instance.lifecycle == EngineLifecycle.RUNNING) status(instance) { readFailed = true } else instance
             }
             EngineControlUiState.Ready(running)
         } catch (error: CancellationException) {
@@ -145,21 +194,35 @@ class AndroidEngineControlSource internal constructor(
         } catch (error: Exception) {
             EngineControlUiState.Failure(error.message ?: "无法读取引擎状态")
         }
+        currentCoroutineContext().ensureActive()
         synchronized(pendingOwners) {
-            if (!closed) mutableState.value = refreshed
+            if (!closed) {
+                mutableState.value = if (refreshed is EngineControlUiState.Ready) refreshed.copy(
+                    instances = refreshed.instances.map { row -> row.copy(
+                        operationPending = row.iccid in pendingOwners,
+                        controlCompletion = controlCompletions[row.iccid],
+                    ) },
+                ) else refreshed
+            }
         }
+        return if (readFailed || refreshed !is EngineControlUiState.Ready) RefreshResult.Failed("无法完整读取引擎状态")
+            else RefreshResult.Completed
     }
 
-    private suspend fun status(instance: EngineInstanceState): EngineInstanceState = try {
+    private suspend fun status(instance: EngineInstanceState, onReadFailure: () -> Unit): EngineInstanceState = try {
         val response = request(instance.iccid, "getStatus")
         response.error?.let { error -> throw EngineControlException(error.message) }
         val runtime = EngineProtocolCodec.status(response)
         val capabilities = queryCapabilities(instance.iccid)
+        if (capabilities is ClientCapabilitiesResult.Unavailable && capabilities.reason != ClientCapabilitiesFailure.Unsupported) {
+            onReadFailure()
+        }
         currentCoroutineContext().ensureActive()
         instance.copy(runtime = runtime, message = null, clientCapabilities = capabilities)
     } catch (error: CancellationException) {
         throw error
     } catch (error: Exception) {
+        onReadFailure()
         removeClient(instance.iccid)
         val message = if (error is IOException && error.message.isSocketPermissionDenied()) {
             "控制 socket 权限被拒绝，请检查模块 SELinux 与 socket 权限"
@@ -180,9 +243,10 @@ class AndroidEngineControlSource internal constructor(
         }
     }
 
-    private fun updateInstance(iccid: String, transform: (EngineInstanceState) -> EngineInstanceState) {
+    private fun updateInstance(iccid: String, transform: (EngineInstanceState) -> EngineInstanceState) = synchronized(pendingOwners) {
+        if (closed) return@synchronized
         val current = mutableState.value
-        if (current !is EngineControlUiState.Ready) return
+        if (current !is EngineControlUiState.Ready) return@synchronized
         mutableState.value = current.copy(
             instances = current.instances.map { instance ->
                 if (instance.iccid == iccid) transform(instance) else instance
@@ -190,10 +254,32 @@ class AndroidEngineControlSource internal constructor(
         )
     }
 
+    private fun publishPending() {
+        if (closed) return
+        val current = mutableState.value as? EngineControlUiState.Ready ?: return
+        mutableState.value = current.copy(instances = current.instances.map { it.copy(operationPending = it.iccid in pendingOwners) })
+    }
+
+    private fun completeControl(owner: String, action: EngineControlAction, outcome: EngineControlOutcome) = synchronized(pendingOwners) {
+        if (!closed) {
+            val completion = EngineControlCompletion(++controlSequence, action, outcome)
+            controlCompletions[owner] = completion
+            updateInstance(owner) { it.copy(controlCompletion = completion) }
+        }
+    }
+
     override fun close() {
         synchronized(pendingOwners) {
             if (closed) return
             closed = true
+            pendingOwners.clear()
+            // Closing cancels accepted/queued work; it must not leave its UI progress latched.
+            val current = mutableState.value as? EngineControlUiState.Ready
+            if (current != null) mutableState.value = current.copy(
+                instances = current.instances.map { it.copy(operationPending = false) },
+            )
+            refreshInFlight?.cancel()
+            controlCompletions.clear()
         }
         scope.cancel()
         closeBackend()

@@ -4,9 +4,12 @@ import com.vowifi.sw.manager.model.MessageOrigin
 import com.vowifi.sw.manager.model.MessageRecord
 import com.vowifi.sw.manager.model.MessageThreadWindow
 import com.vowifi.sw.manager.model.MessageUiState
+import com.vowifi.sw.manager.model.HistoryListScope
+import com.vowifi.sw.manager.model.HistoryChangeReason
 import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
@@ -30,15 +33,18 @@ internal class MessageHistorySelection(
     private var target: StoredMessageConversation? = null
     private var dataRevision = 0L
     private var revision = 0L
-    private var job: Job? = null
+    private var listScope = HistoryListScope()
+    private var changeVersion = 0L
+    private var pendingLiveInsertions: Set<String> = emptySet()
+    private val readJob = SupervisorJob(scope.coroutineContext[Job])
     private var history: MessageUiState = MessageUiState.Loading
     private var retryAppend = false
     private val reads = mutableMapOf<String, Long>()
     private val inbox = MessageInboxSelection(repository, scope) { synchronized(lock) { render() } }
     val historyChoices get() = inbox.choices
     suspend fun saveOwnerRemark(owner: SimOwnerId, input: String) = inbox.saveRemark(owner, input)
-    fun refreshInbox() = inbox.refresh()
-    fun refreshInboxContent() = inbox.refreshPage(showLoading = false)
+    fun refreshInbox(mutation: MessageHistoryMutation? = null) = inbox.refresh(mutation)
+    fun refreshInboxContent(mutation: MessageHistoryMutation? = null) = inbox.refreshPage(showLoading = false, mutation = mutation)
     suspend fun initialOwners() = inbox.initialOwners.await()
     fun refreshAfterStartup() = synchronized(lock) {
         inbox.refreshPage()
@@ -51,9 +57,10 @@ internal class MessageHistorySelection(
     fun select(raw: String?) = synchronized(lock) {
         if (raw == selected) return@synchronized
         selected = raw
+        listScope = HistoryListScope()
+        pendingLiveInsertions = emptySet()
         target = null
         revision++
-        job?.cancel()
         reads.clear()
         history = MessageUiState.Loading
         if (raw != null) load(raw, append = false)
@@ -78,6 +85,7 @@ internal class MessageHistorySelection(
         availableOwnersComplete: Boolean = availableOwners != null,
         availableLineLabels: Map<SimOwnerId, String> = emptyMap(),
         runningLineOwners: Set<SimOwnerId> = emptySet(),
+        mutation: MessageHistoryMutation? = null,
     ) = synchronized(lock) {
         val previous = liveOwners
         liveOwners = sessions
@@ -87,12 +95,16 @@ internal class MessageHistorySelection(
         lineLabels = availableLineLabels
         runningOwners = runningLineOwners
         live = value
+        val actualIds = target?.owner?.let { sessions[it]?.records }.orEmpty().map { it.id }.toSet()
+        pendingLiveInsertions = (pendingLiveInsertions + mutation?.takeIf {
+            it.identity == target && it.reason == HistoryChangeReason.LIVE_INSERT
+        }?.ids.orEmpty()).intersect(actualIds)
         if (previous.keys != sessions.keys || sessions.any { (owner, current) -> previous[owner]?.records !== current.records }) {
-            inbox.refresh()
+            inbox.refresh(mutation)
             target?.let { identity ->
                 if (previous[identity.owner]?.records !== sessions[identity.owner]?.records) {
                     dataRevision++
-                    selected?.let { load(it, append = false) }
+                    selected?.let { load(it, append = false, mutation = mutation) }
                 }
             }
         }
@@ -101,7 +113,8 @@ internal class MessageHistorySelection(
 
     fun close() = synchronized(lock) {
         revision++
-        job?.cancel()
+        pendingLiveInsertions = emptySet()
+        readJob.cancel()
         inbox.close()
     }
 
@@ -114,17 +127,24 @@ internal class MessageHistorySelection(
         inbox.read(owner, update, nowMs)
         val current = history as? MessageUiState.Ready
         if (current == null || current.ownerId == owner) update.updatedIds.forEach { reads[it] = nowMs }
-        if (current?.ownerId == owner) history = current.copy(records = applyReads(current.records))
+        if (current?.ownerId == owner) {
+            val records = applyReads(current.records)
+            val window = current.window
+            val change = window?.let { threadHistoryChange(current, records, it.identity, listScope, changeVersion + 1, false, null) }
+            changeVersion = maxOf(changeVersion, change?.version ?: 0)
+            history = current.copy(records = records, window = window?.copy(change = change))
+        }
         render()
     }
 
-    private fun load(raw: String, append: Boolean) {
+    private fun load(raw: String, append: Boolean, mutation: MessageHistoryMutation? = null) {
         val token = ++revision
-        job?.cancel()
+        val selectedScope = listScope
         val previous = history as? MessageUiState.Ready
         val knownIdentity = previous?.window?.identity ?: target
         history = previous?.copy(window = previous.window?.copy(loading = true, failed = false)) ?: MessageUiState.Loading
-        job = scope.launch {
+        // Selection revisions invalidate results; only the source lifetime cancels issued IO.
+        scope.launch(readJob) {
             try {
                 val identity = knownIdentity ?: repository.history.resolveConversation(raw)
                 if (identity == null) {
@@ -150,9 +170,15 @@ internal class MessageHistorySelection(
                     synchronized(lock) {
                         if (token != revision || dataToken != dataRevision) return@launch
                         val records = if (append) (slice.records + previous?.records.orEmpty()).distinctBy { it.id } else slice.records
-                        history = MessageUiState.Ready(applyReads(records), MessageOrigin.ENGINE, ownerId = identity.owner,
+                        val displayed = applyReads(records)
+                        val pending = pendingLiveInsertions.intersect(displayed.map { it.id }.toSet())
+                        val change = threadHistoryChange(previous, displayed, identity, selectedScope, changeVersion + 1, append, mutation)
+                            ?.let { if (pending.isEmpty()) it else it.copy(liveInsertedIds = it.liveInsertedIds + pending) }
+                        changeVersion = maxOf(changeVersion, change?.version ?: 0)
+                        history = MessageUiState.Ready(displayed, MessageOrigin.ENGINE, ownerId = identity.owner,
                             composerEnabled = false, attachmentNotice = HISTORY_READ_ONLY,
-                            window = MessageThreadWindow(identity, slice.older))
+                            window = MessageThreadWindow(identity, slice.older, change = change))
+                        if (change != null) pendingLiveInsertions -= pending
                         if (identity.owner !in liveOwners) observer.onThreadUnread(identity, unread - reads.keys)
                         reads.clear()
                     }

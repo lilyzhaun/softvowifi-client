@@ -6,5 +6,6 @@ import kotlinx.coroutines.flow.StateFlow
 interface EnvironmentDiagnosticsSource {
     val state: StateFlow<EnvironmentDiagnosticsUiState>
     fun refresh()
+    suspend fun refreshAndAwait(): RefreshResult = RefreshResult.Unsupported
     fun close() = Unit
 }

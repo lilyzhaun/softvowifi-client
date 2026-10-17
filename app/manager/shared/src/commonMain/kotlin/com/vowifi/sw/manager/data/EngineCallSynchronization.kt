@@ -140,6 +140,10 @@ private suspend fun EngineCallSource.readSnapshot(transport: EngineMessageTransp
 
 private class SnapshotRequest(val owner: String, val connection: Long, val id: Long, val binding: Long)
 
+/** Notices that only report lost call-state sync; an authoritative snapshot supersedes them, idle or not. */
+private val SYNC_LOSS_NOTICES = setOf(CallFailureMessages.RECOVERING, CallFailureMessages.SNAPSHOT,
+    CallFailureMessages.OWNER_CHANGED, CallFailureMessages.LIST)
+
 private fun EngineCallSource.adoptSnapshot(snapshot: CallSnapshot, readOnly: Boolean): CallEffects {
     val previous = version
     val previousAudio = audioSession()
@@ -153,6 +157,7 @@ private fun EngineCallSource.adoptSnapshot(snapshot: CallSnapshot, readOnly: Boo
         interrupted = recorder.claimInterrupt(activeIccid, generation, session.token)
         session.token?.let(retiredTokens::add)
         session = CallSession()
+        terminal = null
         invalidateOperations()
         clock = null
         if (epochChanged) {
@@ -160,7 +165,7 @@ private fun EngineCallSource.adoptSnapshot(snapshot: CallSnapshot, readOnly: Boo
             retiredEpochs.remove(snapshot.version.epoch)
         }
     }
-    val operationMessage = session.operationMessage.takeUnless { sync == CallSyncState.Unregistered }
+    val operationMessage = session.operationMessage.takeUnless { sync == CallSyncState.Unregistered || it in SYNC_LOSS_NOTICES }
     version = snapshot.version
     sync = CallSyncState.Ready
     if (!recoveryAttempt) cancelRecovery()
@@ -180,9 +185,7 @@ private fun EngineCallSource.adoptSnapshot(snapshot: CallSnapshot, readOnly: Boo
         peer = snapshot.peer ?: if (continuing) session.peer else null,
         direction = snapshot.direction, cancelRequested = cancel,
         ringback = snapshot.ringback, earlyMediaRevision = snapshot.earlyMediaRevision,
-        operationMessage = if (continuing) operationMessage?.takeUnless {
-            it in setOf(CallFailureMessages.RECOVERING, CallFailureMessages.SNAPSHOT, CallFailureMessages.OWNER_CHANGED)
-        } else null,
+        operationMessage = if (continuing) operationMessage else null,
     )
     dtmfSupported = snapshot.dtmf
     if (phase != CallPhase.InCall) dtmfOperation = null

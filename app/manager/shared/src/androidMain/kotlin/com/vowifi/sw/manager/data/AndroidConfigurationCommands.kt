@@ -36,6 +36,7 @@ internal class AndroidConfigurationCommands(
         ConfigurationControlCommand.applyLine(iccid),
         payload,
         ConfigurationControlCommand.APPLY_TIMEOUT_SECONDS,
+        writeOperation = true,
     ) { CommandRead.Listed(emptyList()) }
 
     suspend fun applyTracked(iccid: String, payload: String): ConfigurationCommandApplyResult =
@@ -62,14 +63,23 @@ internal class AndroidConfigurationCommands(
             stdinText = payload,
             timeoutSeconds = ConfigurationControlCommand.CREATE_TIMEOUT_SECONDS,
             mapper = ConfigurationRootMapper::mapCreate,
+            writeOperation = true,
         ) { CommandRead.Created }
     }
+
+    suspend fun refreshIdentity(iccid: String, subscriptionId: Int, slot: Int, payload: String): CommandRead = invoke(
+        commandLine = ConfigurationControlCommand.refreshIdentityLine(iccid, subscriptionId, slot),
+        stdinText = payload,
+        timeoutSeconds = ConfigurationControlCommand.CREATE_TIMEOUT_SECONDS,
+        mapper = ConfigurationRootMapper::mapIdentityRefresh,
+    ) { CommandRead.Listed(emptyList()) }
 
     private suspend fun invoke(
         commandLine: String,
         stdinText: String? = null,
         timeoutSeconds: Long = 20,
         mapper: (ConfigurationCommandOutcome) -> ConfigurationUiState? = ConfigurationRootMapper::map,
+        writeOperation: Boolean = false,
         parse: (String) -> CommandRead,
     ): CommandRead = withContext(Dispatchers.IO) {
         try {
@@ -79,13 +89,21 @@ internal class AndroidConfigurationCommands(
             }
             val mapped = mapper(result.toOutcome())
             when {
-                mapped != null -> CommandRead.Mapped(mapped)
-                else -> parse(result.output)
+                mapped != null -> CommandRead.Mapped(mapped,
+                    writeUnconfirmed = writeOperation && (result.timedOut || result.overflowed || result.writeFailed ||
+                        (!result.output.isPermissionDenied() && ConfigurationCodec.failure(result.output) == null)))
+                else -> {
+                    val parsed = parse(result.output)
+                    if (parsed == CommandRead.Created &&
+                        (result.exitCode != 0 || ConfigurationCodec.result(result.output)?.ok != true)) {
+                        CommandRead.Mapped(ConfigurationEvaluator.failure("无法创建配置"), writeUnconfirmed = true)
+                    } else parsed
+                }
             }
         } catch (error: CancellationException) {
             throw error
         } catch (error: ConfigurationFormatException) {
-            CommandRead.Mapped(ConfigurationEvaluator.failure(error.message ?: "配置结果无法解析"))
+            CommandRead.Mapped(ConfigurationEvaluator.failure(error.message ?: "配置结果无法解析"), writeUnconfirmed = writeOperation)
         } catch (error: IOException) {
             CommandRead.Mapped(
                 if (error.message.isPermissionDenied()) {
@@ -93,9 +111,10 @@ internal class AndroidConfigurationCommands(
                 } else {
                     mappedFailure(mapper)
                 },
+                writeUnconfirmed = writeOperation && !error.message.isPermissionDenied(),
             )
         } catch (_: Exception) {
-            CommandRead.Mapped(mappedFailure(mapper))
+            CommandRead.Mapped(mappedFailure(mapper), writeUnconfirmed = writeOperation)
         }
     }
 }
@@ -120,6 +139,6 @@ internal data class ListedIccid(
 internal sealed interface CommandRead {
     data class Listed(val iccids: List<ListedIccid>) : CommandRead
     data class Snapshot(val snapshot: ConfigurationSnapshot) : CommandRead
-    data class Mapped(val state: ConfigurationUiState) : CommandRead
+    data class Mapped(val state: ConfigurationUiState, val writeUnconfirmed: Boolean = false) : CommandRead
     data object Created : CommandRead
 }

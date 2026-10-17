@@ -50,6 +50,7 @@ object SimControlEvaluator {
             val homeLabel = row.homeCarrierLabel?.let(::homeCarrierLabel)
                 ?.takeUnless { unsafeForUi(it, keys) }
             instances += activeInstance(row.copy(homeCarrierLabel = homeLabel), engine.takeIf { configured }, handles.handleFor(row.key))
+                .copy(operationPending = engine?.operationPending ?: false, controlCompletion = engine?.controlCompletion)
         }
         if (instances.any { unsafeInstance(it, keys) }) return failure(IDENTITY)
         return SimControlUiState.Ready(instances)

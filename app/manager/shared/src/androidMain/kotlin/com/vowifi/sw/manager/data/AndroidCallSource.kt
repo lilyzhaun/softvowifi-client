@@ -23,7 +23,7 @@ class AndroidCallSource(
     private val microphone = CallMicrophoneLease()
     private val audio = AndroidCallAudioController(context, microphone)
     private val hmac = AndroidSimOwnerHmac()
-    private val historyNames = AndroidHistoryLineNames(context, hmac::ownerIdFor, knownKeys = { historyKeys() })
+    private val historyNames = AndroidHistoryLineNames(context, hmac::ownerIdFor, knownKeys = { historyKeys() }, homeMcc = ::configuredHomeMcc)
     private val delegate: CallSource = CallSourceAggregate(
         runtime = EngineMessageRuntime(
             listInstances = ::listInstances,
@@ -55,10 +55,14 @@ class AndroidCallSource(
     }.stateIn(uiScope, kotlinx.coroutines.flow.SharingStarted.Eagerly, CallUiState.Loading)
     override val history: StateFlow<CallHistoryState> = delegate.history
     override val historyOwners get() = delegate.historyOwners
+    override val historySnapshot get() = delegate.historySnapshot
     override val lines get() = delegate.lines
     override fun selectLine(owner: SimOwnerId) = delegate.selectLine(owner)
     override fun selectHistoryOwner(choice: CallHistoryOwnerChoice) = delegate.selectHistoryOwner(choice)
+    override suspend fun selectHistoryOwnerAndAwait(choice: CallHistoryOwnerChoice) = delegate.selectHistoryOwnerAndAwait(choice)
     override fun deleteHistory(expected: com.vowifi.sw.manager.model.CallHistoryState.Ready, ids: Set<com.vowifi.sw.manager.model.CallHistoryRecordId>) = delegate.deleteHistory(expected, ids)
+    override suspend fun deleteHistoryAndAwait(expected: CallHistoryState.Ready, ids: Set<com.vowifi.sw.manager.model.CallHistoryRecordId>) =
+        delegate.deleteHistoryAndAwait(expected, ids)
     override val audioControls = audio.controls
 
     override fun refresh() = delegate.refresh()

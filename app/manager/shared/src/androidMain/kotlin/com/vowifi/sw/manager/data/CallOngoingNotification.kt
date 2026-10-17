@@ -10,7 +10,11 @@ object CallOngoingNotification {
     const val ID = 101
     const val CHANNEL = "ongoing_calls"
     const val END_ACTION = "com.vowifi.sw.END_CURRENT_CALL"
-    fun build(context: Context, key: String?, state: CallUiState.Ready?): Notification {
+    /**
+     * CallStyle is only admitted for a running foreground service's notification (or one with a
+     * full-screen intent); without that owner the system rejects the post, so use a plain action.
+     */
+    fun build(context: Context, key: String?, state: CallUiState.Ready?, foregroundService: Boolean = true): Notification {
         val manager = context.getSystemService(NotificationManager::class.java)
         manager.createNotificationChannel(NotificationChannel(CHANNEL, "当前通话", NotificationManager.IMPORTANCE_LOW))
         val text = when {
@@ -45,7 +49,7 @@ object CallOngoingNotification {
                     .setData(Uri.parse("softvowifi-call:$key"))
                     .putExtra(AndroidIncomingCallNotificationCoordinator.EXTRA_NOTIFICATION_KEY, key)
                 val hangup = PendingIntent.getBroadcast(context, 206, end, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
-                if (state.phase == CallPhase.InCall) {
+                if (state.phase == CallPhase.InCall && foregroundService) {
                     val person = Person.Builder().setName(state.peer?.text() ?: "未知号码").build()
                     builder.setStyle(Notification.CallStyle.forOngoingCall(person, hangup))
                 } else {

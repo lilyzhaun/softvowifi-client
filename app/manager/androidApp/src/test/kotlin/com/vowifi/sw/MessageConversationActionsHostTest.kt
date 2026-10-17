@@ -34,6 +34,13 @@ class MessageConversationActionsHostTest {
     }
     private fun request(ids: List<String>) = requireNotNull(ObservedIncomingReadRequest.create(owner, identity.key, ids))
 
+    private suspend fun awaitStartupInbox(source: EngineMessageSource): MessageUiState.Inbox = withTimeout(5000) {
+        source.state.first {
+            it is MessageUiState.Inbox && !it.page.loading && it.page.items.size == 1 &&
+                it.page.items.single().outgoingStatus == OutgoingMessageStatus.UNKNOWN
+        } as MessageUiState.Inbox
+    }
+
     @Test fun markingUnreadDoesNotReloadLineLabelsOrRawMessages() = runBlocking {
         val stored = open()
         stored.insertQueued(owner, "sent", identity.key, "synthetic", 1)
@@ -51,7 +58,7 @@ class MessageConversationActionsHostTest {
             Dispatchers.Unconfined, repo, { null }, { "unused" })
         var observing: Job? = null
         try {
-            withTimeout(5000) { source.state.first { it is MessageUiState.Inbox && !it.page.loading && it.page.items.size == 1 } }
+            awaitStartupInbox(source)
             val labelsBefore = labelLoads
             val recordsBefore = recordLoads
             val pageLoading = mutableListOf<Boolean>()
@@ -63,6 +70,36 @@ class MessageConversationActionsHostTest {
             assertEquals("手动提醒不改变消息正文，不应重新发布整份记录", recordsBefore, recordLoads)
             assertFalse("已有列表不能闪出分页加载态", pageLoading.any { it })
         } finally { observing?.cancel(); source.close(); stored.close() }
+    }
+
+    @Test fun inboxReadinessWaitsForStartupRecoveryRefresh() = runBlocking {
+        val stored = open()
+        stored.insertQueued(owner, "sent", identity.key, "synthetic", 1)
+        val recoveryEntered = CompletableDeferred<Unit>()
+        val releaseRecovery = CompletableDeferred<Unit>()
+        val repo = object : MessageRepository by stored {
+            override suspend fun interruptLeftoverQueued(ownerId: SimOwnerId, nowMs: Long) {
+                recoveryEntered.complete(Unit)
+                releaseRecovery.await()
+                stored.interruptLeftoverQueued(ownerId, nowMs)
+            }
+        }
+        val source = EngineMessageSource(EngineMessageRuntime({ emptyList() }, { error("offline") }, { 10L }),
+            Dispatchers.Unconfined, repo, { null }, { "unused" })
+        var waiting: Deferred<MessageUiState.Inbox>? = null
+        try {
+            withTimeout(5000) { recoveryEntered.await() }
+            val initial = withTimeout(5000) {
+                source.state.first { it is MessageUiState.Inbox && !it.page.loading && it.page.items.size == 1 }
+            } as MessageUiState.Inbox
+            assertEquals(OutgoingMessageStatus.QUEUED, initial.page.items.single().outgoingStatus)
+            assertFalse(releaseRecovery.isCompleted)
+            val ready = async(start = CoroutineStart.UNDISPATCHED) { awaitStartupInbox(source) }
+            waiting = ready
+            assertFalse("QUEUED首个Inbox不能表示启动恢复刷新已完成", ready.isCompleted)
+            releaseRecovery.complete(Unit)
+            assertEquals(OutgoingMessageStatus.UNKNOWN, ready.await().page.items.single().outgoingStatus)
+        } finally { waiting?.cancel(); source.close(); releaseRecovery.complete(Unit); stored.close() }
     }
 
     @Test fun unreadReminderPersistsForOutgoingOnlyAndClearsOnlyWhenObserved() = runBlocking {

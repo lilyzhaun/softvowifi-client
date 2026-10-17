@@ -2,11 +2,11 @@ package com.vowifi.sw.manager.ui
 
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.platform.LocalFocusManager
@@ -39,7 +39,7 @@ internal fun isRouteActive(state: AppNavigationState, route: AppRoute): Boolean 
     is AppRoute.Subpage -> state.topRoute == route
 }
 
-internal val LocalAppRouteActive = staticCompositionLocalOf { true }
+internal val LocalAppRouteActive = compositionLocalOf { true }
 
 // IME-hide mechanism adapted from Mihon presentation-core/.../Modifier.kt commit 056d9baeeba6b7f53c0638b3d30da72e71c159fa, Apache-2.0; route-inactive branch is local.
 @Composable

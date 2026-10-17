@@ -41,6 +41,40 @@ class EngineCallSyncNoticeTest {
         } finally { source.close() }
     }
 
+    @Test fun snapshotUnavailableNoticeClearsAfterAuthoritativeIdleRecovery() = runTest(UnconfinedTestDispatcher()) {
+        // A freshly started engine can answer 2006 before IMS registers; the next confirmed IDLE ends that state.
+        val transport = FakeCallTransport().apply { enqueueSnapshot(protocolError(2006, "call_snapshot_unavailable")) }
+        val source = sourceOf(listOf(callRunning(CALL_ICCID_A)), transport)
+        try {
+            val failed = source.state.value as CallUiState.Ready
+            assertEquals(CallSyncState.Unavailable, failed.sync)
+            assertEquals(CallFailureMessages.SNAPSHOT, failed.operationMessage)
+            source.refresh()
+            val ready = source.state.value as CallUiState.Ready
+            assertEquals(CallSyncState.Ready, ready.sync)
+            assertEquals(CallPhase.Idle, ready.phase)
+            assertNull(ready.operationMessage)
+        } finally { source.close() }
+    }
+
+    @Test fun recoveryListNoticeClearsAfterAuthoritativeIdleRecovery() = runTest(UnconfinedTestDispatcher()) {
+        var listFails = false
+        val transport = FakeCallTransport()
+        val source = sourceOf(listOf(callRunning(CALL_ICCID_A)), transport, listInstances = {
+            if (listFails) error("synthetic list failure") else listOf(callRunning(CALL_ICCID_A))
+        })
+        try {
+            listFails = true
+            source.refreshAvailability()
+            assertEquals(CallFailureMessages.LIST, (source.state.value as CallUiState.Ready).operationMessage)
+            listFails = false
+            source.refresh()
+            val ready = source.state.value as CallUiState.Ready
+            assertEquals(CallSyncState.Ready, ready.sync)
+            assertNull(ready.operationMessage)
+        } finally { source.close() }
+    }
+
     @Test fun repeatedUnregisteredSnapshotKeepsItsNotice() = runTest(UnconfinedTestDispatcher()) {
         val transport = FakeCallTransport(responses = mapOf("getCallSnapshot" to protocolError(3002, "synthetic rpc failure")))
         val source = sourceOf(listOf(callRunning(CALL_ICCID_A)), transport)

@@ -1,24 +1,12 @@
 package com.vowifi.sw.manager.ui
 
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.spring
-import androidx.compose.foundation.gestures.awaitEachGesture
-import androidx.compose.foundation.gestures.awaitFirstDown
-import androidx.compose.foundation.gestures.waitForUpOrCancellation
 import androidx.compose.foundation.interaction.InteractionSource
-import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedback
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
-import androidx.compose.ui.input.pointer.PointerEventPass
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalHapticFeedback
 
 internal sealed interface ManagerAction {
@@ -35,6 +23,8 @@ internal sealed interface ManagerAction {
     data object ToggleOff : ManagerAction
     data object SegmentSelection : ManagerAction
     data object ContextAction : ManagerAction
+    data object DialKey : ManagerAction
+    data object LongPress : ManagerAction
     data object Rejected : ManagerAction
     data object Decorative : ManagerAction
 }
@@ -71,6 +61,8 @@ internal fun managerActionFeedback(
         ManagerAction.ContextAction,
         -> HapticFeedbackType.ContextClick
         ManagerAction.ToggleOn -> HapticFeedbackType.ToggleOn
+        ManagerAction.DialKey -> HapticFeedbackType.VirtualKey
+        ManagerAction.LongPress -> HapticFeedbackType.LongPress
         ManagerAction.ToggleOff -> HapticFeedbackType.ToggleOff
         ManagerAction.SegmentSelection -> HapticFeedbackType.SegmentTick
         ManagerAction.Rejected -> HapticFeedbackType.Reject
@@ -150,39 +142,6 @@ internal fun rememberManagerToggleHandler(
 }
 
 @Composable
-internal fun Modifier.managerPressScale(
-    feedback: ManagerActionFeedback,
-): Modifier {
-    if (!feedback.accepted) return this
-    var pressed by remember { mutableStateOf(false) }
-    return pointerInput(feedback.accepted) {
-        awaitEachGesture {
-            awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
-            pressed = true
-            try {
-                waitForUpOrCancellation(pass = PointerEventPass.Final)
-            } finally {
-                pressed = false
-            }
-        }
-    }.managerPressScale(feedback, pressed)
-}
-
-@Composable
 internal fun Modifier.managerPressScale(feedback: ManagerActionFeedback, interactionSource: InteractionSource): Modifier {
-    val pressed by interactionSource.collectIsPressedAsState()
-    return managerPressScale(feedback, pressed)
-}
-
-@Composable
-private fun Modifier.managerPressScale(feedback: ManagerActionFeedback, pressed: Boolean): Modifier {
-    val scale by animateFloatAsState(
-        targetValue = if (feedback.accepted && pressed) ManagerActionFeedback.PressScale else 1f,
-        animationSpec = spring(),
-        label = "manager-press-scale",
-    )
-    return graphicsLayer {
-        scaleX = scale
-        scaleY = scale
-    }
+    return managerPressDrawing(rememberManagerPressMotion(interactionSource, feedback.accepted, ManagerPressStyle.CardRow))
 }

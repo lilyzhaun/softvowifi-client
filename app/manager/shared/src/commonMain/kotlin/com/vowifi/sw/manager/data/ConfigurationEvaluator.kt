@@ -212,8 +212,16 @@ private const val AUTO_CREATING = "正在自动创建配置"
 private const val AUTO_CREATED = "配置已自动创建"
 private const val AUTO_CREATE_FAILED = "无法自动创建配置"
 private const val DNS_UNAVAILABLE = "底层网络 DNS 不可用"
+private const val IDENTITY_REFRESH_FAILED = "无法刷新 SIM 身份"
+private const val IDENTITY_REFRESH_UNCONFIRMED = "身份刷新未确认，请重新读取配置"
+private const val IDENTITY_REFRESH_RUNNING = "请先停止该 SIM 的引擎，再刷新身份"
+private const val IDENTITY_REFRESH_MISMATCH = "当前 SIM 身份未通过校验"
 
 private val ALLOWED_MESSAGES = setOf(
+    IDENTITY_REFRESH_FAILED,
+    IDENTITY_REFRESH_UNCONFIRMED,
+    IDENTITY_REFRESH_RUNNING,
+    IDENTITY_REFRESH_MISMATCH,
     UNPARSEABLE,
     UNSUCCESSFUL,
     FORBIDDEN,

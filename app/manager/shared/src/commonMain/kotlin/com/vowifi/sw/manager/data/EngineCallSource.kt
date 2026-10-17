@@ -27,6 +27,7 @@ class EngineCallSource @JvmOverloads internal constructor(
     internal val recorder = sharedRecorder ?: CallHistoryRecorder(history, runtime.clock, parentContext)
     override val history = recorder.state
     override val historyOwners get() = recorder.owners
+    override val historySnapshot = recorder.historySnapshot
     @Volatile internal var closed = false
     internal var activeIccid: String? = null
     internal var activeTransport: EngineMessageTransport? = null
@@ -54,6 +55,7 @@ class EngineCallSource @JvmOverloads internal constructor(
     internal var pendingTerminalCause: CallHistoryCause? = null
     internal var clock: CallSessionClock? = null
     internal var binding: CallBinding? = null
+    internal var terminal: CallTerminal? = null
     internal val retiredTokens = mutableSetOf<String>()
     internal val retiredEpochs = mutableSetOf<String>()
 
@@ -63,9 +65,17 @@ class EngineCallSource @JvmOverloads internal constructor(
     }
     override fun refresh() = launch { refreshConnection() }
     override fun deleteHistory(expected: CallHistoryState.Ready, ids: Set<CallHistoryRecordId>) = recorder.delete(expected, ids)
+    override suspend fun deleteHistoryAndAwait(expected: CallHistoryState.Ready, ids: Set<CallHistoryRecordId>) =
+        if (closed) CallHistoryDeleteResult.UNAVAILABLE else recorder.deleteAndAwait(expected, ids)
 
     override fun selectHistoryOwner(choice: CallHistoryOwnerChoice) = launch {
         mutex.withLock { if (activeTransport == null && session.phase == CallPhase.Idle) recorder.selectHistory(choice) }
+    }
+    override suspend fun selectHistoryOwnerAndAwait(choice: CallHistoryOwnerChoice): Boolean {
+        val request = mutex.withLock {
+            if (!closed && activeTransport == null && session.phase == CallPhase.Idle) recorder.requestHistory(choice) else null
+        }
+        return request?.await() ?: false
     }
     override fun answer() = actCurrent(CallAction.Answer)
     override fun reject() = actCurrent(CallAction.Reject)
@@ -101,6 +111,17 @@ class EngineCallSource @JvmOverloads internal constructor(
         val before = session
         session = next
         val leaving = before.phase != CallPhase.Idle && next.phase == CallPhase.Idle
+        if (next.phase != CallPhase.Idle) terminal = null
+        else if (leaving) {
+            val ended = (cause as? CallHistoryCause.EventEnded)?.effect
+            val original = binding?.takeIf { it.token != null && it.token == before.token && it.owner == activeIccid &&
+                it.generation == bindingGeneration && it.epoch == version?.epoch &&
+                (ended == null || ended.token == it.token) && sync == CallSyncState.Ready }
+            // Only the already-bound call may end; an unbound dial/RPC error cannot mint authority.
+            terminal = original?.takeUnless { cause == CallHistoryCause.DialFailed || cause == CallHistoryCause.Interrupted }?.let {
+                CallTerminal.fromEnded(it, ended?.reason, before.peer)
+            }
+        }
         val stopPlayback = before.playbackMode() != null && next.playbackMode() == null
         if (before.phase == CallPhase.Idle && next.phase != CallPhase.Idle) {
             generation += 1
@@ -146,6 +167,7 @@ class EngineCallSource @JvmOverloads internal constructor(
         activeIccid = null
         activeTransport = null
         session = CallSession()
+        terminal = null
         connectionGeneration += 1
         snapshotRequest += 1
         version = null
@@ -211,12 +233,15 @@ class EngineCallSource @JvmOverloads internal constructor(
     internal fun publish() {
         val owner = activeIccid
         if (owner == null) return
+        if (session.phase != CallPhase.Idle || terminal?.binding?.let { it.owner != owner || it.epoch != version?.epoch } == true)
+            terminal = null
         val current = binding
         if (current == null || current.owner != owner || current.token != session.token || current.generation != bindingGeneration || current.epoch != version?.epoch) {
             binding = CallBinding(owner, session.token, bindingGeneration, version?.epoch)
         }
         mutableState.value = session.toReadyUi().copy(
             binding = binding, direction = session.direction, sync = sync,
+            terminal = terminal, operationMessage = session.operationMessage ?: terminal?.message,
             dtmfSupported = dtmfSupported && session.phase == CallPhase.InCall && sync == CallSyncState.Ready,
             dtmfBusy = dtmfOperation != null, controlBusy = controlOperation != null, clock = clock,
             pendingAction = pendingAction, dialBusy = dialOperation != null, cancelPending = session.cancelRequested,

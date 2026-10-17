@@ -8,6 +8,12 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.key
+import androidx.compose.runtime.MutableIntState
+import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.ui.Alignment
@@ -26,6 +32,7 @@ import androidx.navigationevent.NavigationEventInfo
 import androidx.navigationevent.compose.NavigationBackHandler
 import androidx.navigationevent.compose.rememberNavigationEventState
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.MotionDurationScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.DpSize
@@ -36,6 +43,19 @@ import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.overlay.OverlayBottomSheet
 import top.yukonga.miuix.kmp.overlay.OverlayDialog
 import top.yukonga.miuix.kmp.utils.MiuixPopupUtils.Companion.DialogLayout
+import top.yukonga.miuix.kmp.utils.MiuixPopupUtils.Companion.MiuixPopupHost
+
+// Per-Scaffold, low-frequency presentation invalidation. No business state or polling lives here.
+internal val LocalPopupPresentationEpoch = staticCompositionLocalOf<MutableIntState?> { null }
+
+/** Restart only an already-closing presentation, never an in-place editor on a scale change.
+ * Compose 1.11.1 caches finite-transition scale and ignores same-target spec replacement.
+ * The library still owns disposal and its exactly-once dismissal handoff.
+ */
+@Composable internal fun ManagerPopupHost() {
+    val epoch = LocalPopupPresentationEpoch.current?.intValue ?: 0
+    key(epoch) { MiuixPopupHost() }
+}
 
 @Composable internal fun CommunicationSheet(title: String, onDismiss: () -> Unit,
     state: CommunicationSheetState = rememberCommunicationSheetState(onDismiss),
@@ -63,14 +83,41 @@ import top.yukonga.miuix.kmp.utils.MiuixPopupUtils.Companion.DialogLayout
     onCancel: () -> Unit, onConfirm: () -> Unit, destructive: Boolean = true) {
     val colors = LocalSoftVoWiFiColors.current
     val visible = remember { mutableStateOf(true) }
-    val duration = smsInnerMotionMillis()
-    // The public host owns modal lifecycle and focus; only the alert content/layout is authored.
-    DialogLayout(visible, enableAutoLargeScreen = false, enterTransition = fadeIn(tween(duration)) + scaleIn(tween(duration), initialScale = .96f),
-        exitTransition = fadeOut(tween(duration)) + scaleOut(tween(duration), targetScale = .96f)) {
+    val active = rememberUpdatedState(LocalAppRouteActive.current)
+    val cancel = rememberUpdatedState(onCancel); val confirm = rememberUpdatedState(onConfirm)
+    val decision = remember { mutableStateOf<Boolean?>(null) }
+    val confirmPulse = rememberManagerActionHandler(
+        ManagerActionFeedback(HapticFeedbackType.Confirm, ManagerActionFeedback.PressScale)) {}
+    val cancelPulse = rememberManagerActionHandler(managerActionFeedback(ManagerAction.Rejected)) {}
+    val close: (Boolean) -> Unit = { accepted ->
+        if (visible.value && active.value) {
+            decision.value = accepted; visible.value = false
+            if (accepted) confirmPulse() else cancelPulse()
+        }
+    }
+    LaunchedEffect(active.value) {
+        if (!active.value) { decision.value = false; visible.value = false }
+    }
+    val enter = tween<Float>(MotionTokens.DurBase, easing = MotionTokens.EaseEnter)
+    val exit = tween<Float>(MotionTokens.DurFast, easing = MotionTokens.EaseExit)
+    val zeroMotion = rememberCoroutineScope().coroutineContext[MotionDurationScale]?.scaleFactor == 0f
+    val presentationEpoch = LocalPopupPresentationEpoch.current
+    LaunchedEffect(zeroMotion, visible.value) {
+        // At zero duration a decided, closed confirmation must not wait on the cached old scale.
+        // Open editors are not invalidated; the original DialogEntry performs the handoff.
+        if (zeroMotion && !visible.value) presentationEpoch?.let { it.intValue++ }
+    }
+    DialogLayout(visible, enableAutoLargeScreen = false,
+        enterTransition = fadeIn(enter) + scaleIn(enter, initialScale = MotionTokens.ScaleEnterFrom),
+        exitTransition = fadeOut(exit) + scaleOut(exit, targetScale = MotionTokens.ScaleEnterFrom),
+        dimEnterTransition = fadeIn(enter), dimExitTransition = fadeOut(exit), onDismissFinished = {
+            val accepted = decision.value; decision.value = null
+            if (accepted != null) { if (accepted && active.value) confirm.value() else cancel.value() }
+        }) {
         val back = rememberNavigationEventState(NavigationEventInfo.None)
-        NavigationBackHandler(back, isBackEnabled = true, onBackCompleted = onCancel)
-        Box(Modifier.fillMaxSize().safeDrawingPadding().imePadding().pointerInput(onCancel) {
-            detectTapGestures { onCancel() }
+        NavigationBackHandler(back, isBackEnabled = true, onBackCompleted = { close(false) })
+        Box(Modifier.fillMaxSize().safeDrawingPadding().imePadding().pointerInput(close) {
+            detectTapGestures { close(false) }
         }.padding(32.dp), contentAlignment = Alignment.Center) {
         Column(Modifier.widthIn(max = 300.dp).fillMaxWidth().clip(RoundedCornerShape(14.dp))
             .background(communicationColors().list).semantics { dialog(); paneTitle = title }
@@ -84,8 +131,10 @@ import top.yukonga.miuix.kmp.utils.MiuixPopupUtils.Companion.DialogLayout
             }
             HorizontalDivider(color = colors.separator, thickness = .5.dp)
             Row(Modifier.fillMaxWidth()) {
-                CommunicationTextAction("取消", onCancel, Modifier.weight(1f))
-                CommunicationTextAction(confirmLabel, onConfirm, Modifier.weight(1f), destructive = destructive, weight = FontWeight.SemiBold)
+                CommunicationTextAction("取消", { close(false) }, Modifier.weight(1f),
+                    enabled = visible.value && active.value, hapticType = null)
+                CommunicationTextAction(confirmLabel, { close(true) }, Modifier.weight(1f),
+                    enabled = visible.value && active.value, destructive = destructive, weight = FontWeight.SemiBold, hapticType = null)
             }
         }
         }

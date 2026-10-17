@@ -2,6 +2,9 @@ package com.vowifi.sw.manager.data
 
 import com.vowifi.sw.manager.model.CallAudioControls
 import com.vowifi.sw.manager.model.CallHistoryState
+import com.vowifi.sw.manager.model.CallHistoryDeleteResult
+import com.vowifi.sw.manager.model.CallHistoryRecordId
+import com.vowifi.sw.manager.model.CallHistoryViewSnapshot
 import com.vowifi.sw.manager.model.CallUiState
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -14,11 +17,13 @@ internal val IdleCallAudioControls: StateFlow<CallAudioControls> =
 interface CallSource {
     val state: StateFlow<CallUiState>
     val history: StateFlow<CallHistoryState>
+    val historySnapshot: StateFlow<CallHistoryViewSnapshot>? get() = null
     val lines: StateFlow<CallLineState> get() = EmptyCallLines
     fun selectLine(owner: SimOwnerId) = Unit
     val historyOwners: StateFlow<List<CallHistoryOwnerChoice>>
         get() = EmptyCallHistoryOwners
     fun selectHistoryOwner(choice: CallHistoryOwnerChoice) = Unit
+    suspend fun selectHistoryOwnerAndAwait(choice: CallHistoryOwnerChoice): Boolean = false
     val audioControls: StateFlow<CallAudioControls>
         get() = IdleCallAudioControls
     fun refresh()
@@ -32,6 +37,10 @@ interface CallSource {
     fun dial(expected: com.vowifi.sw.manager.model.CallBinding, number: String)
     fun clearHistory(expected: CallHistoryState.Ready)
     fun deleteHistory(expected: CallHistoryState.Ready, ids: Set<com.vowifi.sw.manager.model.CallHistoryRecordId>)
+    suspend fun deleteHistoryAndAwait(
+        expected: CallHistoryState.Ready,
+        ids: Set<CallHistoryRecordId>,
+    ): CallHistoryDeleteResult = CallHistoryDeleteResult.UNAVAILABLE
     fun mute() = Unit
     fun speaker() = Unit
     fun close() = Unit

@@ -5,6 +5,7 @@ import com.vowifi.sw.manager.data.SimOwnerId
 import com.vowifi.sw.manager.model.MessageOrigin
 import com.vowifi.sw.manager.model.MessageRecord
 import com.vowifi.sw.manager.model.MessageUiState
+import com.vowifi.sw.manager.model.HistoryChangeReason
 import com.vowifi.sw.manager.ui.navigation.AppRoute
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -131,10 +132,11 @@ class MessageRouteContractTest {
     }
 
     @Test
-    fun messageAnimationsAreFadeOnlyWithoutLazyPlacementDrift() {
-        val animation = messageContentAnimationContract()
+    fun messageHistoryMotionUsesCauseScopedE2TimingsWithoutPageMergePlacementDrift() {
+        // §5.7/E2取代旧“所有短信动画≤160ms且仅淡入”条款；搜索/菜单120ms合同不变。
+        val animation = messageContentAnimationContract(HistoryChangeReason.REPLACE)
 
-        assertTrue(animation.durationMillis <= 160)
+        assertEquals(MotionTokens.DurFast, animation.durationMillis)
         assertEquals(setOf(MessageMotionProperty.ALPHA), animation.listAndBubbleProperties)
         assertFalse(animation.animatePlacement)
         assertEquals(null, animation.placementDurationMillis)
@@ -143,6 +145,16 @@ class MessageRouteContractTest {
             animation.sendActionProperties,
         )
         assertFalse(animation.decorativePulse)
+        val live = messageContentAnimationContract(HistoryChangeReason.LIVE_INSERT)
+        assertEquals(MotionTokens.DurBase, live.durationMillis)
+        assertEquals(setOf(MessageMotionProperty.ALPHA, MessageMotionProperty.SCALE, MessageMotionProperty.TRANSLATION),
+            live.listAndBubbleProperties)
+        assertTrue(live.animatePlacement)
+        for (reason in listOf(HistoryChangeReason.PAGE_MERGE, HistoryChangeReason.CONTENT)) {
+            val quiet = messageContentAnimationContract(reason)
+            assertEquals(MotionTokens.DurInstant, quiet.durationMillis)
+            assertFalse(quiet.animatePlacement)
+        }
     }
 
     @Test

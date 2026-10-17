@@ -7,13 +7,37 @@ import kotlin.test.assertTrue
 
 class AppearanceSettingsTest {
     @Test
-    fun defaultsEnableFloatingNavigationAndRequestedBlurAndHapticsAndDisablesLiquidAndPredictive() {
+    fun predictiveBackDefaultsOnWithoutWritingButRetainsAnExplicitPersistedOptOut() {
+        val values = mutableMapOf<String, Boolean>()
+        val persistence = RecordingAppearancePersistence(values)
+        val source = PersistentAppearanceSettingsSource(persistence)
+        assertTrue(source.state.value.predictiveBackRequested, "D4：缺键默认启用预测返回")
+        assertTrue(values.isEmpty(), "读默认值不能伪装用户显式设置")
+        assertTrue(persistence.writes.isEmpty())
+
+        source.setPredictiveBackRequested(false)
+        assertFalse(source.state.value.predictiveBackRequested)
+        assertEquals(false, values[AppearancePreferenceKey.PREDICTIVE_BACK_ENABLED.storageKey])
+        val restoredPersistence = RecordingAppearancePersistence(values)
+        val restored = PersistentAppearanceSettingsSource(restoredPersistence)
+        assertFalse(restored.state.value.predictiveBackRequested, "默认更改不能覆盖用户已经保存的关闭选择")
+        assertTrue(restoredPersistence.writes.isEmpty())
+
+        restored.setPredictiveBackRequested(true)
+        assertTrue(restored.state.value.predictiveBackRequested)
+        assertEquals(listOf(AppearancePreferenceKey.PREDICTIVE_BACK_ENABLED.storageKey to true), restoredPersistence.writes)
+        assertEquals(true, values[AppearancePreferenceKey.PREDICTIVE_BACK_ENABLED.storageKey])
+    }
+
+    @Test
+    fun defaultsEnableFloatingNavigationAndRequestedBlurAndHapticsAndPredictiveButDisableLiquid() {
         val settings = AppearanceSettings.Default
 
         assertTrue(settings.floatingNavigation)
         assertTrue(settings.blurRequested)
         assertFalse(settings.liquidGlassRequested)
-        assertFalse(settings.predictiveBackRequested)
+        // D4：预测返回缺省开启；显式关闭及持久化写次数由各自原合同继续守护。
+        assertTrue(settings.predictiveBackRequested)
         assertTrue(settings.hapticsEnabled)
     }
 

@@ -2,6 +2,8 @@ package com.vowifi.sw.manager.data
 
 import com.vowifi.sw.manager.model.CallDirection
 import com.vowifi.sw.manager.model.CallHistoryState
+import com.vowifi.sw.manager.model.CallHistoryDeleteResult
+import com.vowifi.sw.manager.model.CallHistoryRecordId
 import com.vowifi.sw.manager.model.CallOutcome
 import com.vowifi.sw.manager.model.CallPeerPhone
 import com.vowifi.sw.manager.model.CallPhase
@@ -19,7 +21,10 @@ internal class CallHistoryRecorder(
     private val store = CallHistoryStore(binding?.repository, parentContext, clock, ::canClear, lineLabels)
     val state: StateFlow<CallHistoryState> = store.state
     val owners = store.owners
+    val historySnapshot = store.historySnapshot
     fun selectHistory(choice: CallHistoryOwnerChoice) = store.selectHistory(choice)
+    fun requestHistory(choice: CallHistoryOwnerChoice) = store.requestHistory(choice)
+    suspend fun selectHistoryAndAwait(choice: CallHistoryOwnerChoice) = store.selectHistoryAndAwait(choice)
 
     private var nextSequence = 0L
     private data class Key(val owner: SimOwnerId, val generation: Long)
@@ -94,6 +99,8 @@ internal class CallHistoryRecorder(
     fun delete(expected: CallHistoryState.Ready, ids: Set<com.vowifi.sw.manager.model.CallHistoryRecordId>) {
         if (canClear()) store.delete(expected, ids)
     }
+    suspend fun deleteAndAwait(expected: CallHistoryState.Ready, ids: Set<CallHistoryRecordId>) =
+        if (canClear()) store.deleteAndAwait(expected, ids) else CallHistoryDeleteResult.REJECTED
     private fun canClear(): Boolean = synchronized(lock) { open.isEmpty() }
     fun close() = store.close()
 

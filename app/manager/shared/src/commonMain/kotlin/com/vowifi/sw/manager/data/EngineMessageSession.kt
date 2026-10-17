@@ -55,13 +55,13 @@ internal class EngineMessageSession(
         }
     }
 
-    fun publishRecords(line: MessageLiveSession, freshIncomingId: String? = null) {
+    fun publishRecords(line: MessageLiveSession, freshIncomingId: String? = null, mutation: MessageHistoryMutation? = null) {
         if (closed) return
         observer.onSnapshot(line.owner, line.records, freshIncomingId)
-        publish()
+        publish(mutation)
     }
 
-    fun publish() {
+    fun publish(mutation: MessageHistoryMutation? = null) {
         if (closed) return
         automaticOwner = if (activeRosterComplete) activeOwners?.firstOrNull { owner ->
             sessions[owner]?.let { it.attached && it.connected && it.registered && it.storageHealthy } == true
@@ -71,7 +71,7 @@ internal class EngineMessageSession(
         selection.publishLive(fallback, sessions.mapValues { (_, line) ->
             val snapshot = line.snapshot()
             if (isAvailable(line.owner)) snapshot else snapshot.copy(composerEnabled = false, attachmentNotice = HISTORY_READ_ONLY)
-        }, activeOwners, automaticOwner, activeRosterComplete, lineLabels, runningOwners)
+        }, activeOwners, automaticOwner, activeRosterComplete, lineLabels, runningOwners, mutation)
     }
 }
 

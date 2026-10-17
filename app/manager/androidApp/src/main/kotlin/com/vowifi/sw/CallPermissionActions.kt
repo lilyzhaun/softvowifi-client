@@ -4,6 +4,8 @@ import android.Manifest
 import android.content.pm.PackageManager
 import androidx.activity.ComponentActivity
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.lifecycle.DefaultLifecycleObserver
+import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.lifecycleScope
 import com.vowifi.sw.manager.data.*
 import com.vowifi.sw.manager.model.CallBinding
@@ -15,6 +17,13 @@ internal class CallPermissionActions(private val activity: ComponentActivity, pr
     private var running = false
     private val permission = activity.registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         if (granted) resume() else { pending = null; lifecycle.permissionDenied() }
+    }
+    init {
+        // The permission result, onResume and onPostResume all arrive before Lifecycle reaches
+        // RESUMED (ON_RESUME follows onPostResume), so a granted request continues here.
+        activity.lifecycle.addObserver(object : DefaultLifecycleObserver {
+            override fun onResume(owner: LifecycleOwner) = resume()
+        })
     }
     fun dial(binding: CallBinding, number: String) = submit(binding, MicrophoneCallAction.Dial, number)
     fun answer(binding: CallBinding) = submit(binding, MicrophoneCallAction.Answer, null)

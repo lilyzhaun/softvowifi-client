@@ -8,6 +8,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.Alignment
 import top.yukonga.miuix.kmp.basic.Icon
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.runtime.*
@@ -16,6 +17,8 @@ import androidx.compose.ui.platform.LocalClipboard
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.semantics.onLongClick
+import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.text.font.FontWeight
@@ -25,29 +28,72 @@ import com.vowifi.sw.manager.model.*
 import com.vowifi.sw.manager.ui.navigation.CallHistoryHandle
 import kotlinx.coroutines.launch
 import top.yukonga.miuix.kmp.basic.Text
+import top.yukonga.miuix.kmp.utils.pressable
 
 private val PhoneContextExit = CubicBezierEasing(.2f, 0f, 0f, 1f)
 
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable internal fun CallHistoryGroupRow(group: CallHistoryGroup, onOpen: (CallHistoryHandle) -> Unit,
-    callbackEnabled: Boolean, onCallback: (String) -> Unit, onDelete: (Set<CallHistoryRecordId>) -> Unit) {
+    callbackEnabled: Boolean, onCallback: (String) -> Unit, onDelete: (Set<CallHistoryRecordId>) -> Unit) =
+    CallHistoryGroupRow(group, onOpen, callbackEnabled, onCallback, onDelete, enabled = true)
+
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+@Composable internal fun CallHistoryGroupRow(group: CallHistoryGroup, onOpen: (CallHistoryHandle) -> Unit,
+    callbackEnabled: Boolean, onCallback: (String) -> Unit, onDelete: (Set<CallHistoryRecordId>) -> Unit,
+    enabled: Boolean, onActionStart: () -> Unit = {}, rootCustomActionsBlocked: Boolean = false) {
     var open by remember(group.handle) { mutableStateOf(false) }
-    val active = LocalAppRouteActive.current
+    val active = LocalAppRouteActive.current && enabled
     LaunchedEffect(active) { if (!active) open = false }
     val scope = rememberCoroutineScope()
     val clipboard = LocalClipboard.current
     val copied = LocalCommunicationCopyFeedback.current
     val interaction = remember { MutableInteractionSource() }
+    val activeNow by rememberUpdatedState(active)
+    val rootBlocked by rememberUpdatedState(rootCustomActionsBlocked)
     val feedback = managerActionFeedback(ManagerAction.Navigate, active)
-    val click = rememberManagerActionHandler(feedback) { onOpen(group.handle) }
-    val longClick = rememberManagerActionHandler(managerActionFeedback(ManagerAction.ContextAction, active)) { open = true }
+    val acceptedClick = rememberManagerActionHandler(feedback) { onOpen(group.handle) }
+    val click = { if (activeNow) acceptedClick() }
+    val acceptedLongClick = rememberManagerActionHandler(managerActionFeedback(ManagerAction.LongPress, active)) {
+        onActionStart(); open = true
+    }
+    val longClick = { if (activeNow) acceptedLongClick() }
     val contextTarget = rememberCommunicationContextTarget()
+    val mounted = remember(group.handle) { mutableStateOf(true) }
+    DisposableEffect(mounted) { onDispose { mounted.value = false } }
+    val dialNumber = group.peer?.dialNumber()
+    val callback by rememberUpdatedState<() -> Boolean>({
+        if (!mounted.value || !active || !callbackEnabled || dialNumber == null) false
+        else { onActionStart(); open = false; onCallback(dialNumber); true }
+    })
+    val copyNumber by rememberUpdatedState<() -> Boolean>({
+        if (!mounted.value || !active || dialNumber == null) false else {
+            onActionStart(); open = false
+            scope.launch {
+                if (!mounted.value || !activeNow) return@launch
+                clipboard.setClipEntry(messageTextClipEntry(dialNumber))
+                if (mounted.value && activeNow) copied(CommunicationCopyFeedback.NUMBER)
+            }; true
+        }
+    })
+    val deleteGroup by rememberUpdatedState<() -> Boolean>({
+        if (!mounted.value || !active || group.ids.size != group.records.size) false
+        else { onActionStart(); open = false; onDelete(group.ids); true }
+    })
     Column {
         Box {
             BoxWithConstraints(Modifier.fillMaxWidth().heightIn(min = 72.dp)
                 .communicationContextSource(contextTarget, open && active, hideUnderPreview = false)
+                .managerKeyboardFocusRing(interaction, active, androidx.compose.ui.graphics.RectangleShape, phoneColors().accent)
                 .communicationContentPress(if (open) ManagerActionFeedback.None else feedback, interaction)
-                .semantics { selected = open && active }
+                .semantics {
+                    selected = open && active
+                    customActions = if (!active || rootBlocked || open || contextTarget.presented) emptyList() else buildList {
+                        if (dialNumber != null && callbackEnabled) add(CustomAccessibilityAction("回拨") { mounted.value && !rootBlocked && !open && !contextTarget.presented && callback() })
+                        if (dialNumber != null) add(CustomAccessibilityAction("复制号码") { mounted.value && !rootBlocked && !open && !contextTarget.presented && copyNumber() })
+                        if (group.ids.size == group.records.size) add(CustomAccessibilityAction("删除") { mounted.value && !rootBlocked && !open && !contextTarget.presented && deleteGroup() })
+                    }
+                }
+                .managerPressInputGate(active)
                 .combinedClickable(enabled = active, interactionSource = interaction, indication = null, onClick = click,
                     hapticFeedbackEnabled = false, onLongClickLabel = "通话记录操作", onLongClick = longClick)) {
                 CallHistoryGroupContent(group,
@@ -64,14 +110,11 @@ private val PhoneContextExit = CubicBezierEasing(.2f, 0f, 0f, 1f)
                         }
                     }
                 }) { finish ->
-                    group.peer?.dialNumber()?.let { number ->
-                        CommunicationMenuRow("回拨", CallPhoneIcons.Phone, { finish { open = false; onCallback(number) } }, enabled = callbackEnabled)
-                        CommunicationMenuRow("复制号码", CommunicationCopy, { finish {
-                            scope.launch { clipboard.setClipEntry(messageTextClipEntry(number)); copied(CommunicationCopyFeedback.NUMBER) }
-                            open = false
-                        } })
+                    dialNumber?.let {
+                        CommunicationMenuRow("回拨", CallPhoneIcons.Phone, { finish { callback() } }, enabled = callbackEnabled)
+                        CommunicationMenuRow("复制号码", CommunicationCopy, { finish { copyNumber() } })
                     }
-                    CommunicationMenuRow("删除", CommunicationTrash, { finish { open = false; onDelete(group.ids) } },
+                    CommunicationMenuRow("删除", CommunicationTrash, { finish { deleteGroup() } },
                         enabled = group.ids.size == group.records.size, destructive = true, divider = false)
             }
         }
@@ -98,34 +141,66 @@ private val PhoneContextExit = CubicBezierEasing(.2f, 0f, 0f, 1f)
 
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable internal fun CallHistoryOccurrence(record: CallRecord, onDelete: (CallHistoryRecordId) -> Unit) {
+    CallHistoryOccurrence(record, enabled = true, onDelete = onDelete)
+}
+
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+@Composable internal fun CallHistoryOccurrence(record: CallRecord, enabled: Boolean, onActionStart: () -> Unit = {},
+    rootCustomActionsBlocked: Boolean = false, onDelete: (CallHistoryRecordId) -> Unit) {
     var menu by remember(record.recordId) { mutableStateOf(false) }
     val active = LocalAppRouteActive.current
     LaunchedEffect(active) { if (!active) menu = false }
-    val openMenu = rememberManagerActionHandler(managerActionFeedback(ManagerAction.ContextAction, active && record.recordId != null)) { menu = true }
+    val actionable = active && enabled && record.recordId != null
+    LaunchedEffect(actionable) { if (!actionable) menu = false }
+    val actionableNow by rememberUpdatedState(actionable)
+    val rootBlocked by rememberUpdatedState(rootCustomActionsBlocked)
+    val interaction = remember(record.recordId) { MutableInteractionSource() }
+    val feedback = managerActionFeedback(ManagerAction.LongPress, actionable)
+    val acceptedOpenMenu = rememberManagerActionHandler(feedback) { onActionStart(); menu = true }
+    val openMenu = { if (actionableNow) acceptedOpenMenu() }
     val currentOpenMenu by rememberUpdatedState(openMenu)
     val contextTarget = rememberCommunicationContextTarget()
+    val mounted = remember(record.recordId) { mutableStateOf(true) }
+    DisposableEffect(mounted) { onDispose { mounted.value = false } }
+    val deleteOccurrence by rememberUpdatedState<() -> Boolean>({
+        val id = record.recordId
+        if (!mounted.value || !actionable || id == null) false else { onActionStart(); onDelete(id); menu = false; true }
+    })
     Box {
         Column(Modifier.fillMaxWidth().communicationContextSource(contextTarget, menu && active, hideUnderPreview = false)
-            .semantics { if (active && record.recordId != null) onLongClick("删除通话记录") { openMenu(); true } }
-            .pointerInput(record.recordId, active) { detectTapGestures(onLongPress = { currentOpenMenu() }) }) {
-            CallHistoryOccurrenceContent(record)
+            .focusable(actionable, interaction)
+            .managerKeyboardFocusRing(interaction, actionable, androidx.compose.ui.graphics.RectangleShape, phoneColors().accent)
+            .managerPressInputGate(actionable)
+            .semantics {
+                if (actionable) onLongClick("删除通话记录") { if (actionableNow) { openMenu(); true } else false }
+                customActions = if (actionable && !rootBlocked && !menu && !contextTarget.presented)
+                    listOf(CustomAccessibilityAction("删除") { mounted.value && !rootBlocked && !menu && !contextTarget.presented && deleteOccurrence() }) else emptyList()
+            }
+            .then(if (actionable) Modifier.pointerInput(record.recordId) {
+                detectTapGestures(onLongPress = { currentOpenMenu() })
+            } else Modifier)
+            // Main pass reaches the inner pressable before the long detector consumes a normal Up.
+            .pressable(interactionSource = interaction, indication = null, enabled = actionable,
+                delay = communicationTapIndicationDelayMillis())) {
+            CallHistoryOccurrenceContent(record,
+                Modifier.communicationContentPress(if (menu) ManagerActionFeedback.None else feedback, interaction))
         }
-        CommunicationContextMenu(show = menu && active, target = contextTarget, alignEnd = true, onDismiss = { menu = false },
+        CommunicationContextMenu(show = menu && actionable, target = contextTarget, alignEnd = true, onDismiss = { menu = false },
             sourceShape = RoundedCornerShape(20.dp), sourceColor = phoneColors().surface,
             stableSurface = true, exitEasing = PhoneContextExit,
             previewContent = { CallHistoryOccurrenceContent(record) }) { finish ->
-                CommunicationMenuRow("删除", CommunicationTrash, { finish { record.recordId?.let(onDelete); menu = false } },
+                CommunicationMenuRow("删除", CommunicationTrash, { finish { deleteOccurrence() } },
                     destructive = true, divider = false)
         }
     }
 }
 
-@Composable private fun CallHistoryOccurrenceContent(record: CallRecord, modifier: Modifier = Modifier) {
+@Composable private fun CallHistoryOccurrenceContent(record: CallRecord, contentModifier: Modifier = Modifier) {
     val palette = phoneColors()
     val missed = record.outcome == CallOutcome.MISSED
     val accent = if (missed) palette.missed else palette.accent
-    Column(modifier.fillMaxWidth().background(palette.surface, RoundedCornerShape(20.dp))
-        .padding(horizontal = 16.dp, vertical = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    Column(Modifier.fillMaxWidth().background(palette.surface, RoundedCornerShape(20.dp))
+        .padding(horizontal = 16.dp, vertical = 16.dp).then(contentModifier), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         val spec = callHistoryRowPresentation(record, kotlin.time.Clock.System.now().toEpochMilliseconds(), ::messageTimestampLabel)
         Row(Modifier.fillMaxWidth().padding(bottom = 4.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.size(36.dp).background(accent.copy(alpha = .08f), CircleShape), contentAlignment = Alignment.Center) {

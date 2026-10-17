@@ -56,6 +56,7 @@ internal fun NewMessageScreen(
     onSaveOwnerRemark: suspend (SimOwnerId, String) -> MessageRemarkSaveResult = { _, _ -> MessageRemarkSaveResult.Failed },
     onRefreshHistory: (() -> Unit)? = null,
     selectionNotice: String? = null,
+    onConfirmHistoryOwner: (suspend (SimOwnerId) -> Boolean)? = null,
     onClearUnboundDraft: (() -> Unit)? = null,
 ) = PhoneStyle {
     val compose = projectMessageConversations(messageProjectionOwner(), state).compose
@@ -143,13 +144,13 @@ internal fun NewMessageScreen(
         )
         }
     }
-    if (pickerOpen) MessageLinePicker(choices, { pickerOpen = false }, {
+    if (pickerOpen) MessageLinePicker(historyChoices, { pickerOpen = false }, {
         pickerOpen = false
         onSelectHistoryOwner(it)
     }, {
         pickerOpen = false
         editor = MessageRemarkEditor(it.owner, it.label?.remark.orEmpty(), it.label?.ordinal, it.label?.defaultName ?: it.simLabel)
-    }, onRefreshHistory)
+    }, onRefreshHistory, onConfirm = onConfirmHistoryOwner)
     editor?.let { MessageRemarkDialog(it, { editor = null }, onSaveOwnerRemark) }
     if (clearConfirmation && canClearUnbound) CommunicationConfirmation("清空未绑定草稿？",
         "仅清空尚未选择线路的号码与正文；各线路草稿保持不变。", "确认清空", { clearConfirmation = false }, {

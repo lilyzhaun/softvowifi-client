@@ -13,7 +13,10 @@ import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.pager.PagerState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalDensity
@@ -22,7 +25,6 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 import top.yukonga.miuix.kmp.basic.NavigationBar
 import top.yukonga.miuix.kmp.basic.NavigationBarDisplayMode
-import top.yukonga.miuix.kmp.basic.NavigationBarItem
 import top.yukonga.miuix.kmp.blur.LayerBackdrop
 import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.Home
@@ -57,6 +59,8 @@ internal fun AnimatedBottomNavigationBar(
     chromeSpec: AppChromeSpec,
     backdrop: LayerBackdrop?,
     modifier: Modifier = Modifier,
+    onDestinationReselected: (AppDestination) -> Unit = {},
+    pagerState: PagerState? = null,
 ) {
     if (bottomChromeComposition(visible) == BottomChromeComposition.ABSENT) return
 
@@ -80,6 +84,8 @@ internal fun AnimatedBottomNavigationBar(
                 chromeSpec.copy(bottomMode = mode),
                 backdrop,
                 modifier = if (mode == BottomChromeMode.NORMAL) Modifier.fillMaxWidth() else Modifier,
+                onDestinationReselected = onDestinationReselected,
+                pagerState = pagerState,
             )
         }
     }
@@ -92,8 +98,11 @@ internal fun BottomNavigationBar(
     chromeSpec: AppChromeSpec,
     backdrop: LayerBackdrop?,
     modifier: Modifier = Modifier,
+    onDestinationReselected: (AppDestination) -> Unit = {},
+    pagerState: PagerState? = null,
 ) {
     val colors = LocalSoftVoWiFiColors.current
+    val active by rememberUpdatedState(LocalAppRouteActive.current)
     when (chromeSpec.bottomMode) {
         BottomChromeMode.NORMAL -> NavigationBar(
             modifier = chromeSurfaceModifier(modifier, chromeSpec, backdrop, androidx.compose.ui.graphics.RectangleShape),
@@ -102,9 +111,13 @@ internal fun BottomNavigationBar(
             mode = NavigationBarDisplayMode.IconAndText,
         ) {
             AppDestination.entries.forEach { item ->
-                NavigationBarItem(
+                BottomTintNavigationItem(
                     selected = item == destination,
-                    onClick = { onDestinationSelected(item) },
+                    onClick = {
+                        if (active) {
+                            if (item == destination) onDestinationReselected(item) else onDestinationSelected(item)
+                        }
+                    },
                     icon = item.icon,
                     label = item.label,
                     badge = if (item == AppDestination.MESSAGES) {
@@ -115,9 +128,11 @@ internal fun BottomNavigationBar(
         }
         BottomChromeMode.FLOATING -> SlidingFloatingBottomBar(
             selectedIndex = destination.ordinal,
-            onSelected = { onDestinationSelected(AppDestination.entries[it]) },
+            onSelected = { if (active) onDestinationSelected(AppDestination.entries[it]) },
+            onReselected = { if (active) onDestinationReselected(AppDestination.entries[it]) },
             spec = chromeSpec,
             backdrop = backdrop,
+            pagerState = pagerState,
             items = AppDestination.entries.map { SlidingBarItem(it.label, it.icon) },
             modifier = modifier.padding(
                 bottom = 12.dp + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding(),

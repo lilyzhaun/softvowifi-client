@@ -1,7 +1,6 @@
 package com.vowifi.sw.manager.ui
 
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.spring
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -9,8 +8,14 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.foundation.relocation.BringIntoViewRequester
+import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.ui.unit.dp
 import top.yukonga.miuix.kmp.basic.BasicComponent
 import top.yukonga.miuix.kmp.basic.CardDefaults
@@ -30,13 +35,22 @@ internal fun ConfigurationDisclosureHeader(
     modifier: Modifier = Modifier,
 ) {
     val colors = LocalSoftVoWiFiColors.current
-    val arrowRotation by animateFloatAsState(
+    val arrowRotation = animateFloatAsState(
         targetValue = if (expanded) 90f else 0f,
-        animationSpec = spring(),
+        animationSpec = MotionTokens.SpringSpatialFast,
         label = "ConfigurationDisclosureArrowRotation",
     )
+    val headerVisibility = remember { BringIntoViewRequester() }
+    var previousExpanded by remember { mutableStateOf(expanded) }
+    LaunchedEffect(expanded) {
+        if (previousExpanded != expanded) {
+            previousExpanded = expanded
+            if (expanded) headerVisibility.bringIntoView()
+        }
+    }
     val headerModifier = modifier
         .fillMaxWidth()
+        .bringIntoViewRequester(headerVisibility)
         .then(
             if (interaction.headerUsesTopSquircleClip) {
                 Modifier.squircleClip(
@@ -76,7 +90,7 @@ internal fun ConfigurationDisclosureHeader(
                     tint = colors.textSecondary,
                     modifier = Modifier
                         .size(16.dp)
-                        .rotate(arrowRotation),
+                        .graphicsLayer { rotationZ = arrowRotation.value },
                 )
             },
         )

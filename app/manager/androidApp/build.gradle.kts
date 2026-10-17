@@ -1,5 +1,7 @@
 import java.util.Properties
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+import org.gradle.jvm.toolchain.JavaLanguageVersion
+import org.gradle.jvm.toolchain.JavaToolchainService
 
 plugins {
     alias(libs.plugins.androidApplication)
@@ -62,6 +64,9 @@ android {
 kotlin.compilerOptions.jvmTarget = JvmTarget.JVM_17
 
 tasks.withType<Test>().configureEach {
+    javaLauncher.set(project.extensions.getByType<JavaToolchainService>().launcherFor {
+        languageVersion.set(JavaLanguageVersion.of(21))
+    })
     maxHeapSize = "384m"
     maxParallelForks = 1
     jvmArgs("-XX:ActiveProcessorCount=1")

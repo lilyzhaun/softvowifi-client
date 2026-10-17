@@ -31,7 +31,7 @@ class AndroidMessageSource(
     init {
         opened = try {
             val hmac = AndroidSimOwnerHmac()
-            val names = AndroidHistoryLineNames(context, hmac::ownerIdFor, knownKeys = { historyKeys() })
+            val names = AndroidHistoryLineNames(context, hmac::ownerIdFor, knownKeys = { historyKeys() }, homeMcc = ::configuredHomeMcc)
             val repository = AndroidMessageRepository.open(context, hmac, lineNames = names)
             notifications?.bindPreviewLookup(previewScope, repository::unreadNotificationPreview)
             Opened(

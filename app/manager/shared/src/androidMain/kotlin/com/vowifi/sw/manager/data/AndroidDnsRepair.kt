@@ -15,7 +15,7 @@ internal sealed interface DnsEndpointDecision {
 internal sealed interface DnsRepairResult {
     data object NoWork : DnsRepairResult
     data object Applied : DnsRepairResult
-    class Failed(val state: ConfigurationUiState) : DnsRepairResult {
+    class Failed(val state: ConfigurationUiState, val unconfirmed: Boolean = false) : DnsRepairResult {
         override fun toString(): String = "Failed"
     }
 }
@@ -64,13 +64,15 @@ internal class AndroidConfigurationDns(
         batch: AutoProvisionBatch,
         listing: ConfigurationUiState,
         onCreated: () -> Unit,
+        onFailure: (ConfigurationUiState) -> Unit = {},
     ): ConfigurationUiState {
+        batch.failure?.let(onFailure)
         if (batch.created) {
             runCatching { onCreated() }
-            return finishAutoProvision(active, prepared.endpoint, created = true)
+            return finishAutoProvision(active, prepared.endpoint, created = true, onFailure = onFailure)
         }
         if (batch.existed) {
-            val finished = finishAutoProvision(active, prepared.endpoint, created = false)
+            val finished = finishAutoProvision(active, prepared.endpoint, created = false, onFailure = onFailure)
             val existedFailure = batch.failure
             return if (existedFailure != null) {
                 ConfigurationEvaluator.preserveAfterAutoFailure(finished, existedFailure)
@@ -95,14 +97,17 @@ internal class AndroidConfigurationDns(
         active: List<SimActiveJoinInput>,
         endpoint: DnsEndpoint?,
         created: Boolean,
+        onFailure: (ConfigurationUiState) -> Unit = {},
     ): ConfigurationUiState {
         val reloaded = catalog.load()
         val repaired = if (endpoint == null) {
             reloaded.state
         } else {
             when (val result = repairActive(active, reloaded.state, endpoint)) {
-                is DnsRepairResult.Failed ->
+                is DnsRepairResult.Failed -> {
+                    onFailure(result.state)
                     return ConfigurationEvaluator.preserveAfterAutoFailure(reloaded.state, result.state)
+                }
                 DnsRepairResult.Applied -> catalog.load().state
                 DnsRepairResult.NoWork -> reloaded.state
             }
@@ -118,9 +123,12 @@ internal class AndroidConfigurationDns(
         current: ConfigurationUiState,
         iccid: String,
         endpoint: DnsEndpoint?,
+        onRepair: (DnsRepairResult) -> Unit = {},
     ): ConfigurationUiState {
         if (endpoint != null) {
-            when (val result = repairKey(iccid, current, endpoint)) {
+            val result = repairKey(iccid, current, endpoint)
+            onRepair(result)
+            when (result) {
                 is DnsRepairResult.Failed ->
                     return ConfigurationEvaluator.preserveAfterAutoFailure(current, result.state)
                 DnsRepairResult.Applied ->
@@ -135,6 +143,7 @@ internal class AndroidConfigurationDns(
         iccid: String,
         endpoint: DnsEndpoint?,
         created: Boolean = true,
+        onRepair: (DnsRepairResult) -> Unit = {},
     ): ConfigurationUiState {
         val reloaded = catalog.load()
         if (endpoint == null) {
@@ -144,7 +153,9 @@ internal class AndroidConfigurationDns(
                 reloaded.state
             }
         }
-        return when (val result = repairKey(iccid, reloaded.state, endpoint)) {
+        val result = repairKey(iccid, reloaded.state, endpoint)
+        onRepair(result)
+        return when (result) {
             is DnsRepairResult.Failed ->
                 ConfigurationEvaluator.preserveAfterAutoFailure(reloaded.state, result.state)
             DnsRepairResult.Applied -> {
@@ -218,7 +229,7 @@ internal class AndroidConfigurationDns(
             }
             when (val applied = commands.apply(repair.key, payload)) {
                 is CommandRead.Listed -> Unit
-                is CommandRead.Mapped -> return DnsRepairResult.Failed(applied.state)
+                is CommandRead.Mapped -> return DnsRepairResult.Failed(applied.state, applied.writeUnconfirmed)
                 is CommandRead.Snapshot,
                 CommandRead.Created,
                 -> return DnsRepairResult.Failed(ConfigurationEvaluator.failure())

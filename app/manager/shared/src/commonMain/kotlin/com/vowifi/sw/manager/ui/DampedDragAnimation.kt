@@ -5,6 +5,9 @@ package com.vowifi.sw.manager.ui
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.MutatorMutex
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
@@ -13,6 +16,8 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.unit.IntSize
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlin.math.abs
@@ -42,8 +47,10 @@ internal class DampedDragAnimation(
     private val scaleYAnimation = Animatable(initialScale, 0.001f)
     private val mutex = MutatorMutex()
     private val velocityTracker = VelocityTracker()
+    private var transferredValue by mutableStateOf<Float?>(null)
+    private var transferJob: Job? = null
 
-    val value: Float get() = valueAnimation.value
+    val value: Float get() = transferredValue ?: valueAnimation.value
     val targetValue: Float get() = valueAnimation.targetValue
     val pressProgress: Float get() = pressAnimation.value
     val scaleX: Float get() = scaleXAnimation.value
@@ -83,11 +90,25 @@ internal class DampedDragAnimation(
     }
 
     fun updateValue(value: Float) {
-        scope.launch { valueAnimation.animateTo(value.coerceIn(valueRange), valueSpec) { updateVelocity() } }
+        scope.launch {
+            transferJob?.join()
+            valueAnimation.animateTo(value.coerceIn(valueRange), valueSpec) { updateVelocity() }
+        }
+    }
+
+    /** Snap may suspend while cancelling an old spring; expose the transferred origin immediately. */
+    fun snapToValue(value: Float) {
+        val origin = value.coerceIn(valueRange)
+        transferredValue = origin
+        transferJob = scope.launch(start = CoroutineStart.UNDISPATCHED) {
+            valueAnimation.snapTo(origin)
+            transferredValue = null
+        }
     }
 
     fun animateToValue(value: Float) {
         scope.launch {
+            transferJob?.join()
             mutex.mutate {
                 press()
                 launch { valueAnimation.animateTo(value.coerceIn(valueRange), valueSpec) }

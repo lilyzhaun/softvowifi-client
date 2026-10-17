@@ -18,6 +18,7 @@ internal suspend fun EngineCallSource.performDial(expected: CallBinding, number:
         generation += 1
         bindingGeneration += 1
         session = (CallSessionReducer.beginDial(session) ?: return).copy(direction = CallDirection.OUTGOING, peer = CallPeer.parse(number))
+        terminal = null // A new dial bypasses commit, including a no-token started() failure.
         if (!started()) {
             session = CallSession(operationMessage = CallFailureMessages.AUDIO)
             publish()

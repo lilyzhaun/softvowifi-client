@@ -8,6 +8,7 @@ import kotlinx.coroutines.flow.StateFlow
 interface OperationalLogSource {
     val state: StateFlow<OperationalLogUiState>
     fun refresh()
+    suspend fun refreshAndAwait(): RefreshResult = RefreshResult.Unsupported
     fun selectFile(fileId: String)
     fun setKindFilter(kind: OperationalLogKind?)
     fun setLevelFilter(level: OperationalLogLevel?)

@@ -164,7 +164,7 @@ class ConfigurationScreenTest {
 private fun typedConfigurationScreenCall(
     state: ConfigurationUiState,
     onSubmit: com.vowifi.sw.manager.model.ConfigurationSubmit,
-    onRefresh: () -> Unit,
+    onRefresh: suspend () -> com.vowifi.sw.manager.data.RefreshResult,
 ) {
     ConfigurationScreen(state, onSubmit, onRefresh)
 }

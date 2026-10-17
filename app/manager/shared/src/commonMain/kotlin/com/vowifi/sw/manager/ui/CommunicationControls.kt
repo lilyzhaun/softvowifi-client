@@ -4,6 +4,11 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
 import androidx.compose.animation.core.tween
 import androidx.compose.ui.draw.dropShadow
 import androidx.compose.foundation.clickable
@@ -17,8 +22,12 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.MotionDurationScale
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.lerp
@@ -33,6 +42,9 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.sp
+import com.vowifi.sw.manager.data.SimOwnerId
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
 import top.yukonga.miuix.kmp.basic.HorizontalDivider
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.Text
@@ -61,15 +73,25 @@ internal val LocalCommunicationPalette = staticCompositionLocalOf<CommunicationC
 }
 
 @Composable internal fun CommunicationTextAction(label: String, onClick: () -> Unit, modifier: Modifier = Modifier,
-    enabled: Boolean = true, destructive: Boolean = false, weight: FontWeight = FontWeight.Normal) {
+    enabled: Boolean = true, destructive: Boolean = false, weight: FontWeight = FontWeight.Normal,
+    hapticType: HapticFeedbackType? = HapticFeedbackType.ContextClick) {
     val colors = LocalSoftVoWiFiColors.current
-    val feedback = managerActionFeedback(ManagerAction.ContextAction, enabled)
-    Text(label, modifier.heightIn(min = 48.dp).managerPressScale(feedback).semantics { contentDescription = label }
-        .clickable(enabled = enabled, role = Role.Button, interactionSource = remember { MutableInteractionSource() },
-            indication = null, onClick = rememberManagerActionHandler(feedback, onClick))
-        .padding(horizontal = 12.dp, vertical = 12.dp), fontSize = 17.sp, lineHeight = 24.sp,
-        fontWeight = weight, textAlign = TextAlign.Center,
-        color = if (!enabled) colors.textDisabled else if (destructive) colors.error else communicationColors().accent)
+    val actionable = enabled && LocalAppRouteActive.current
+    val actionableNow by rememberUpdatedState(actionable)
+    val interaction = remember { MutableInteractionSource() }
+    val motion = rememberManagerPressMotion(interaction, actionable, ManagerPressStyle.Solid)
+    val feedback = managerActionFeedback(ManagerAction.ContextAction, actionable).copy(hapticType = hapticType)
+    val acceptedClick = rememberManagerActionHandler(feedback, onClick)
+    Box(modifier.heightIn(min = 48.dp).semantics { contentDescription = label }
+        .managerKeyboardFocusRing(interaction, actionable, RectangleShape, communicationColors().accent)
+        .managerPressInputGate(actionable)
+        .clickable(enabled = actionable, role = Role.Button, interactionSource = interaction,
+            indication = null, onClick = { if (actionableNow) acceptedClick() })
+        .padding(horizontal = 12.dp, vertical = 12.dp), contentAlignment = Alignment.Center) {
+        Text(label, Modifier.managerPressDrawing(motion), fontSize = 17.sp, lineHeight = 24.sp,
+            fontWeight = weight, textAlign = TextAlign.Center,
+            color = if (!enabled) colors.textDisabled else if (destructive) colors.error else communicationColors().accent)
+    }
 }
 
 @Composable internal fun CommunicationNavigation(title: String, leading: @Composable () -> Unit = {},
@@ -116,20 +138,23 @@ internal val LocalCommunicationPalette = staticCompositionLocalOf<CommunicationC
 @Composable internal fun CommunicationInput(value: String, onChange: (String) -> Unit, placeholder: String,
     modifier: Modifier = Modifier, enabled: Boolean = true, singleLine: Boolean = false,
     maxLines: Int = 5, keyboardOptions: KeyboardOptions = KeyboardOptions.Default,
-    leading: ImageVector? = null, background: Boolean = true, fontSize: Int = 17) {
+    leading: ImageVector? = null, background: Boolean = true, fontSize: Int = 17,
+    textAreaModifier: Modifier = Modifier, showPlaceholder: Boolean = true) {
     val colors = LocalSoftVoWiFiColors.current
     val tokens = communicationColors()
     val shape = RoundedCornerShape(if (leading != null) 16.dp else 24.dp)
     val interaction = remember { MutableInteractionSource() }
     val focused by interaction.collectIsFocusedAsState()
     val outline by animateColorAsState(if (enabled && focused) tokens.accent.copy(alpha = .48f)
-        else colors.textSecondary.copy(alpha = .12f), tween(140), label = "input-outline")
+        else colors.textSecondary.copy(alpha = .12f), tween(MotionTokens.DurInputOutline), label = "input-outline")
     val surface = if (background) communicationSurfaceModifier(Modifier.dropShadow(shape) {
         radius = 8.dp.toPx(); offset = androidx.compose.ui.geometry.Offset(0f, 2.dp.toPx())
         color = Color.Black; alpha = .045f
     }, shape, tokens.field).border(1.dp, outline, shape) else Modifier
     BasicTextField(value = value, onValueChange = onChange, enabled = enabled,
-        modifier = modifier.heightIn(min = 48.dp).then(surface).semantics { contentDescription = placeholder },
+        modifier = modifier.heightIn(min = 48.dp)
+            .managerKeyboardFocusRing(interaction, enabled, shape, tokens.accent)
+            .then(surface).semantics { contentDescription = placeholder },
         singleLine = singleLine, maxLines = if (singleLine) 1 else maxLines,
         textStyle = TextStyle(color = if (enabled) colors.textPrimary else colors.textDisabled,
             fontSize = fontSize.sp, lineHeight = (fontSize + 5).sp),
@@ -138,8 +163,13 @@ internal val LocalCommunicationPalette = staticCompositionLocalOf<CommunicationC
             Row(Modifier.padding(horizontal = 12.dp, vertical = 12.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                 leading?.let { Icon(it, null, Modifier.size(20.dp), tint = colors.textSecondary) }
-                Box(Modifier.weight(1f)) {
-                    if (value.isEmpty()) Text(placeholder, color = colors.textSecondary, fontSize = fontSize.sp, lineHeight = (fontSize + 5).sp)
+                Box(Modifier.weight(1f).then(textAreaModifier)) {
+                     // Fallback fonts can give the hint a taller natural line than the editor.
+                     // Keep that space while typing without exposing an invisible hint to accessibility.
+                     if (showPlaceholder) Text(placeholder, color = colors.textSecondary,
+                         modifier = Modifier.alpha(if (value.isEmpty()) 1f else 0f)
+                             .then(if (value.isEmpty()) Modifier else Modifier.clearAndSetSemantics {}),
+                         fontSize = fontSize.sp, lineHeight = (fontSize + 5).sp)
                     field()
                 }
             }
@@ -151,13 +181,18 @@ internal val LocalCommunicationPalette = staticCompositionLocalOf<CommunicationC
     val colors = LocalSoftVoWiFiColors.current
     val available = enabled && LocalAppRouteActive.current
     val interactive = available && LocalCommunicationMenuActionsEnabled.current
+    val interactiveNow by rememberUpdatedState(interactive)
     val tone = if (!available) colors.textDisabled else if (destructive) colors.error else colors.textPrimary
     val feedback = managerActionFeedback(ManagerAction.ContextAction, interactive)
     val interaction = remember { MutableInteractionSource() }
+    val acceptedClick = rememberManagerActionHandler(feedback, onClick)
     Column {
-        Row(Modifier.fillMaxWidth().heightIn(min = 52.dp).communicationContentPress(feedback, interaction)
+        Row(Modifier.fillMaxWidth().heightIn(min = 52.dp)
+            .managerKeyboardFocusRing(interaction, interactive, RectangleShape, communicationColors().accent)
+            .communicationContentPress(feedback, interaction)
+            .managerPressInputGate(interactive)
             .clickable(enabled = interactive, role = Role.Button, interactionSource = interaction,
-                indication = null, onClick = rememberManagerActionHandler(feedback, onClick))
+                indication = null, onClick = { if (interactiveNow) acceptedClick() })
             .padding(horizontal = 16.dp, vertical = 12.dp), horizontalArrangement = Arrangement.spacedBy(16.dp),
             verticalAlignment = Alignment.CenterVertically) {
             Text(label, Modifier.weight(1f), fontSize = 17.sp, lineHeight = 24.sp, color = tone)
@@ -191,16 +226,22 @@ internal val LocalCommunicationPalette = staticCompositionLocalOf<CommunicationC
 }
 
 @Composable internal fun CommunicationLineRow(title: String, summary: String, selected: Boolean,
-    onSelect: () -> Unit, onEdit: (() -> Unit)? = null, enabled: Boolean = true) {
+    onSelect: () -> Unit, onEdit: (() -> Unit)? = null, enabled: Boolean = true, popSelection: Boolean = false) {
     val colors = LocalSoftVoWiFiColors.current
     val tokens = communicationColors()
+    val actionable = enabled && LocalAppRouteActive.current
+    val actionableNow by rememberUpdatedState(actionable)
     val interaction = remember { MutableInteractionSource() }
-    val feedback = managerActionFeedback(ManagerAction.SegmentSelection, enabled)
+    val feedback = managerActionFeedback(ManagerAction.SegmentSelection, actionable)
+    val acceptedSelect = rememberManagerActionHandler(feedback, onSelect)
     Column(Modifier.background(tokens.list)) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Row(Modifier.weight(1f).heightIn(min = 72.dp).communicationContentPress(feedback, interaction)
-                .selectable(selected, enabled = enabled, role = Role.RadioButton, interactionSource = interaction, indication = null,
-                    onClick = rememberManagerActionHandler(feedback, onSelect)).padding(16.dp),
+            Row(Modifier.weight(1f).heightIn(min = 72.dp)
+                .managerKeyboardFocusRing(interaction, actionable, RectangleShape, tokens.accent)
+                .communicationContentPress(feedback, interaction)
+                .managerPressInputGate(actionable)
+                .selectable(selected, enabled = actionable, role = Role.RadioButton, interactionSource = interaction, indication = null,
+                    onClick = { if (actionableNow) acceptedSelect() }).padding(16.dp),
                 horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
                 Box(Modifier.size(36.dp).background(tokens.field, RoundedCornerShape(8.dp)).clearAndSetSemantics {},
                     contentAlignment = Alignment.Center) { Icon(CommunicationSim, null, Modifier.size(22.dp), tint = tokens.accent) }
@@ -208,10 +249,53 @@ internal val LocalCommunicationPalette = staticCompositionLocalOf<CommunicationC
                     Text(title, fontSize = 17.sp, lineHeight = 24.sp, fontWeight = FontWeight.Medium)
                     Text(summary, fontSize = 13.sp, lineHeight = 18.sp, color = colors.textSecondary)
                 }
-                if (selected) Icon(CommunicationCheck, null, Modifier.size(20.dp), tint = tokens.accent)
+                CommunicationSelectionCheck(selected, popSelection)
             }
-            onEdit?.let { CommunicationTextAction("备注", it, enabled = enabled) }
+            onEdit?.let { CommunicationTextAction("备注", it, enabled = actionable) }
         }
         HorizontalDivider(Modifier.padding(start = 64.dp), thickness = .5.dp, color = colors.separator)
     }
+}
+
+@Composable internal fun CommunicationSelectionCheck(selected: Boolean, popSelection: Boolean = false) {
+    val accent = communicationColors().accent
+    AnimatedVisibility(selected,
+        enter = if (popSelection) fadeIn(MotionTokens.SpringSpatialFast) +
+            scaleIn(MotionTokens.SpringSpatialFast, initialScale = MotionTokens.ScalePopFrom) else EnterTransition.None,
+        exit = fadeOut(tween(MotionTokens.DurMicro, easing = MotionTokens.EaseStandard))) {
+        Icon(CommunicationCheck, null, Modifier.size(20.dp), tint = accent)
+    }
+}
+
+/** UI-only acceptance/dwell; selection and the confirmed owner remain owned by the source. */
+@Composable internal fun CommunicationLineConfirmation(
+    selectedOwner: SimOwnerId?, sheet: CommunicationSheetState, onDismiss: () -> Unit,
+    content: @Composable (pendingOwner: SimOwnerId?, popOwner: SimOwnerId?,
+        confirm: (owner: SimOwnerId, onConfirm: suspend () -> Boolean) -> Unit) -> Unit,
+) {
+    var request by remember(sheet) { mutableStateOf<Pair<SimOwnerId, suspend () -> Boolean>?>(null) }
+    var popOwner by remember(sheet) { mutableStateOf<SimOwnerId?>(null) }
+    var rejected by remember(sheet) { mutableStateOf(false) }
+    val selected by rememberUpdatedState(selectedOwner)
+    val dismiss by rememberUpdatedState(onDismiss)
+    val active = LocalAppRouteActive.current
+    val motionScale = rememberCoroutineScope().coroutineContext[MotionDurationScale]
+    LaunchedEffect(request, active, sheet.visible) {
+        val (owner, submit) = request ?: return@LaunchedEffect
+        if (!active || !sheet.visible) { request = null; return@LaunchedEffect }
+        if (!submit()) { rejected = true; request = null; return@LaunchedEffect }
+        popOwner = owner
+        // The Boolean can arrive before Compose collects the already-confirmed source projection.
+        snapshotFlow { selected }.first { it == owner }
+        val scale = motionScale?.scaleFactor ?: 1f
+        if (scale > 0f) delay((MotionTokens.DurFast * scale).toLong())
+        if (selected == owner) sheet.close { dismiss() }
+        else { rejected = true; popOwner = null; request = null }
+    }
+    content(request?.first, popOwner) { owner, submit ->
+        if (active && sheet.visible && request == null) {
+            rejected = false; popOwner = null; request = owner to submit
+        }
+    }
+    if (rejected) CommunicationFootnote("无法切换线路，请重试。")
 }

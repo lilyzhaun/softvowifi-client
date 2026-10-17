@@ -63,8 +63,9 @@ class CommunicationRefreshTest {
         }
     }
 
-    @Test fun communicationToolbarShieldsScrollingTextWithoutChangingSettingsChrome() {
+    @Test fun communicationToolbarShieldIsRetainedAndSettingsMatchesCollapsedHome() {
         assertEquals(0.92f, appSubpageSceneContract(com.vowifi.sw.manager.ui.navigation.AppRoute.NewMessage).topBarBlendAlpha)
-        assertEquals(0f, appSubpageSceneContract(com.vowifi.sw.manager.ui.navigation.AppRoute.SettingsAppearance).topBarBlendAlpha)
+        // R7 supplement (2026-10-15): settings now share Home's collapsed material.
+        assertEquals(topBarBlendAlpha(1f), appSubpageSceneContract(com.vowifi.sw.manager.ui.navigation.AppRoute.SettingsAppearance).topBarBlendAlpha)
     }
 }

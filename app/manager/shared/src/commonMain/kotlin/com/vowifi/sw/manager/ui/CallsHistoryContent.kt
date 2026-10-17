@@ -12,6 +12,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.vowifi.sw.manager.model.CallHistoryState
+import com.vowifi.sw.manager.model.CallHistoryRecordId
 import kotlin.time.Clock
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.Text
@@ -21,7 +22,39 @@ import top.yukonga.miuix.kmp.icon.extended.Refresh
 
 internal fun LazyListScope.callsHistoryContent(history: CallHistoryState,
     onOpen: (com.vowifi.sw.manager.ui.navigation.CallHistoryHandle) -> Unit = {}, callbackEnabled: Boolean = false,
-    onCallback: (String) -> Unit = {}, onDelete: (Set<com.vowifi.sw.manager.model.CallHistoryRecordId>) -> Unit = {}) {
+    onCallback: (String) -> Unit = {}, onDelete: (Set<CallHistoryRecordId>) -> Unit = {},
+    rows: CallsHistoryRows<CallHistoryGroup, String>? = null, pending: Set<CallHistoryRecordId> = emptySet(),
+    deletionUi: CallsHistoryDeleteUi? = null, rootCustomActionsBlocked: Boolean = false) {
+    val displayed = rows?.rows ?: (history as? CallHistoryState.Ready)?.let(::callHistoryGroups).orEmpty()
+    val errorIds = deletionUi?.ids.orEmpty()
+    if (displayed.isNotEmpty()) {
+        val now = Clock.System.now().toEpochMilliseconds()
+        displayed.groupBy { phoneHistoryDateLabel(it.latest.startedAtMs, now) }.entries.forEachIndexed { index, (date, groups) ->
+            item(key = "calls-history-date-$date") {
+                Text(date, modifier = Modifier.callsHistoryPlacement(rows)
+                    .padding(top = if (index == 0) 20.dp else 24.dp, bottom = 8.dp),
+                    fontSize = 16.sp, lineHeight = 24.sp, color = phoneColors().secondary)
+            }
+            groups.forEach { group ->
+                val key = group.handle.value
+                item(key = key) {
+                    val held = group.ids.any { it in pending }
+                    val exitAlpha = rows?.removing?.get(key)
+                    CallsHistoryRowMotion(Modifier.callsHistoryPlacement(rows),
+                        key, key in rows?.entering.orEmpty(), held, exitAlpha) {
+                        CallHistoryGroupRow(group, onOpen, callbackEnabled, onCallback, onDelete,
+                            enabled = !held && exitAlpha == null, onActionStart = { deletionUi?.clearMessage?.invoke() },
+                            rootCustomActionsBlocked = rootCustomActionsBlocked)
+                    }
+                }
+                communicationNoticeItem("calls-history-result-$key", deletionUi?.message
+                    ?.takeIf { group.ids.any { it in errorIds } }?.let { CommunicationNoticeSpec(it) })
+            }
+        }
+        communicationNoticeItem("calls-history-result-unmatched", deletionUi?.message
+            ?.takeIf { displayed.none { row -> row.ids.any { it in errorIds } } }?.let { CommunicationNoticeSpec(it) })
+        return
+    }
     when (history) {
         CallHistoryState.Loading -> item { CommunicationListState(StatePanelSpec(MiuixIcons.Refresh,
             StatePanelTone.INTERACTIVE, "正在读取通话记录", "请稍候", loading = true)) }
@@ -30,15 +63,9 @@ internal fun LazyListScope.callsHistoryContent(history: CallHistoryState,
             StatePanelTone.ERROR, "无法读取通话记录", history.message)) }
         is CallHistoryState.Ready -> {
             if (history.records.isEmpty()) item { CallHistoryNotice("暂无通话记录", "此 SIM 的通话记录仅保存在本机") }
-            val now = Clock.System.now().toEpochMilliseconds()
-            callHistoryGroups(history).groupBy { phoneHistoryDateLabel(it.latest.startedAtMs, now) }.entries.forEachIndexed { index, (date, groups) ->
-                 item { Text(date, modifier = Modifier.padding(top = if (index == 0) 20.dp else 24.dp, bottom = 8.dp), fontSize = 16.sp, lineHeight = 24.sp, color = phoneColors().secondary) }
-                items(groups.size, key = { groups[it].handle.value }) { index ->
-                    CallHistoryGroupRow(groups[index], onOpen, callbackEnabled, onCallback, onDelete)
-                }
-            }
         }
     }
+    communicationNoticeItem("calls-history-result-unmatched", deletionUi?.message?.let { CommunicationNoticeSpec(it) })
 }
 
 @Composable

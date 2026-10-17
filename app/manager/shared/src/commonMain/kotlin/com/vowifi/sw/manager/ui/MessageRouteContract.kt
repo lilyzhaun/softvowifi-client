@@ -5,6 +5,7 @@ import androidx.compose.ui.Modifier
 import com.vowifi.sw.manager.data.SimOwnerId
 import com.vowifi.sw.manager.model.MessageOrigin
 import com.vowifi.sw.manager.model.MessageUiState
+import com.vowifi.sw.manager.model.HistoryChangeReason
 import com.vowifi.sw.manager.ui.navigation.AppRoute
 
 internal enum class MessageScrollOwner {
@@ -80,6 +81,7 @@ internal enum class MessageMotionProperty {
     ALPHA,
     COLOR,
     SCALE,
+    TRANSLATION,
 }
 
 internal data class MessageContentAnimationContract(
@@ -202,11 +204,19 @@ internal fun messageMotionContract(reducedMotion: Boolean): MessageMotionSpec = 
     rootCrossfade = false,
 )
 
-internal fun messageContentAnimationContract(): MessageContentAnimationContract =
+/** E2/R6：共同alpha叶不缩放列表；新MO另有绘制层。只有实时增/移及已提交删除允许SpringSpatial补位。 */
+internal fun messageContentAnimationContract(reason: HistoryChangeReason? = HistoryChangeReason.REPLACE): MessageContentAnimationContract =
     MessageContentAnimationContract(
-        durationMillis = 160,
-        listAndBubbleProperties = setOf(MessageMotionProperty.ALPHA),
-        animatePlacement = false,
+        durationMillis = when (reason) {
+            HistoryChangeReason.REPLACE, HistoryChangeReason.USER_DELETE -> MotionTokens.DurFast
+            HistoryChangeReason.LIVE_INSERT, HistoryChangeReason.LIVE_MOVE -> MotionTokens.DurBase
+            else -> MotionTokens.DurInstant
+        },
+        listAndBubbleProperties = if (reason == HistoryChangeReason.LIVE_INSERT)
+            setOf(MessageMotionProperty.ALPHA, MessageMotionProperty.SCALE, MessageMotionProperty.TRANSLATION)
+            else setOf(MessageMotionProperty.ALPHA),
+        animatePlacement = reason == HistoryChangeReason.LIVE_INSERT || reason == HistoryChangeReason.LIVE_MOVE ||
+            reason == HistoryChangeReason.USER_DELETE,
         placementDurationMillis = null,
         sendActionProperties = setOf(
             MessageMotionProperty.ALPHA,

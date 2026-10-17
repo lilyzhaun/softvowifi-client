@@ -25,6 +25,7 @@ import com.vowifi.sw.manager.model.OperationalLogMessage
 import com.vowifi.sw.manager.model.operationalLogSafeSummary
 import top.yukonga.miuix.kmp.basic.BasicComponent
 import top.yukonga.miuix.kmp.basic.Card
+import top.yukonga.miuix.kmp.basic.CardDefaults
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.icon.MiuixIcons
@@ -35,11 +36,15 @@ fun LogEntryRow(entry: OperationalLogEntry, modifier: Modifier = Modifier) {
     val colors = LocalSoftVoWiFiColors.current
     var detail by remember(entry) { mutableStateOf(false) }
     val interaction = remember { MutableInteractionSource() }
-    val feedback = managerActionFeedback(ManagerAction.ContextAction)
+    val actionable = LocalAppRouteActive.current
+    val feedback = managerActionFeedback(ManagerAction.ContextAction, actionable)
     if (detail) LogDetailDialog(entry, onDismiss = { detail = false })
     Card(
-        modifier = modifier.fillMaxWidth().managerPressScale(feedback, interaction)
-            .clickable(interactionSource = interaction, indication = null, onClickLabel = "查看日志详情",
+        modifier = modifier.fillMaxWidth()
+            .managerKeyboardFocusRing(interaction, actionable, cornerRadius = CardDefaults.CornerRadius)
+            .managerPressInputGate(actionable)
+            .clickable(enabled = actionable, interactionSource = interaction,
+                indication = rememberManagerPressIndication(ManagerPressStyle.Card, actionable), onClickLabel = "查看日志详情",
                 onClick = rememberManagerActionHandler(feedback) { detail = true }),
         insideMargin = PaddingValues(vertical = 4.dp),
     ) {

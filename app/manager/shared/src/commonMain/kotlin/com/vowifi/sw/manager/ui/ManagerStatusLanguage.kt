@@ -1,6 +1,5 @@
 package com.vowifi.sw.manager.ui
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.padding
@@ -9,11 +8,12 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.graphics.drawOutline
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import top.yukonga.miuix.kmp.basic.Icon
-import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.Close
 import top.yukonga.miuix.kmp.icon.extended.Info
@@ -96,10 +96,13 @@ internal fun semanticStatusBadge(label: String, tone: SemanticTone): SemanticSta
 internal fun SemanticStatusBadge(spec: SemanticStatusBadgeSpec, modifier: Modifier = Modifier) {
     val colors = LocalSoftVoWiFiColors.current
     val visual = toneVisual(spec.tone)
-    val color = visual.badgeColor(colors)
+    val color = rememberManagerStateColor(visual.badgeColor(colors))
+    val surface = rememberManagerStateColor(visual.badgeSurface(colors))
     Row(
         modifier = modifier
-            .background(visual.badgeSurface(colors), RoundedCornerShape(50))
+            .drawBehind {
+                drawOutline(RoundedCornerShape(50).createOutline(size, layoutDirection, this), surface.value)
+            }
             .padding(horizontal = 8.dp, vertical = 4.dp),
         horizontalArrangement = Arrangement.spacedBy(4.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -107,15 +110,16 @@ internal fun SemanticStatusBadge(spec: SemanticStatusBadgeSpec, modifier: Modifi
         Icon(
             imageVector = visual.icon.managerStatusIcon(),
             contentDescription = visual.semanticLabel,
-            tint = color,
+            tint = color.value,
             modifier = Modifier.size(16.dp),
         )
-        Text(
+        ManagerStateText(
             text = spec.label,
-            color = color,
+            color = { color.value },
             fontSize = 12.sp,
             lineHeight = 16.sp,
             softWrap = spec.softWrap,
+            animateWidth = true,
         )
     }
 }

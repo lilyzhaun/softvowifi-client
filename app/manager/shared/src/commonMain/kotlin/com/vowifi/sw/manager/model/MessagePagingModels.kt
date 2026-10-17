@@ -5,6 +5,7 @@ import com.vowifi.sw.manager.data.MessageSummaryCursor
 import com.vowifi.sw.manager.data.MessageThreadCursor
 import com.vowifi.sw.manager.data.StoredMessageConversation
 import com.vowifi.sw.manager.data.SimOwnerId
+import com.vowifi.sw.manager.ui.navigation.ConversationHandle
 
 data class MessageInboxPage(
     val query: String = "",
@@ -12,6 +13,7 @@ data class MessageInboxPage(
     val next: MessageSummaryCursor? = null,
     val loading: Boolean = true,
     val failed: Boolean = false,
+    val change: HistoryListChange<ConversationHandle>? = null,
 ) { override fun toString(): String = "MessageInboxPage(size=${items.size}, loading=$loading, failed=$failed)" }
 
 data class MessageThreadWindow(
@@ -19,6 +21,7 @@ data class MessageThreadWindow(
     val older: MessageThreadCursor?,
     val loading: Boolean = false,
     val failed: Boolean = false,
+    val change: HistoryListChange<String>? = null,
 )
 
 data class MessageSendAttempt(

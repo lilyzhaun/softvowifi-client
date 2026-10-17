@@ -6,6 +6,9 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import com.vowifi.sw.manager.data.CallLineState
 import com.vowifi.sw.manager.data.SimOwnerId
 import com.vowifi.sw.manager.model.CallBinding
+import com.vowifi.sw.manager.model.CallDirection
+import com.vowifi.sw.manager.model.CallPhase
+import com.vowifi.sw.manager.model.CallUiState
 
 internal class CallDialDraft(
     number: String = "", owner: SimOwnerId? = null, label: String = "未选择", private var explicitSelection: Boolean = false,
@@ -15,6 +18,16 @@ internal class CallDialDraft(
         private set
     var label by mutableStateOf(label)
         private set
+    private var submitted: String? = null
+
+    /** Remembers the number handed to the platform dial entry; only its accepted call clears the draft. */
+    fun submit(number: String) { submitted = number }
+
+    /** Failed, canceled or denied dials never reach an engine token, so their number stays for a retry. */
+    fun outgoingAccepted() {
+        if (submitted != null && submitted == number) number = ""
+        submitted = null
+    }
 
     fun select(owner: SimOwnerId, lines: CallLineState) {
         this.owner = owner
@@ -49,8 +62,11 @@ internal class CallDialDraft(
     }
 }
 
-@Composable internal fun rememberCallDialDraft(lines: CallLineState): CallDialDraft {
+@Composable internal fun rememberCallDialDraft(lines: CallLineState, call: CallUiState): CallDialDraft {
     val draft = rememberSaveable(saver = CallDialDraft.Saver) { CallDialDraft() }
     LaunchedEffect(lines) { draft.acceptInitial(lines) }
+    val accepted = (call as? CallUiState.Ready)
+        ?.takeIf { it.phase != CallPhase.Idle && it.direction == CallDirection.OUTGOING }?.binding?.token
+    LaunchedEffect(accepted) { if (accepted != null) draft.outgoingAccepted() }
     return draft
 }

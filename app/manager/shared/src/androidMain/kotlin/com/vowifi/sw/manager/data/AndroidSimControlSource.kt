@@ -23,6 +23,8 @@ internal class AndroidSimControlSource(
 
     override fun refresh() = delegate.refresh()
 
+    override suspend fun refreshAndAwait(): RefreshResult = delegate.refreshAndAwait()
+
     override fun start(handle: SimHandle) = delegate.start(handle)
 
     override fun stop(handle: SimHandle) = delegate.stop(handle)

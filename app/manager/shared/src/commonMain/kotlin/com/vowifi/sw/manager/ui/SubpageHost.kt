@@ -109,7 +109,9 @@ internal fun SubpageHost(
         communicationActive = { isRouteActive(latestState.value, it) })
     val onBack = { onStateChange(AppNavigator.back(state)) }
     val decorated = rememberDecoratedNavEntries(
-        backStack = state.backStack,
+        // The pager owns root-to-root motion. Keep its empty NavDisplay underlay
+        // stable so invisible root scenes cannot start an input-blocking transition.
+        backStack = state.backStack.map { if (it is AppRoute.Root) AppRoute.Home else it },
         entryDecorators = listOf(rememberSaveableStateHolderNavEntryDecorator()),
         entryProvider = entries,
     )

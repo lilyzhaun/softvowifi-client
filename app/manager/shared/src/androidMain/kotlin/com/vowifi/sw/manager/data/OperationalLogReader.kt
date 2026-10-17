@@ -1,6 +1,7 @@
 package com.vowifi.sw.manager.data
 
 import com.vowifi.sw.manager.model.OperationalLogFormatException
+import com.vowifi.sw.manager.model.OperationalLogFile
 import com.vowifi.sw.manager.model.OperationalLogList
 import com.vowifi.sw.manager.model.OperationalLogTail
 import com.vowifi.sw.manager.model.OperationalLogUiState
@@ -14,9 +15,9 @@ internal class OperationalLogReader(private val command: LogCommand) {
         LogCatalogResult(invoke("list", OperationalLogShellCodec::list), true)
     }
 
-    suspend fun read(id: String, legacy: Boolean): OperationalLogTail {
-        val tail = if (legacy) invoke("tail $id", OperationalLogShellCodec::tail)
-        else invoke("read $id", OperationalLogShellCodec::read)
+    suspend fun read(id: String, legacy: Boolean, file: OperationalLogFile? = null): OperationalLogTail {
+        val tail = if (legacy) invoke("tail $id") { OperationalLogShellCodec.tail(it, file) }
+        else invoke("read $id") { OperationalLogShellCodec.read(it, file) }
         if (tail.id != id) throw LogReadFailure(OperationalLogEvaluator.failure("日志身份不匹配"))
         return tail
     }
@@ -54,6 +55,7 @@ internal class LogReadFailure(
     val state: OperationalLogUiState,
     val missing: Boolean = false,
     val unsupported: Boolean = false,
+    val blocking: Boolean = false,
 ) : Exception() {
     val safeMessage: String get() = when (state) {
         is OperationalLogUiState.Failure -> state.message

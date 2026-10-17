@@ -3,6 +3,7 @@ package com.vowifi.sw.manager
 import com.vowifi.sw.manager.model.EngineControlUiState
 import com.vowifi.sw.manager.model.EngineInstanceState
 import com.vowifi.sw.manager.model.EngineLifecycle
+import com.vowifi.sw.manager.model.EngineRuntimeStatus
 import com.vowifi.sw.manager.ui.AppDestination
 import com.vowifi.sw.manager.ui.RefreshTarget
 import kotlin.test.Test
@@ -78,10 +79,41 @@ class SoftVoWiFiAppTest {
         assertFalse(shouldRefreshCallsForEngineAvailability(previous = one, current = null))
     }
 
+    @Test
+    fun imsRegistrationOfAnAttachedEngineRefreshesCalls() {
+        val registering = engineState(EngineLifecycle.RUNNING, ims = "REGISTERING")
+        val registered = engineState(EngineLifecycle.RUNNING, ims = "REGISTERED")
+
+        // A call snapshot read before IMS registers stays unavailable until the next refresh.
+        assertTrue(shouldRefreshCallsForEngineAvailability(
+            engineCallAttachmentSignature(registering), engineCallAttachmentSignature(registered)))
+        assertTrue(shouldRefreshCallsForEngineAvailability(
+            engineCallAttachmentSignature(registered), engineCallAttachmentSignature(registering)))
+        assertEquals(
+            engineCallAttachmentSignature(registered),
+            engineCallAttachmentSignature(engineState(EngineLifecycle.RUNNING, ims = "REGISTERED", reconnects = 3)),
+        )
+        assertEquals(
+            engineCallAttachmentSignature(engineState(EngineLifecycle.STOPPED)),
+            engineCallAttachmentSignature(engineState(EngineLifecycle.STOPPED, ims = "REGISTERED")),
+        )
+        val first = EngineInstanceState("fixture-a", EngineLifecycle.RUNNING, runtime = runtime("REGISTERED"))
+        val second = EngineInstanceState("fixture-b", EngineLifecycle.RUNNING, runtime = runtime("REGISTERING"))
+        assertTrue(shouldRefreshCallsForEngineAvailability(
+            engineCallAttachmentSignature(EngineControlUiState.Ready(listOf(first, second))),
+            engineCallAttachmentSignature(EngineControlUiState.Ready(listOf(first, second.copy(runtime = runtime("REGISTERED"))))),
+        ))
+    }
+
     private fun engineState(
         lifecycle: EngineLifecycle,
         instanceKey: String = "fixture-a",
+        ims: String? = null,
+        reconnects: Long = 0,
     ) = EngineControlUiState.Ready(
-        listOf(EngineInstanceState(instanceKey, lifecycle)),
+        listOf(EngineInstanceState(instanceKey, lifecycle, runtime = ims?.let { runtime(it, reconnects) })),
     )
+
+    private fun runtime(ims: String, reconnects: Long = 0) =
+        EngineRuntimeStatus("CONNECTED", reconnects = reconnects, ims = ims, call = "IDLE", transport = "udp", pcscf = emptyList())
 }

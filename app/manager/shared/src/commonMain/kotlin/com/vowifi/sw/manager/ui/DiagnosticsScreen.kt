@@ -20,14 +20,15 @@ import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.Info
 
-internal fun LazyListScope.diagnosticItems(state: EnvironmentDiagnosticsUiState) {
+internal fun LazyListScope.diagnosticItems(state: EnvironmentDiagnosticsUiState, onRetry: (() -> Unit)? = null) {
     when (state) {
         EnvironmentDiagnosticsUiState.Loading,
         is EnvironmentDiagnosticsUiState.Failure,
         is EnvironmentDiagnosticsUiState.PermissionDenied,
         is EnvironmentDiagnosticsUiState.Unavailable,
         -> item(key = "diagnostics-state") {
-            StatePanel(diagnosticsManagerStatus(state).toStatePanelSpec())
+            val panel = diagnosticsManagerStatus(state).toStatePanelSpec()
+            StatePanel(panel.copy(retryDescription = if (onRetry != null && !panel.loading) "重试检查" else null), onRetry = onRetry)
         }
         is EnvironmentDiagnosticsUiState.Ready -> {
             item(key = "diagnostics-overall") {

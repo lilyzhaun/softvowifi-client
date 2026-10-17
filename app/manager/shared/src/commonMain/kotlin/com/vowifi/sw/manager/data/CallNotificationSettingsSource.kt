@@ -13,6 +13,7 @@ enum class CallNotificationSettingsLaunchResult { OPENED, FAILED, UNSUPPORTED }
 interface CallNotificationSettingsSource {
     val state: StateFlow<CallNotificationSettingsSnapshot>
     fun refresh()
+    suspend fun refreshAndAwait(): RefreshResult = RefreshResult.Unsupported
     fun openSettings(action: SettingsAction): CallNotificationSettingsLaunchResult
 }
 

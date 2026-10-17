@@ -25,7 +25,7 @@ import top.yukonga.miuix.kmp.overlay.OverlayDialog
 internal val LocalSmsBubbleAction = staticCompositionLocalOf<((String) -> Unit)?> { null }
 internal enum class SmsMessageAction { MENU, DETAILS, REEDIT }
 internal data class SmsBubbleMenu(val selectedId: String?, val reeditableIds: Set<String>, val editingEnabled: Boolean,
-    val onDetails: () -> Unit, val onReedit: () -> Unit, val onDismiss: () -> Unit)
+    val onDetails: () -> Unit, val onReedit: () -> Unit, val onDismiss: () -> Unit, val actionsBlocked: Boolean = false)
 internal val LocalSmsBubbleMenu = staticCompositionLocalOf<SmsBubbleMenu?> { null }
 
 internal fun canReeditMessage(record: MessageRecord): Boolean =

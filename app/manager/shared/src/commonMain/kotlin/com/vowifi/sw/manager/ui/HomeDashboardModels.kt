@@ -66,6 +66,8 @@ internal data class HomeActionPresentation(
     val label: String,
     val enabled: Boolean,
     val busy: Boolean,
+    val controlCompletion: com.vowifi.sw.manager.model.EngineControlCompletion? = null,
+    val lifecycle: com.vowifi.sw.manager.model.EngineLifecycle? = null,
 ) {
     val minimumTouchDp: Int = 48
 }

@@ -7,9 +7,12 @@ import com.vowifi.sw.manager.data.EnvironmentDiagnosticsSource
 import com.vowifi.sw.manager.data.MessageSource
 import com.vowifi.sw.manager.data.ObserverLogSource
 import com.vowifi.sw.manager.data.OperationalLogSource
+import com.vowifi.sw.manager.data.RefreshResult
 import com.vowifi.sw.manager.data.SimControlSource
 import com.vowifi.sw.manager.model.SimHandle
 import com.vowifi.sw.manager.ui.RefreshTarget
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 
 data class SoftVoWiFiSources(
     val observer: ObserverLogSource,
@@ -37,6 +40,18 @@ internal fun SoftVoWiFiSources.refresh(targets: Set<RefreshTarget>) {
             RefreshTarget.CALLS -> calls.refresh()
         }
     }
+}
+
+/** A user refresh joins real reads; normal configuration reading never refreshes identities. */
+internal suspend fun SoftVoWiFiSources.refreshHomeAndAwait(): RefreshResult = coroutineScope {
+    val observerRead = async { observer.refreshAndAwait() }
+    val configurationRead = async { configuration.refreshAndAwait() }
+    val diagnosticsRead = async { diagnostics.refreshAndAwait() }
+    val engineResult = engine.refreshAndAwait()
+    // SIM inventory publishes against the engine state which has just completed its read.
+    val simResult = simControl.refreshAndAwait()
+    listOf(observerRead.await(), engineResult, simResult, configurationRead.await(), diagnosticsRead.await())
+        .firstOrNull { it != RefreshResult.Completed } ?: RefreshResult.Completed
 }
 
 internal fun SoftVoWiFiSources.startSim(handle: SimHandle) {

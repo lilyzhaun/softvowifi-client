@@ -17,6 +17,13 @@ internal object ConfigurationControlCommand {
         return "$SCRIPT config create $subscriptionId $slot"
     }
 
+    fun refreshIdentityLine(iccid: String, subscriptionId: Int, slot: Int): String {
+        require(digitsOnly(iccid))
+        require(subscriptionId >= 0)
+        require(slot == 0 || slot == 1)
+        return "$SCRIPT config refresh-identity $iccid $subscriptionId $slot"
+    }
+
     fun handle(index: Int): String = "config-$index"
 
     fun digitsOnly(iccid: String): Boolean = iccid.isNotEmpty() && iccid.all(Char::isDigit)

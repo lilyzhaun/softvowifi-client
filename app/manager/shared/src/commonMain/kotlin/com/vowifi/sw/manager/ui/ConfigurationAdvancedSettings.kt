@@ -3,7 +3,7 @@ package com.vowifi.sw.manager.ui
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import com.vowifi.sw.manager.model.ConfigurationInstance
 import com.vowifi.sw.manager.model.ConfigurationIdentitySource
@@ -19,7 +19,7 @@ internal fun ConfigurationAdvancedSettings(
     draft: ConfigurationEditorDraft,
     enabled: Boolean,
 ) {
-    var advanced by remember(draft) { mutableStateOf(false) }
+    var advanced by rememberSaveable(draft) { mutableStateOf(false) }
     val subscription = instance.systemSubscription as? SubscriptionDiscovery.Matched
     BasicComponent(
         title = subscription?.carrierLabel?.takeIf { it.isNotBlank() }

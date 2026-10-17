@@ -19,6 +19,20 @@ class HistoryLineNameTest {
         assertEquals("HistoryLineName", first.toString())
     }
 
+    @Test fun countryFlagPrefixesDefaultNameAndSameNameInDifferentCountriesDoesNotConflict() {
+        val c = SimOwnerId.fromHmacSha256(ByteArray(32) { 3 })!!
+        val titles = historyLineTitles(mapOf(a to HistoryLineName.parse("3", "1234", "GB"),
+            b to HistoryLineName.parse("3", "5678", "HK")))
+        assertEquals("\uD83C\uDDEC\uD83C\uDDE7 3", titles[a])
+        assertEquals("\uD83C\uDDED\uD83C\uDDF0 3", titles[b])
+        val sameCountry = historyLineTitles(mapOf(a to HistoryLineName.parse("3", "1234", "GB"),
+            c to HistoryLineName.parse("3", "9012", "GB"), b to HistoryLineName.parse("3", "5678", "HK")))
+        assertEquals("\uD83C\uDDEC\uD83C\uDDE7 3 · •••• 1234", sameCountry[a])
+        assertEquals("\uD83C\uDDEC\uD83C\uDDE7 3 · •••• 9012", sameCountry[c])
+        assertEquals("\uD83C\uDDED\uD83C\uDDF0 3", sameCountry[b])
+        assertEquals(null, HistoryLineName.parse("3", "1234", "gbr").country, "只接受两位ISO国家码")
+    }
+
     @Test fun unknownOrUnsafeNameNeverUsesIdentityAndHasSafeTail() {
         val raw = "89" + "123456789012345678"
         val name = HistoryLineName.parse("ICCID $raw", "1234")

@@ -21,6 +21,7 @@ import androidx.compose.ui.semantics.clearAndSetSemantics
                     Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     PhoneButton(digit.toString(), { onDigit(digit) }, enabled = enabled, material = false, targetSize = diameter,
+                         action = ManagerAction.DialKey,
                         onLongClick = if (digit == '0') onPlus else null,
                         longClickLabel = if (digit == '0' && onPlus != null) "输入加号" else null,
                          content = {

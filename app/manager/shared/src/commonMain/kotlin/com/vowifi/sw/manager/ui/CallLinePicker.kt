@@ -36,6 +36,8 @@ internal fun CallLineChoice.callFacts(complete: Boolean): String = listOf(
     enabled: Boolean = true,
     historyOwners: List<CallHistoryOwnerChoice> = emptyList(),
     onSelectHistory: (CallHistoryOwnerChoice) -> Unit = {},
+    onConfirm: (suspend (SimOwnerId) -> Boolean)? = null,
+    onConfirmHistory: (suspend (CallHistoryOwnerChoice) -> Boolean)? = null,
 ) {
     var show by remember { mutableStateOf(false) }
     val active = LocalAppRouteActive.current
@@ -50,20 +52,29 @@ internal fun CallLineChoice.callFacts(complete: Boolean): String = listOf(
     val sheet = rememberCommunicationSheetState { show = false }
     val interactive = enabled && active && sheet.visible
     CommunicationSheet(if (live) "选择拨出线路" else "选择通话记录线路", { show = false }, state = sheet) {
+        CommunicationLineConfirmation(if (live) lines.selectedOwner else historyOwners.singleOrNull { it.selected }?.owner,
+            sheet, { show = false }) { pendingOwner, popOwner, confirm ->
         CommunicationFootnote(if (live) "仅显示已启动引擎的线路；切换同时显示该线路的通话记录，号码保留。"
             else "切换该线路的本地通话记录，可包含未注册或历史线路。")
         Column(Modifier.fillMaxWidth().weight(1f, fill = false).heightIn(max = 360.dp)
             .verticalScroll(rememberScrollState()).selectableGroup()) {
             if (live) running.forEach { line ->
-                 CommunicationLineRow(line.label, line.callFacts(lines.rosterComplete), line.selected,
-                    { if (interactive) sheet.close { onSelect(line.owner); show = false } }, enabled = interactive)
+                 CommunicationLineRow(line.label, line.callFacts(lines.rosterComplete), lines.selectedOwner == line.owner,
+                     { if (interactive && pendingOwner == null) {
+                         if (lines.selectedOwner == line.owner) sheet.close { onSelect(line.owner); show = false }
+                         else confirm(line.owner) { onConfirm?.invoke(line.owner) ?: false }
+                     } }, enabled = interactive && pendingOwner == null, popSelection = popOwner == line.owner)
             }
             else if (historyOwners.isEmpty()) CommunicationFootnote("暂无本地通话记录")
             else historyOwners.forEach { history ->
                 val name = history.label
-                 CommunicationLineRow(name, "本机通话记录", history.selected,
-                    { if (interactive) sheet.close { onSelectHistory(history); show = false } }, enabled = interactive)
+                  CommunicationLineRow(name, "本机通话记录", history.selected,
+                     { if (interactive && pendingOwner == null) {
+                         if (history.selected) sheet.close { onSelectHistory(history); show = false }
+                         else confirm(history.owner) { onConfirmHistory?.invoke(history) ?: false }
+                     } }, enabled = interactive && pendingOwner == null, popSelection = popOwner == history.owner)
             }
+        }
         }
     }
     }

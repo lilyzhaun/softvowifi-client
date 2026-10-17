@@ -3,18 +3,33 @@ package com.vowifi.sw.manager.data
 import com.vowifi.sw.manager.model.EnvironmentDiagnosticsUiState
 import java.io.IOException
 import java.util.concurrent.TimeUnit
+import kotlin.coroutines.CoroutineContext
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.runInterruptible
 
-class AndroidEnvironmentDiagnosticsSource : EnvironmentDiagnosticsSource {
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    private val operationGate = EngineOperationGate()
+class AndroidEnvironmentDiagnosticsSource internal constructor(
+    private val start: (String) -> Process,
+    parentContext: CoroutineContext,
+) : EnvironmentDiagnosticsSource {
+    constructor() : this(
+        { command -> ProcessBuilder("su", "-c", command).redirectErrorStream(true).start() },
+        Dispatchers.IO,
+    )
+
+    private val scope = CoroutineScope(parentContext + SupervisorJob(parentContext[Job]))
+    private val lock = Any()
+    private var inFlight: CompletableDeferred<RefreshResult>? = null
     private val mutableState = MutableStateFlow<EnvironmentDiagnosticsUiState>(
         EnvironmentDiagnosticsUiState.Loading,
     )
@@ -27,28 +42,60 @@ class AndroidEnvironmentDiagnosticsSource : EnvironmentDiagnosticsSource {
     }
 
     override fun refresh() {
-        if (closed || !operationGate.tryEnter()) return
-        scope.launch {
-            mutableState.value = readDiagnostics()
-        }.invokeOnCompletion {
-            operationGate.release()
+        requestRefresh()
+    }
+
+    override suspend fun refreshAndAwait(): RefreshResult =
+        requestRefresh()?.await() ?: RefreshResult.Unsupported
+
+    private fun requestRefresh(): CompletableDeferred<RefreshResult>? = synchronized(lock) {
+        if (closed || !scope.isActive) return@synchronized null
+        inFlight?.let { return@synchronized it }
+        val completion = CompletableDeferred<RefreshResult>(scope.coroutineContext[Job])
+        inFlight = completion
+        val worker = scope.launch(start = CoroutineStart.LAZY) {
+            val snapshot = runInterruptible { readDiagnostics() }
+            synchronized(lock) {
+                if (closed || !scope.isActive) return@synchronized
+                mutableState.value = snapshot
+                if (inFlight === completion) inFlight = null
+                completion.complete(when (snapshot) {
+                    is EnvironmentDiagnosticsUiState.Ready -> RefreshResult.Completed
+                    is EnvironmentDiagnosticsUiState.PermissionDenied -> RefreshResult.Failed(snapshot.message)
+                    is EnvironmentDiagnosticsUiState.Failure -> RefreshResult.Failed(snapshot.message)
+                    is EnvironmentDiagnosticsUiState.Unavailable -> RefreshResult.Unsupported
+                    EnvironmentDiagnosticsUiState.Loading -> error("diagnose returned Loading")
+                })
+            }
         }
+        worker.invokeOnCompletion { error ->
+            synchronized(lock) {
+                if (inFlight === completion) inFlight = null
+                if (error != null) completion.completeExceptionally(error)
+            }
+        }
+        worker.start()
+        completion
     }
 
     private fun readDiagnostics(): EnvironmentDiagnosticsUiState = try {
-        val process = ProcessBuilder("su", "-c", DIAGNOSE_COMMAND)
-            .redirectErrorStream(true)
-            .start()
-        if (!process.waitFor(TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
-            process.destroyForcibly()
-            EnvironmentDiagnosticsEvaluator.failure("环境诊断超时")
-        } else {
-            val output = process.inputStream.bufferedReader().use { it.readText() }.trim()
-            if (process.exitValue() == 0) {
-                EnvironmentDiagnosticsEvaluator.fromOutput(output)
+        val process = start(DIAGNOSE_COMMAND)
+        try {
+            process.outputStream.close()
+            if (!process.waitFor(TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
+                EnvironmentDiagnosticsEvaluator.failure("环境诊断超时")
             } else {
-                mapCommandFailure(output)
+                val output = process.inputStream.bufferedReader().use { it.readText() }.trim()
+                if (process.exitValue() == 0) {
+                    EnvironmentDiagnosticsEvaluator.fromOutput(output)
+                } else {
+                    mapCommandFailure(output)
+                }
             }
+        } finally {
+            process.destroyForcibly()
+            process.inputStream.close()
+            process.errorStream.close()
         }
     } catch (error: IOException) {
         if (error.message.isPermissionDenied()) {
@@ -56,8 +103,8 @@ class AndroidEnvironmentDiagnosticsSource : EnvironmentDiagnosticsSource {
         } else {
             EnvironmentDiagnosticsEvaluator.failure("无法启动环境诊断")
         }
-    } catch (_: Exception) {
-        EnvironmentDiagnosticsEvaluator.failure()
+    } catch (_: SecurityException) {
+        EnvironmentDiagnosticsEvaluator.permissionDenied()
     }
 
     private fun mapCommandFailure(output: String): EnvironmentDiagnosticsUiState {
@@ -70,8 +117,10 @@ class AndroidEnvironmentDiagnosticsSource : EnvironmentDiagnosticsSource {
         }
     }
 
-    override fun close() {
+    override fun close(): Unit = synchronized(lock) {
         closed = true
+        inFlight?.cancel()
+        inFlight = null
         scope.cancel()
     }
 

@@ -137,7 +137,7 @@ private fun homeMetrics(
 }
 
 private fun homeSimAction(instance: SimControlInstance): HomeSimActionPresentation {
-    val busy = instance.lifecycle == EngineLifecycle.STARTING || instance.lifecycle == EngineLifecycle.STOPPING
+    val busy = instance.operationPending || instance.lifecycle == EngineLifecycle.STARTING || instance.lifecycle == EngineLifecycle.STOPPING
     val actionId = when {
         instance.presence == SimPresence.ACTIVE_UNCONFIGURED -> HomeActionId.PROVISION
         instance.lifecycle == EngineLifecycle.RUNNING || instance.lifecycle == EngineLifecycle.STOPPING -> HomeActionId.STOP
@@ -171,7 +171,7 @@ private fun homeSimAction(instance: SimControlInstance): HomeSimActionPresentati
         ).joinToString("\n"),
         statusText = status,
         tone = instance.homeTone(),
-        action = HomeActionPresentation(actionId, instance.handle, label, enabled, busy),
+        action = HomeActionPresentation(actionId, instance.handle, label, enabled, busy, instance.controlCompletion, instance.lifecycle),
     )
 }
 
@@ -229,14 +229,6 @@ private fun homeImsStatusLabel(ims: String?): String {
     }
 }
 
-internal fun homeCountryFlag(iso2: String?): String? {
-    if (iso2 == null || iso2.length != 2 || iso2.any { it !in 'A'..'Z' }) return null
-    return buildString {
-        iso2.forEach { letter ->
-            append('\uD83C')
-            append((0xDDE6 + (letter - 'A')).toChar())
-        }
-    }
-}
+internal fun homeCountryFlag(iso2: String?): String? = com.vowifi.sw.manager.data.countryFlagEmoji(iso2)
 
 private val HOME_SENSITIVE = listOf("iccid", "imsi", "msisdn", "subid", "token", "/data/", "/proc/", "sip:", "raw:")

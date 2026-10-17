@@ -84,7 +84,8 @@ internal class IncomingCallNotificationBuilder(
             -> Unit
         }
 
-        return builder.build()
+        // 由系统按渠道偏好循环响铃/振动，来电终态时由 coordinator 取消。
+        return builder.build().apply { flags = flags or Notification.FLAG_INSISTENT }
     }
 
     fun buildAnswerPendingIntent(notificationKey: String): PendingIntent {

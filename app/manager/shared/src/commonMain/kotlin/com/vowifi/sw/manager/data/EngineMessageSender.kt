@@ -1,6 +1,7 @@
 package com.vowifi.sw.manager.data
 
 import com.vowifi.sw.manager.model.EngineProtocolFrame
+import com.vowifi.sw.manager.model.HistoryChangeReason
 import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.sync.withLock
@@ -53,7 +54,9 @@ private suspend fun persistQueuedMessage(session: EngineMessageSession, planned:
         session.publishRecords(line)
         return false
     }
-    session.publishRecords(line)
+    val mutation = MessageHistoryMutation(StoredMessageConversation(planned.owner, PeerNumberNormalizer.normalize(planned.number)),
+        HistoryChangeReason.LIVE_INSERT, setOf(planned.messageId))
+    session.publishRecords(line, mutation = mutation)
     return true
 }
 

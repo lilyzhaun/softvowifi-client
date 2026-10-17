@@ -1,5 +1,7 @@
 package com.vowifi.sw.manager.model
 
+import com.vowifi.sw.manager.data.CallWireReason
+
 enum class CallOrigin {
     ENGINE,
     DESKTOP_FIXTURE,
@@ -27,6 +29,27 @@ class CallBinding internal constructor(
     fun sameCall(other: CallBinding): Boolean = owner == other.owner && epoch == other.epoch &&
         if (token != null && other.token != null) token == other.token else generation == other.generation
     override fun toString(): String = "CallBinding"
+}
+
+enum class CallTerminalKind(val message: String?) {
+    NORMAL(null),
+    FAILED(CallFailureMessages.NETWORK),
+    TIMEOUT(CallFailureMessages.NO_ANSWER),
+    REJECTED(CallFailureMessages.BUSY),
+}
+
+class CallTerminal internal constructor(val binding: CallBinding, val kind: CallTerminalKind, val peer: CallPeer? = null) {
+    val message: String? get() = kind.message
+    override fun toString(): String = "CallTerminal(kind=$kind)"
+
+    internal companion object {
+        fun fromEnded(binding: CallBinding, reason: CallWireReason?, peer: CallPeer? = null): CallTerminal = CallTerminal(binding, when (reason) {
+            CallWireReason.FAILED -> CallTerminalKind.FAILED
+            CallWireReason.TIMEOUT -> CallTerminalKind.TIMEOUT
+            CallWireReason.REJECTED -> CallTerminalKind.REJECTED
+            else -> CallTerminalKind.NORMAL
+        }, peer)
+    }
 }
 
 sealed interface CallAudioState {
@@ -70,6 +93,7 @@ sealed interface CallUiState {
         val dialBusy: Boolean = false,
         val cancelPending: Boolean = false,
         val clock: com.vowifi.sw.manager.data.CallSessionClock? = null,
+        val terminal: CallTerminal? = null,
     ) : CallUiState {
         override fun toString(): String =
             "Ready(phase=$phase, origin=$origin, busy=$busy, hasPeer=${peer != null})"

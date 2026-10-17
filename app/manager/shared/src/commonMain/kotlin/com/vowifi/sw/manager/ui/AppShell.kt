@@ -11,12 +11,15 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -46,16 +49,23 @@ fun AppShell(
     blurSupported: Boolean,
     rootSnapRequestId: Long = 0,
     messageUnreadSummary: com.vowifi.sw.manager.model.MessageUnreadSummary = com.vowifi.sw.manager.model.MessageUnreadSummary.Loading,
-    ongoingCall: (@Composable () -> Unit)? = null,
+    ongoingCall: (@Composable (hitEnabled: Boolean) -> Unit)? = null,
+    resultOverlay: (@Composable (Dp) -> Unit)? = null,
+    entriesObscured: Boolean = false,
     destinationContent: @Composable (AppRoute) -> Unit,
 ) {
     val colors = LocalSoftVoWiFiColors.current
-    val policy = AppShellPolicy.forState(navigationState)
+    val rootInteractive = navigationState.topRoute is AppRoute.Root
     val chromeSpec = appChromeSpec(appearanceSettings, blurSupported)
     val backdrop = rememberSoftVoWiFiBackdrop(chromeSpec)
     val rootPager = rememberAppRootPagerState(navigationState.currentRoot)
+    val rootScrollToTop = remember { RootScrollToTopRegistry() }
     var consumedSnapRequestId by remember(rootPager) { mutableLongStateOf(0L) }
     val threadDrafts = rememberSaveable { mutableStateOf<Map<String, String>>(emptyMap()) }
+    val latestOngoingCall = rememberUpdatedState(ongoingCall)
+    var retainedOngoingCall by remember { mutableStateOf(ongoingCall) }
+    var ongoingDrawn by remember { mutableStateOf(ongoingCall != null && !entriesObscured) }
+    SideEffect { if (ongoingCall != null || !ongoingDrawn) retainedOngoingCall = ongoingCall }
 
     LaunchedEffect(navigationState.currentRoot, rootSnapRequestId) {
         val requestedPage = pagerPageForRoot(navigationState.currentRoot)
@@ -101,29 +111,43 @@ fun AppShell(
     )
 
     CompositionLocalProvider(
+        LocalPopupPresentationEpoch provides remember { mutableIntStateOf(0) },
         LocalMessageUnreadSummary provides messageUnreadSummary,
         LocalThreadDrafts provides threadDrafts,
         LocalSoftVoWiFiChromeEnvironment provides SoftVoWiFiChromeEnvironment(chromeSpec, backdrop),
-    ) {
+    ) { ManagerHaptics(chromeSpec.hapticsEnabled) {
+        Box(Modifier.fillMaxSize()) {
         Scaffold(
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier.fillMaxSize().managerPressInputGate(rootInteractive)
+                .then(if (rootInteractive) Modifier else Modifier.clearAndSetSemantics {}),
             topBar = {},
-            bottomBar = {
+            popupHost = { ManagerPopupHost() },
+            bottomBar = { CompositionLocalProvider(LocalAppRouteActive provides rootInteractive) {
                 Box(Modifier.fillMaxWidth()) {
                     AnimatedBottomNavigationBar(
-                        visible = policy.showBottomBar,
+                        visible = true,
                         destination = rootForPagerPage(rootPager.selectedPage).destination,
                         onDestinationSelected = { selected ->
                             val root = selected.rootRoute
-                            rootPager.selectRoot(root, RootSelectionMode.ANIMATE)
-                            onNavigationStateChange(AppNavigator.selectRoot(navigationState, root))
+                            val current = latestNavigationState
+                            if (current.topRoute is AppRoute.Root && root != rootForPagerPage(rootPager.selectedPage)) {
+                                rootPager.selectRoot(root, RootSelectionMode.ANIMATE)
+                                latestOnNavigationStateChange(AppNavigator.selectRoot(current, root))
+                            }
+                        },
+                        onDestinationReselected = { selected ->
+                            val root = selected.rootRoute
+                            if (latestNavigationState.topRoute == root && rootForPagerPage(rootPager.selectedPage) == root) {
+                                rootScrollToTop.request(root)
+                            }
                         },
                         chromeSpec = chromeSpec,
                         backdrop = backdrop,
+                        pagerState = rootPager.pagerState,
                         modifier = Modifier.align(Alignment.BottomCenter),
                     )
                 }
-            },
+            } },
             containerColor = colors.canvas.copy(alpha = 1f),
         ) { padding ->
             val layoutInsets = rootBottomLayoutInsets(
@@ -138,20 +162,28 @@ fun AppShell(
                     backdrop,
                     layoutInsets,
                     destinationContent,
-                    if (ongoingCall != null) 80.dp else 0.dp,
+                    if (ongoingDrawn) 80.dp else 0.dp,
+                    rootScrollToTop,
                 )
-                SubpageHost(
-                    navigationState,
-                    topBarTitleOverride,
-                    onNavigationStateChange,
-                    destinationContent,
-                )
-                if (policy.showBottomBar && ongoingCall != null) {
-                    Box(Modifier.align(Alignment.BottomCenter).padding(bottom = layoutInsets.pageContentBottomInset)) { ongoingCall() }
+                CommunicationEntryVisibility(ongoingCall != null && !entriesObscured,
+                    Modifier.align(Alignment.BottomCenter).padding(bottom = layoutInsets.pageContentBottomInset)) { hitEnabled ->
+                    DisposableEffect(Unit) {
+                        ongoingDrawn = true
+                        onDispose {
+                            ongoingDrawn = false
+                            if (latestOngoingCall.value == null) retainedOngoingCall = null
+                        }
+                    }
+                    (ongoingCall ?: retainedOngoingCall)?.invoke(hitEnabled && rootInteractive && ongoingCall != null)
                 }
             }
         }
-    }
+        // 根层继续绘制并保留占位；兄弟屏障只挡尚未被实际子页覆盖的根命中，不包住子页。
+        if (!rootInteractive) Box(Modifier.fillMaxSize().managerPressInputGate(false).clearAndSetSemantics {})
+        SubpageHost(navigationState, topBarTitleOverride, onNavigationStateChange, destinationContent)
+        resultOverlay?.invoke(WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding())
+        }
+    } }
 }
 
 @Composable
@@ -162,6 +194,7 @@ private fun RootPagerHost(
     layoutInsets: RootBottomLayoutInsets,
     destinationContent: @Composable (AppRoute) -> Unit,
     ongoingInset: Dp,
+    rootScrollToTop: RootScrollToTopRegistry,
 ) {
     val contract = appRootPagerContract()
     val capture = backdrop?.let { Modifier.layerBackdrop(it) } ?: Modifier
@@ -180,7 +213,13 @@ private fun RootPagerHost(
                 LocalRootBottomContentInset provides RootBottomContentInset(layoutInsets.pageContentBottomInset + ongoingInset),
                 LocalAppRouteActive provides isRouteActive(navigationState, route),
             ) {
-                AppShellEntryHost { destinationContent(route) }
+                RootScrollToTopProvider(rootScrollToTop, route) {
+                    AppShellEntryHost {
+                        if (LocalManagerResultFeedback.current != null && (route == AppRoute.Home || route == AppRoute.Settings)) {
+                            CommunicationFeedbackHost { destinationContent(route) }
+                        } else destinationContent(route)
+                    }
+                }
             }
         }
     }

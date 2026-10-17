@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -14,6 +15,7 @@ import com.vowifi.sw.manager.model.OperationalLogKind
 import com.vowifi.sw.manager.model.OperationalLogLevel
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.Icon
+import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.Info
 import top.yukonga.miuix.kmp.preference.OverlayDropdownPreference
@@ -36,11 +38,15 @@ internal fun LogFilterRow(
     actions: LogFilterActions,
     modifier: Modifier = Modifier,
 ) {
-    val files = presentation.files
+    val files = presentation.files.groupBy { it.groupKey?.let { group -> "group:$group" } ?: "file:${it.id}" }
+        .values.map { members -> members.firstOrNull { it.name == "engine.log" } ?: members.first() }
     val selectedFileId = presentation.selectedFileId
+    val selectedGroup = presentation.files.firstOrNull { it.id == selectedFileId }?.groupKey
     val filter = presentation.filter
-    val fileOptions = files.map(::operationalLogFileLabel)
-    val selectedFileIndex = files.indexOfFirst { it.id == selectedFileId }
+    val labels = files.map(::operationalLogFileLabel)
+    val fileOptions = files.mapIndexed { index, file -> labels[index] + if (labels.count { it == labels[index] } > 1)
+        " · ${if (file.groupKey == null) "旧文件" else "线路"}${index + 1}" else "" }
+    val selectedFileIndex = files.indexOfFirst { it.id == selectedFileId || (selectedGroup != null && it.groupKey == selectedGroup) }
     val hasSelectedFile = selectedFileIndex >= 0
     val kindOptions = operationalLogKindOptions()
     val levelOptions = operationalLogLevelOptions()
@@ -54,6 +60,10 @@ internal fun LogFilterRow(
         insideMargin = PaddingValues(vertical = 4.dp),
     ) {
         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            if (presentation.files.any { it.groupKey == null }) Text(
+                "当前模块未提供安全分组，仅按文件读取；尚不支持合并同线路日志。",
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+            )
             OverlayDropdownPreference(
                 items = fileItems,
                 selectedIndex = if (hasSelectedFile) selectedFileIndex else 0,
@@ -115,11 +125,6 @@ internal fun operationalLogLevelOptions(): List<Pair<OperationalLogLevel?, Strin
 )
 
 internal fun operationalLogFileLabel(file: OperationalLogFile): String {
-    val source = when {
-        file.name.lowercase().contains("launcher") -> "启动"
-        file.name.lowercase().contains("engine") -> "引擎"
-        else -> "日志"
-    }
     val suffix = file.suffix.filter(Char::isLetterOrDigit).takeLast(4)
-    return if (suffix.isEmpty()) "$source ••••" else "$source •••• $suffix"
+    return if (suffix.isEmpty()) "运行日志 ••••" else "运行日志 •••• $suffix"
 }

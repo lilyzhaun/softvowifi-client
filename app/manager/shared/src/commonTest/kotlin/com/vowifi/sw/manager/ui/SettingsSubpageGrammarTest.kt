@@ -57,7 +57,7 @@ class SettingsSubpageGrammarTest {
         val configActions = SettingsConfigurationActions(
             onSubmit = { _, _, _ -> com.vowifi.sw.manager.model.ConfigurationApplyAcceptance.Unavailable },
             onProvision = { provisionInvoked = true },
-            onRefresh = {},
+            onRefresh = { com.vowifi.sw.manager.data.RefreshResult.Completed },
         )
         var fileSelected = ""
         val logsActions = SettingsLogsActions(

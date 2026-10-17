@@ -1,5 +1,12 @@
 package com.vowifi.sw.manager.ui
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -11,10 +18,11 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import com.vowifi.sw.manager.model.ConfigurationLifecycle
 import com.vowifi.sw.manager.model.ConfigurationSubmit
-import top.yukonga.miuix.kmp.basic.BasicComponent
 import top.yukonga.miuix.kmp.overlay.OverlayDialog
 
 @Composable
@@ -26,8 +34,18 @@ internal fun ConfigurationEditActions(
     var confirmation by remember(draft) { mutableStateOf<ConfigurationEditConfirmation?>(null) }
     val enabled = model.enabled && !draft.pending
     LaunchedEffect(model.instance, enabled) { confirmation = null }
-    BasicComponent(title = "编辑状态", summary = configurationEditFooter(draft, model.instance.lifecycle))
-    if (configurationEditActionsVisible(draft)) {
+    ConfigurationCompletionFeedback(draft.completionSequence,
+        draft.completionStatus == ConfigurationEditStatus.Failed || draft.completionStatus == ConfigurationEditStatus.Unconfirmed)
+    ConfigurationCompletionSummary("编辑状态", configurationEditFooter(draft, model.instance.lifecycle), draft.completionSequence)
+    val spatial = MotionTokens.SpringSpatial
+    val heightSpec = spring<IntSize>(dampingRatio = spatial.dampingRatio, stiffness = spatial.stiffness)
+    AnimatedVisibility(configurationEditActionsVisible(draft),
+        enter = expandVertically(heightSpec, expandFrom = Alignment.Top) +
+            fadeIn(tween(MotionTokens.DurBase, easing = MotionTokens.EaseEnter)),
+        exit = shrinkVertically(heightSpec, shrinkTowards = Alignment.Top) +
+            fadeOut(tween(MotionTokens.DurFast, easing = MotionTokens.EaseStandard)),
+        label = "configuration-dirty-actions",
+    ) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             ManagerTextAction("放弃修改", ManagerAction.Rejected, onClick = {
@@ -42,6 +60,7 @@ internal fun ConfigurationEditActions(
                         else draft.submit(submit)
                     }
                 }, modifier = Modifier.weight(1f), enabled = enabled && draft.dirty, busy = draft.pending, primary = true,
+                busyLabel = "正在保存", labelCandidates = listOf("保存配置", "保存并重启", "正在保存"),
             )
         }
     }

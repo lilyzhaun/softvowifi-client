@@ -1,6 +1,7 @@
 package com.vowifi.sw.manager.data
 
 import com.vowifi.sw.manager.model.MessageRecord
+import com.vowifi.sw.manager.model.HistoryChangeReason
 import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.flow.onSubscription
 import kotlinx.coroutines.sync.withLock
@@ -59,7 +60,9 @@ private suspend fun applyReceivedMessage(
         line.storageHealthy = false
         line.attachmentNotice = STORAGE_SYNC_NOTICE
     }
-    session.publishRecords(line, freshIncomingId)
+    val mutation = freshIncomingId?.let { MessageHistoryMutation(
+        StoredMessageConversation(line.owner, PeerNumberNormalizer.normalize(event.number)), HistoryChangeReason.LIVE_INSERT, setOf(it)) }
+    session.publishRecords(line, freshIncomingId, mutation)
 }
 
 internal suspend fun applyOrBufferSent(

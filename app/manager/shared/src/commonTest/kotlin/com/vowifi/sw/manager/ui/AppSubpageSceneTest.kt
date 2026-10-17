@@ -11,15 +11,18 @@ class AppSubpageSceneTest {
     @Test
     fun everySubpageUsesTheSameOpaqueSceneOwnership() {
         assertEquals("通知设置", AppRoute.SettingsCallNotifications.topBarTitle)
+        // R7 supplement (2026-10-15): settings chrome matches the collapsed Home header.
+        val foldedHomeAlpha = topBarBlendAlpha(1f)
+        assertEquals(0.92f, foldedHomeAlpha)
         val routes = listOf(
             AppRoute.MessageThread(ConversationHandle.fromOpaque("conversation-test")) to 0.92f,
             AppRoute.NewMessage to 0.92f,
-            AppRoute.SettingsAppearance to 0f,
-            AppRoute.SettingsConfiguration to 0f,
-            AppRoute.SettingsDiagnostics to 0f,
-            AppRoute.SettingsLogs to 0f,
-            AppRoute.SettingsCallNotifications to 0f,
-            AppRoute.SettingsAbout to 0f,
+            AppRoute.SettingsAppearance to foldedHomeAlpha,
+            AppRoute.SettingsConfiguration to foldedHomeAlpha,
+            AppRoute.SettingsDiagnostics to foldedHomeAlpha,
+            AppRoute.SettingsLogs to foldedHomeAlpha,
+            AppRoute.SettingsCallNotifications to foldedHomeAlpha,
+            AppRoute.SettingsAbout to foldedHomeAlpha,
         )
 
         routes.forEach { (route, expectedBlendAlpha) ->

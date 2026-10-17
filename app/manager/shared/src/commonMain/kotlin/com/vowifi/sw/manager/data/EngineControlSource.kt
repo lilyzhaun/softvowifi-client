@@ -7,6 +7,7 @@ import kotlinx.coroutines.flow.StateFlow
 interface EngineControlSource {
     val state: StateFlow<EngineControlUiState>
     fun refresh()
+    suspend fun refreshAndAwait(): RefreshResult = RefreshResult.Unsupported
     fun start(iccid: String)
     fun stop(iccid: String)
     fun close() = Unit

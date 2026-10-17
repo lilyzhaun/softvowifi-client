@@ -16,13 +16,12 @@ import androidx.compose.foundation.selection.selectable
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.rememberVectorPainter
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -34,27 +33,11 @@ import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.blur.Backdrop
-import top.yukonga.miuix.kmp.blur.LayerBackdrop
 import top.yukonga.miuix.kmp.blur.drawBackdrop
 import top.yukonga.miuix.kmp.blur.highlight.BloomStroke
 import top.yukonga.miuix.kmp.blur.highlight.Highlight
 import top.yukonga.miuix.kmp.blur.highlight.LightPosition
 import top.yukonga.miuix.kmp.blur.highlight.LightSource
-import top.yukonga.miuix.kmp.blur.layerBackdrop
-
-@Composable
-internal fun HiddenTabs(items: List<SlidingBarItem>, tabsBackdrop: LayerBackdrop, panelOffset: Float) {
-    val layout = floatingRowLayoutContract()
-    Row(
-        Modifier.alpha(0f)
-            .clearAndSetSemantics {}
-            .layerBackdrop(tabsBackdrop)
-            .graphicsLayer { translationX = panelOffset }
-            .height(layout.indicatorHeightDp.dp)
-            .padding(horizontal = layout.innerPaddingDp.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) { TabContent(items, selectedIndex = -1, onSelected = {}, selectable = false) }
-}
 
 @Composable
 internal fun LiquidIndicator(
@@ -64,6 +47,7 @@ internal fun LiquidIndicator(
     ltr: Boolean,
     backdrop: Backdrop,
     highlight: InteractiveHighlight,
+    position: () -> Float = { drag.value },
 ) {
     if (tabWidthPx <= 0f) return
     val density = LocalDensity.current
@@ -73,7 +57,7 @@ internal fun LiquidIndicator(
     Box(
         Modifier.padding(horizontal = layout.innerPaddingDp.dp)
             .graphicsLayer {
-                translationX = bubbleTranslationPx(drag.value, tabWidthPx, !ltr) + panelOffset
+                translationX = bubbleTranslationPx(position(), tabWidthPx, !ltr) + panelOffset
             }
             .then(highlight.gestureModifier)
             .then(drag.modifier)
@@ -113,7 +97,8 @@ internal fun LiquidIndicator(
 }
 
 @Composable
-internal fun OpaqueIndicator(tabWidthPx: Float, panelOffset: Float, drag: DampedDragAnimation, ltr: Boolean) {
+internal fun OpaqueIndicator(tabWidthPx: Float, panelOffset: Float, drag: DampedDragAnimation, ltr: Boolean,
+    position: () -> Float = { drag.value }) {
     if (tabWidthPx <= 0f) return
     val density = LocalDensity.current
     val accent = MiuixTheme.colorScheme.primary
@@ -121,7 +106,7 @@ internal fun OpaqueIndicator(tabWidthPx: Float, panelOffset: Float, drag: Damped
     Box(
         Modifier.padding(horizontal = layout.innerPaddingDp.dp)
             .graphicsLayer {
-                translationX = bubbleTranslationPx(drag.value, tabWidthPx, !ltr) + panelOffset
+                translationX = bubbleTranslationPx(position(), tabWidthPx, !ltr) + panelOffset
                 scaleX = drag.scaleX
                 scaleY = drag.scaleY
             }
@@ -142,13 +127,15 @@ internal fun androidx.compose.foundation.layout.RowScope.TabContent(
 ) {
     val colors = LocalSoftVoWiFiColors.current
     val layout = floatingRowLayoutContract()
+    val focusIndication = rememberManagerKeyboardFocusIndication(LocalAppRouteActive.current)
     items.forEachIndexed { index, item ->
+        val tint = rememberBottomTint(if (index == selectedIndex) MiuixTheme.colorScheme.primary else colors.textPrimary)
         val tab = Modifier.defaultMinSize(layout.tabMinimumWidthDp.dp, layout.tabMinimumHeightDp.dp).fillMaxHeight().weight(1f)
         Column(
             modifier = if (selectable) tab.selectable(
                 selected = index == selectedIndex,
                 interactionSource = null,
-                indication = null,
+                indication = focusIndication,
                 role = Role.Tab,
                 onClick = { onSelected(index) },
             ) else tab,
@@ -158,9 +145,9 @@ internal fun androidx.compose.foundation.layout.RowScope.TabContent(
             top.yukonga.miuix.kmp.basic.BadgedBox(badge = {
                 if (index == AppDestination.MESSAGES.ordinal) MessageSummaryBadge(LocalMessageUnreadSummary.current, indicatorOnly = LocalDensity.current.fontScale > 1.3f)
             }) {
-                Icon(item.icon, contentDescription = null, tint = colors.textPrimary)
+                Icon(painter = rememberVectorPainter(item.icon), contentDescription = null, tint = tint)
             }
-            Text(item.label, color = colors.textPrimary, fontSize = layout.labelSizeSp.sp, lineHeight = layout.labelLineHeightSp.sp, fontWeight = FontWeight.Normal)
+            Text(item.label, color = tint, fontSize = layout.labelSizeSp.sp, lineHeight = layout.labelLineHeightSp.sp, fontWeight = FontWeight.Normal)
         }
     }
 }

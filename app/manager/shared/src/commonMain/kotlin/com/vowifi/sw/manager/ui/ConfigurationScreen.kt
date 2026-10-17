@@ -1,22 +1,20 @@
 package com.vowifi.sw.manager.ui
 
-import androidx.compose.foundation.layout.BoxWithConstraints
-import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.State
 import androidx.compose.runtime.remember
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.vowifi.sw.manager.model.ConfigurationInstanceId
 import com.vowifi.sw.manager.model.ConfigurationSubmit
 import com.vowifi.sw.manager.model.ConfigurationUiState
+import com.vowifi.sw.manager.model.ConfigurationProvisionState
+import com.vowifi.sw.manager.data.RefreshResult
+import kotlinx.coroutines.flow.StateFlow
 import com.vowifi.sw.manager.model.SimControlUiState
 import com.vowifi.sw.manager.model.SimHandle
 import top.yukonga.miuix.kmp.basic.BasicComponent
@@ -34,22 +32,15 @@ internal data class ConfigurationActions(
 fun ConfigurationScreen(
     state: ConfigurationUiState,
     onSubmit: ConfigurationSubmit,
-    onRefresh: () -> Unit,
+    onRefresh: suspend () -> RefreshResult,
     simControlState: SimControlUiState? = null,
     onProvision: (SimHandle) -> Unit = {},
+    provisioning: StateFlow<ConfigurationProvisionState>? = null,
+    provisionBusy: Boolean = false,
 ) {
-    val presentation = configurationPresentation(state, simControlState)
     val drafts = remember { ConfigurationDraftStore() }
-    val expansionState = rememberConfigurationExpansionState()
-    BoxWithConstraints(Modifier.fillMaxSize()) {
-        val inset = if (maxWidth >= 600.dp) 24.dp else 16.dp
-        LazyColumn(
-            modifier = Modifier.widthIn(max = 960.dp).fillMaxWidth().align(Alignment.TopCenter),
-            contentPadding = PaddingValues(inset),
-        ) {
-            configurationItems(state, presentation, drafts, expansionState, ConfigurationActions(onSubmit, onProvision, onRefresh))
-        }
-    }
+    SettingsConfigurationScreen(state, simControlState, SettingsConfigurationActions(onSubmit, onProvision, onRefresh),
+        drafts, provisioning, provisionBusy)
 }
 
 internal fun LazyListScope.configurationItems(
@@ -58,27 +49,40 @@ internal fun LazyListScope.configurationItems(
     drafts: ConfigurationDraftStore,
     expansionState: ConfigurationExpansionState,
     actions: ConfigurationActions,
+    refreshEnabled: Boolean = configurationRefreshEnabled(state),
+    refreshRotation: State<Float>? = null,
+    loading: ManagerLoadingState? = null,
+    provisioning: ConfigurationProvisionState = ConfigurationProvisionState(),
 ) {
+    if (loading?.hidden == true) return
     item(key = "draft-session") {
         val topBar = LocalSubpageTopBarAction.current
         BasicComponent(title = "编辑配置", summary = "未保存修改仅在本次应用会话保留", endActions = {
             if (topBar == null) ManagerIconAction(MiuixIcons.Refresh, "刷新配置", ManagerAction.Refresh, actions.refresh,
-                enabled = configurationRefreshEnabled(state))
+                enabled = refreshEnabled, iconRotation = refreshRotation)
         })
     }
     presentation.disclosure?.let { disclosure ->
         item(key = "fixture-disclosure") { FixtureDisclosureBand(disclosure) }
     }
-    presentation.statePanel?.let { panel ->
-        item(key = "configuration-state") { StatePanel(panel) }
+    val shown = if (loading?.showLoading == true) configurationPresentation(ConfigurationUiState.Loading) else presentation
+    shown.statePanel?.let { panel ->
+        item(key = "configuration-state") {
+            StatePanel(panel.copy(retryDescription = if (!panel.loading && refreshEnabled) "重试读取配置" else null),
+                modifier = Modifier.padding(bottom = settingsHubLayoutContract().cardGap),
+                onRetry = if (refreshEnabled) actions.refresh else null)
+        }
     }
+    if (loading?.showLoading == true) return
     if (state !is ConfigurationUiState.Ready && drafts.hasUnconfirmed) {
         item(key = "configuration-unconfirmed") {
             BasicComponent(title = "结果未确认", summary = "修改已保留；请刷新配置后核对，不会自动重试")
         }
     }
     presentation.supplementalStatePanel?.let { panel ->
-        item(key = "sim-control-state") { StatePanel(panel) }
+        item(key = "sim-control-state") {
+            StatePanel(panel, modifier = Modifier.padding(bottom = settingsHubLayoutContract().cardGap))
+        }
     }
     if (state is ConfigurationUiState.Ready && presentation.rows.isNotEmpty()) {
         state.message?.let { message ->
@@ -98,7 +102,9 @@ internal fun LazyListScope.configurationItems(
                 onSubmit = actions.submit,
             )
         } else {
-            ConfigurationStatusCard(row, state, actions.provision)
+            val pending = row.handle?.let { it in provisioning.pending } == true
+            ConfigurationStatusCard(row, state, actions.provision, pending = pending,
+                completion = row.handle?.let { provisioning.completions[it] })
         }
     }
 }

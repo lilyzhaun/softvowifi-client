@@ -8,7 +8,7 @@ data class AppearanceSettings(
     val floatingNavigation: Boolean,
     val blurRequested: Boolean,
     val liquidGlassRequested: Boolean = false,
-    val predictiveBackRequested: Boolean = false,
+    val predictiveBackRequested: Boolean = true,
     val hapticsEnabled: Boolean = true,
 ) {
     companion object {
@@ -16,7 +16,7 @@ data class AppearanceSettings(
             floatingNavigation = true,
             blurRequested = true,
             liquidGlassRequested = false,
-            predictiveBackRequested = false,
+            predictiveBackRequested = true,
             hapticsEnabled = true,
         )
     }

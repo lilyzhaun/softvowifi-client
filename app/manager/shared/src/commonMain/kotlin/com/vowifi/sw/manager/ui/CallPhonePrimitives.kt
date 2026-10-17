@@ -2,11 +2,15 @@ package com.vowifi.sw.manager.ui
 
 import androidx.compose.foundation.background
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -15,6 +19,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.luminance
@@ -39,8 +44,10 @@ internal data class PhoneColors(val canvas: Color, val surface: Color, val text:
 }
 
 @Composable fun PhoneActionFeedback(settings: AppearanceSettings, blurSupported: Boolean = false, content: @Composable () -> Unit) {
-    CompositionLocalProvider(LocalSoftVoWiFiChromeEnvironment provides SoftVoWiFiChromeEnvironment(
-        appChromeSpec(settings, blurSupported), backdrop = null), content = content)
+    ManagerHaptics(settings.hapticsEnabled) {
+        CompositionLocalProvider(LocalSoftVoWiFiChromeEnvironment provides SoftVoWiFiChromeEnvironment(
+            appChromeSpec(settings, blurSupported), backdrop = null), content = content)
+    }
 }
 @Composable internal fun phoneColors(): PhoneColors {
     val colors = LocalSoftVoWiFiColors.current
@@ -74,36 +81,52 @@ internal data class PhoneColors(val canvas: Color, val surface: Color, val text:
     toggle: Boolean = false, prominent: Boolean = false,
     material: Boolean = true, targetSize: Dp? = null,
     roundedSquare: Boolean = false,
+    action: ManagerAction = ManagerAction.ContextAction,
+    hitEnabled: Boolean = true,
+    colorSpec: androidx.compose.animation.core.FiniteAnimationSpec<Color> = tween(MotionTokens.DurPhoneColor),
     content: (@Composable () -> Unit)? = null,
 ) {
     val palette = phoneColors()
     val interaction = remember { MutableInteractionSource() }
-    val pressed by interaction.collectIsPressedAsState()
-    val actionable = enabled && !busy && LocalAppRouteActive.current
+    val actionable = hitEnabled && enabled && !busy && LocalAppRouteActive.current
+    val actionableNow by rememberUpdatedState(actionable)
+    val motion = rememberManagerPressMotion(interaction, actionable, ManagerPressStyle.Round)
     val feedback = if (toggle) toggleActionFeedback(!selected, actionable)
-        else managerActionFeedback(ManagerAction.ContextAction, actionable)
-    val click = rememberManagerActionHandler(feedback, onClick)
-    val longClick = onLongClick?.let { rememberManagerActionHandler(feedback, it) }
-    val opacity by animateFloatAsState(if (enabled || busy) 1f else .55f, tween(160), label = "phoneAvailability")
+        else managerActionFeedback(action, actionable)
+    val acceptedClick = rememberManagerActionHandler(feedback, onClick)
+    val click = { if (actionableNow) acceptedClick() }
+    val longClick = onLongClick?.let { callback ->
+        val acceptedLongClick = rememberManagerActionHandler(managerActionFeedback(ManagerAction.LongPress, actionable), callback)
+        return@let { if (actionableNow) acceptedLongClick() }
+    }
+    val opacity by animateFloatAsState(if (enabled || busy) 1f else .55f, tween(MotionTokens.DurPhoneColor), label = "phoneAvailability")
     val shape = when { wide -> RoundedCornerShape(40.dp); roundedSquare -> RoundedCornerShape(20.dp); else -> CircleShape }
-    val surface by animateColorAsState(when { destructive -> palette.red; prominent -> palette.accent; selected -> palette.tonal; compact -> Color.Transparent; else -> palette.surface }, tween(160))
-    val foreground by animateColorAsState(when { destructive -> Color.White; prominent -> palette.onAccent; selected -> palette.accent; else -> palette.text }, tween(160))
-    Column(modifier, horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    // E6: a new theme starts at its true colors; confirmed business changes keep their existing spec.
+    val colorStates = key(palette) {
+        animateColorAsState(when { destructive -> palette.red; prominent -> palette.accent; selected -> palette.tonal; compact -> Color.Transparent; else -> palette.surface }, colorSpec) to
+            animateColorAsState(when { destructive -> Color.White; prominent -> palette.onAccent; selected -> palette.accent; else -> palette.text }, colorSpec)
+    }
+    val surface by colorStates.first
+    val foreground by colorStates.second
+    Column(modifier.then(if (hitEnabled) Modifier else Modifier.clearAndSetSemantics { }),
+        horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
         val target = targetSize ?: if (compact) 48.dp else if (prominent || destructive) 80.dp else 72.dp
         val targetModifier = Modifier.then(if (wide) Modifier.fillMaxWidth().heightIn(min = 64.dp) else Modifier.sizeIn(minWidth = target, minHeight = target))
-        Box(targetModifier.combinedClickable(enabled = actionable, role = Role.Button, interactionSource = interaction,
+        val input = if (hitEnabled) targetModifier.managerPressInputGate(actionable).combinedClickable(enabled = actionable, role = Role.Button, interactionSource = interaction,
                 indication = null, onClick = click, hapticFeedbackEnabled = false,
                 onLongClick = longClick, onLongClickLabel = longClickLabel)
             .semantics {
                 contentDescription = label
                 if (toggle) { this.selected = selected; stateDescription = if (selected) "已开启" else "已关闭" }
                 if (busy) stateDescription = "处理中"
-            }, contentAlignment = Alignment.Center) {
-        val control = targetModifier.phonePressMotion(actionable, interaction).graphicsLayer { alpha = opacity }
+            } else targetModifier
+        Box(input.managerKeyboardFocusRing(interaction, actionable, shape,
+            if (prominent) palette.onAccent else palette.accent), contentAlignment = Alignment.Center) {
+        val control = targetModifier.managerPressDrawing(motion).graphicsLayer { alpha = opacity }
             .testTag("phone-face-$label").clip(shape)
         val background = if (material && !compact && !selected && !destructive && !prominent) communicationSurfaceModifier(control, shape, surface)
             else control.background(surface)
-        Box(background.background(if (pressed && feedback.accepted) foreground.copy(alpha = .08f) else Color.Transparent)
+        Box(background.drawBehind { drawRect(foreground.copy(alpha = motion.tintAlpha.value)) }
             .padding(if (wide) 12.dp else 6.dp), contentAlignment = Alignment.Center) {
             when {
                 busy -> CircularProgressIndicator(Modifier.size(28.dp))
@@ -127,9 +150,11 @@ internal data class PhoneColors(val canvas: Color, val surface: Color, val text:
     else if (icon != null) {
         val interaction = remember { MutableInteractionSource() }
         val feedback = managerActionFeedback(ManagerAction.Navigate, LocalAppRouteActive.current)
-        Row(Modifier.heightIn(min = 48.dp).combinedClickable(enabled = feedback.accepted, role = Role.Button,
+        Row(Modifier.heightIn(min = 48.dp).managerPressInputGate(feedback.accepted).combinedClickable(enabled = feedback.accepted, role = Role.Button,
             interactionSource = interaction, indication = null, hapticFeedbackEnabled = false,
-            onClick = rememberManagerActionHandler(feedback, onClick)).semantics { contentDescription = label }
+            onClick = rememberManagerActionHandler(feedback, onClick))
+            .managerKeyboardFocusRing(interaction, feedback.accepted, androidx.compose.ui.graphics.RectangleShape, phoneColors().accent)
+            .semantics { contentDescription = label }
             .padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Icon(icon, null, Modifier.size(24.dp), tint = phoneColors().secondary)
@@ -142,6 +167,21 @@ internal data class PhoneColors(val canvas: Color, val surface: Color, val text:
 internal fun displayCallNumber(raw: String): String = if (raw.startsWith("+1") && raw.length == 12 && raw.drop(1).all(Char::isDigit))
     "+1 ${raw.substring(2, 5)} ${raw.substring(5, 8)} ${raw.substring(8)}" else raw
 
-@Composable fun OngoingCallAffordance(label: String = "返回当前通话", onClick: () -> Unit) {
-    PhoneButton(label, onClick, Modifier.widthIn(max = 320.dp).padding(8.dp), selected = true, wide = true, icon = CallPhoneIcons.Phone)
+@Composable
+internal fun CommunicationEntryVisibility(visible: Boolean, modifier: Modifier = Modifier,
+    retainOnInactiveRoute: Boolean = false,
+    content: @Composable (hitEnabled: Boolean) -> Unit) {
+    val routeActive = LocalAppRouteActive.current
+    val shown = visible && (routeActive || retainOnInactiveRoute)
+    val hitEnabled = visible && routeActive
+    AnimatedVisibility(shown, modifier = modifier,
+        enter = fadeIn(MotionTokens.SpringSpatial) + scaleIn(MotionTokens.SpringSpatial, initialScale = MotionTokens.ScaleEnterFrom),
+        exit = fadeOut(MotionTokens.SpringSpatial) + scaleOut(MotionTokens.SpringSpatial, targetScale = MotionTokens.ScaleEnterFrom)) {
+        Box(if (hitEnabled) Modifier else Modifier.clearAndSetSemantics { }) { content(hitEnabled) }
+    }
+}
+
+@Composable fun OngoingCallAffordance(label: String = "返回当前通话", hitEnabled: Boolean = true, onClick: () -> Unit) {
+    PhoneButton(label, onClick, Modifier.widthIn(max = 320.dp).padding(8.dp), selected = true, wide = true,
+        icon = CallPhoneIcons.Phone, hitEnabled = hitEnabled)
 }

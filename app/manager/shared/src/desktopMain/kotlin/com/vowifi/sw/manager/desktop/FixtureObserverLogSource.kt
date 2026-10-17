@@ -2,6 +2,7 @@ package com.vowifi.sw.manager.desktop
 
 import com.vowifi.sw.manager.data.ObserverLogSource
 import com.vowifi.sw.manager.data.RegistrationLogParser
+import com.vowifi.sw.manager.data.RefreshResult
 import com.vowifi.sw.manager.model.ParseIssue
 import com.vowifi.sw.manager.model.RegistrationUiState
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -11,9 +12,22 @@ import kotlinx.coroutines.flow.asStateFlow
 class FixtureObserverLogSource(mode: String) : ObserverLogSource {
     private val mutableState = MutableStateFlow(fixture(mode))
     override val state: StateFlow<RegistrationUiState> = mutableState.asStateFlow()
+    private var closed = false
 
-    override fun refresh() {
-        mutableState.value = fixture("data")
+    override fun refresh() { readSnapshot() }
+    override suspend fun refreshAndAwait(): RefreshResult = readSnapshot()
+    override fun close() { closed = true }
+
+    private fun readSnapshot(): RefreshResult {
+        if (closed) return RefreshResult.Unsupported
+        val snapshot = fixture("data") // Run the existing parser, publish, then acknowledge the read.
+        mutableState.value = snapshot
+        return when (snapshot) {
+            is RegistrationUiState.Data, RegistrationUiState.Empty -> RefreshResult.Completed
+            is RegistrationUiState.ParseError -> RefreshResult.Failed("样例观测日志无法解析")
+            is RegistrationUiState.ReadError -> RefreshResult.Failed(snapshot.message)
+            RegistrationUiState.Loading -> RefreshResult.Unsupported
+        }
     }
 
     private fun fixture(mode: String): RegistrationUiState = when (mode) {

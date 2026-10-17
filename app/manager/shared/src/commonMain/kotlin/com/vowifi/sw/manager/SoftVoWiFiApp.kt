@@ -1,20 +1,27 @@
 package com.vowifi.sw.manager
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.saveable.Saver
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.unit.dp
 import com.vowifi.sw.manager.ui.AppDestination
 import com.vowifi.sw.manager.ui.AppShell
 import com.vowifi.sw.manager.ui.AppearanceSettingsSource
 import com.vowifi.sw.manager.ui.InMemoryAppearanceSettingsSource
 import com.vowifi.sw.manager.ui.SoftVoWiFiTheme
+import com.vowifi.sw.manager.ui.LocalManagerResultFeedback
+import com.vowifi.sw.manager.ui.ManagerResultFeedbackLayer
+import com.vowifi.sw.manager.ui.rememberManagerResultFeedback
 import com.vowifi.sw.manager.ui.messageRouteTopBarTitle
 import com.vowifi.sw.manager.model.CallPhase
 import com.vowifi.sw.manager.model.CallUiState
@@ -31,6 +38,7 @@ import com.vowifi.sw.manager.ui.navigation.AppNavigator
 import com.vowifi.sw.manager.ui.navigation.AppRoute
 import com.vowifi.sw.manager.ui.navigation.NavigationRestoreResult
 import com.vowifi.sw.manager.ui.navigation.destination
+import com.vowifi.sw.manager.ui.navigation.root
 import com.vowifi.sw.manager.ui.navigation.rootRoute
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.collect
@@ -102,6 +110,7 @@ fun SoftVoWiFiApp(
     onOpenCall: (() -> Unit)? = null,
     callLineLabel: String = "当前绑定线路",
     onCallPermissions: (() -> Unit)? = null,
+    exportCompletion: com.vowifi.sw.manager.model.LogExportCompletion? = null,
 ) {
     val observerState by sources.observer.state.collectAsState()
     val engineState by sources.engine.state.collectAsState()
@@ -117,12 +126,14 @@ fun SoftVoWiFiApp(
     val messageUnreadSummary by sources.messages.unreadSummary.collectAsState()
     val callState by sources.calls.state.collectAsState()
     val callLines by sources.calls.lines.collectAsState()
-    val callHistory by sources.calls.history.collectAsState()
+    val callHistorySnapshot = sources.calls.historySnapshot?.collectAsState()?.value
+    val callHistory = callHistorySnapshot?.view ?: sources.calls.history.collectAsState().value
+    val callHistoryOwners = callHistorySnapshot?.owners ?: sources.calls.historyOwners.collectAsState().value
     val callAudioControls by sources.calls.audioControls.collectAsState()
     val appearanceSettings by appearanceSource.state.collectAsState()
     val initialNavigationState = remember(initialDestination, initialSubpage) {
         val root = AppNavigationState.initial(initialDestination.rootRoute)
-        initialSubpage?.let { AppNavigator.push(root, it) } ?: root
+        initialSubpage?.let { AppNavigator.push(AppNavigationState.initial(it.root), it) } ?: root
     }
     val navigationStateSaver = remember(initialNavigationState) {
         Saver<AppNavigationState, String>(
@@ -160,11 +171,15 @@ fun SoftVoWiFiApp(
         previousEngineAttachmentSignature = engineAttachmentSignature
     }
     var previousCallPhase by remember { mutableStateOf<CallPhase?>(null) }
+    var obscuredEntryRoots by remember { mutableStateOf(emptySet<AppRoute.Root>()) }
     var rootSnapRequestId by rememberSaveable { mutableLongStateOf(0L) }
     val messageDraft = com.vowifi.sw.manager.ui.rememberBoundMessageDraft(
-        messageState, navigationState.topRoute == AppRoute.NewMessage, sources.messages::selectHistoryOwner,
-    )
-    val callDraft = com.vowifi.sw.manager.ui.rememberCallDialDraft(callLines)
+        messageState, navigationState.topRoute == AppRoute.NewMessage,
+    ) { owner ->
+        sources.messages.selectHistoryOwner(owner)
+        sources.messages.historyChoices.value.selectedOwner == owner
+    }
+    val callDraft = com.vowifi.sw.manager.ui.rememberCallDialDraft(callLines, callState)
     val callPhase = (callState as? CallUiState.Ready)?.phase
     LaunchedEffect(callPhase) {
         val routed = AppNavigator.forCallTransition(navigationState, previousCallPhase, callPhase)
@@ -176,14 +191,20 @@ fun SoftVoWiFiApp(
         incomingRoutes.collect { route ->
             navigate(when (route) {
                 is AppRoute.Root -> AppNavigator.selectRoot(navigationState, route)
-                is AppRoute.Subpage -> AppNavigator.open(navigationState, route)
+                is AppRoute.Subpage -> AppNavigator.push(
+                    AppNavigator.selectRoot(navigationState, route.root), route,
+                )
             })
             rootSnapRequestId += 1
         }
     }
     val selectedDestination = navigationState.currentRoot.destination
-    LaunchedEffect(selectedDestination) { sources.refresh(selectedDestination.refreshTargets) }
-    val refreshHome = { sources.refresh(AppDestination.HOME.refreshTargets) }
+    LaunchedEffect(selectedDestination) {
+        // Messages is process-owned: initialization and data/attachment events update
+        // it independently of navigation. Reentry must not reload owner remarks.
+        if (selectedDestination != AppDestination.MESSAGES) sources.refresh(selectedDestination.refreshTargets)
+    }
+    val refreshHome: suspend () -> com.vowifi.sw.manager.data.RefreshResult = { sources.refreshHomeAndAwait() }
     val contentState = SoftVoWiFiContentState(
         observer = observerState,
         simControl = simControlState,
@@ -196,7 +217,9 @@ fun SoftVoWiFiApp(
         callHistory = callHistory,
         callAudio = callAudioControls,
         appearance = appearanceSettings,
-    )
+        callHistorySnapshot = callHistorySnapshot,
+        callHistoryOwners = callHistoryOwners,
+    ).let { input -> remember(input) { input } }
     val contentActions = SoftVoWiFiContentActions(
         sources = sources,
         configurationDrafts = configurationDrafts,
@@ -210,6 +233,13 @@ fun SoftVoWiFiApp(
         exportBusy = exportBusy,
         appVersion = appVersion,
         refreshHome = refreshHome,
+        exportCompletion = exportCompletion,
+        onEntriesObscuredChange = { root, obscured ->
+            if ((root in obscuredEntryRoots) != obscured) {
+                obscuredEntryRoots = if (obscured) obscuredEntryRoots + root else obscuredEntryRoots - root
+            }
+        },
+        onConfirmMessageOwner = { owner -> messageDraft.confirmOwner(owner) },
         messageDraft = messageDraft,
         callDraft = callDraft,
         onCallDraftChange = { callDraft.number = it },
@@ -227,22 +257,36 @@ fun SoftVoWiFiApp(
             onPredictiveBackRequestedChange = appearanceSource::setPredictiveBackRequested,
             onHapticsEnabledChange = appearanceSource::setHapticsEnabled,
         ),
-    )
+    ).let { input -> remember(input) { input } }
     SoftVoWiFiTheme(forceDark) {
-        AppShell(
-            navigationState = navigationState,
-            onNavigationStateChange = ::navigate,
-            topBarTitleOverride = messageRouteTopBarTitle(navigationState.topRoute, messageState),
-            appearanceSettings = appearanceSettings,
-            blurSupported = blurSupported,
-            rootSnapRequestId = rootSnapRequestId,
-            messageUnreadSummary = messageUnreadSummary,
-            ongoingCall = if (onOpenCall != null && callPhase != null && callPhase != CallPhase.Idle && navigationState.currentRoot != AppRoute.Calls) {
-                { com.vowifi.sw.manager.ui.OngoingCallAffordance(onClick = onOpenCall) }
-            } else null,
-            destinationContent = { route ->
-                SoftVoWiFiDestinationContent(route, contentState, contentActions)
-            },
-        )
+        val resultFeedback = rememberManagerResultFeedback()
+        CompositionLocalProvider(LocalManagerResultFeedback provides resultFeedback) {
+            AppShell(
+                navigationState = navigationState,
+                onNavigationStateChange = ::navigate,
+                topBarTitleOverride = messageRouteTopBarTitle(navigationState.topRoute, messageState),
+                appearanceSettings = appearanceSettings,
+                blurSupported = blurSupported,
+                rootSnapRequestId = rootSnapRequestId,
+                messageUnreadSummary = messageUnreadSummary,
+                entriesObscured = navigationState.currentRoot in obscuredEntryRoots,
+                ongoingCall = if (onOpenCall != null && callPhase != null && callPhase != CallPhase.Idle && navigationState.currentRoot != AppRoute.Calls) {
+                    { hitEnabled -> com.vowifi.sw.manager.ui.OngoingCallAffordance(hitEnabled = hitEnabled, onClick = onOpenCall) }
+                } else null,
+                resultOverlay = { bottomInset ->
+                    val registered = com.vowifi.sw.manager.ui.hasRegisteredCommunicationEngine(callLines)
+                    val hasEntry = navigationState.currentRoot !in obscuredEntryRoots && registered && (navigationState.topRoute == AppRoute.Messages ||
+                        (navigationState.topRoute == AppRoute.Calls && (callPhase == null || callPhase == CallPhase.Idle)))
+                    // Both existing root entries occupy 64dp above their original 24dp bottom margin.
+                    val entryInset = remember(resultFeedback, hasEntry, bottomInset) {
+                        derivedStateOf { if (hasEntry) maxOf(bottomInset, resultFeedback.pageInset?.value ?: 0.dp) + 88.dp else 0.dp }
+                    }
+                    ManagerResultFeedbackLayer(resultFeedback, bottomInset, exportCompletion, entryInset)
+                },
+                destinationContent = { route ->
+                    SoftVoWiFiDestinationContent(route, contentState, contentActions)
+                },
+            )
+        }
     }
 }

@@ -2,13 +2,23 @@ package com.vowifi.sw.manager.desktop
 
 import androidx.compose.runtime.*
 import androidx.compose.ui.ImageComposeScene
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.*
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.Density
 import com.vowifi.sw.manager.data.CallSessionClock
+import com.vowifi.sw.manager.data.*
 import com.vowifi.sw.manager.model.*
 import com.vowifi.sw.manager.ui.*
+import com.vowifi.sw.manager.ui.testing.MotionTestEnvironment
+import com.vowifi.sw.manager.ui.testing.onMotionTestThread
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.test.UnconfinedTestDispatcher
+import kotlinx.coroutines.test.runTest
+import kotlin.time.Duration.Companion.seconds
+import org.jetbrains.skia.Bitmap
 import java.nio.file.Files
 import java.nio.file.Path
 import kotlin.test.*
@@ -198,6 +208,313 @@ class CallScreensRenderTest {
             assertTrue(refreshed)
             screenshot(scene, "unregistered-dark")
         } finally { scene.close() }
+    }
+
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    @Test fun realSourceStagesKeepRegionsAndBlendTextAndActionGroups() = onMotionTestThread {
+        runTest(UnconfinedTestDispatcher(), timeout = 20.seconds) {
+            for (incoming in listOf(true, false)) {
+                val wire = FakeCallTransport()
+                val audio = FakeCallAudioController()
+                val dialGate = if (incoming) null else wire.enqueueGate()
+                val backend = sourceOf(listOf(callRunning(CALL_ICCID_A)), wire, audio,
+                    monotonicNow = { testScheduler.currentTime })
+                try {
+                    if (incoming) wire.emitIncoming(CALL_TOKEN, "RINGING", peer = "+12025550123")
+                    else { backend.dial("+12025550123"); wire.emitCallState(CALL_TOKEN, "DIALING") }
+                    assertEquals(if (incoming) CallPhase.Ringing else CallPhase.Dialing, backend.ready().phase)
+                    MotionTestEnvironment(testScheduler, width = 390, height = 844) {
+                        val actual by backend.state.collectAsState()
+                        SoftVoWiFiTheme(false) {
+                            CallScreenContent(actual as CallUiState.Ready, "SIM 2 · T-Mobile", CallAudioControls(),
+                                onAction = { backend.ready().binding?.let { b -> backend.act(b, it) } },
+                                onMute = backend::mute, onSpeaker = backend::speaker, onDigit = {},
+                                onRestoreAudio = {}, onMinimize = {})
+                        }
+                    }.use { env ->
+                        repeat(24) { env.advanceFrameBy() }
+                        fun text(prefix: String) = nodes(env.scene).first { node ->
+                            node.config.getOrNull(SemanticsProperties.Text)?.any { it.text.startsWith(prefix) } == true
+                        }
+                        fun identity() = listOf(text("SIM 2 · T-Mobile").boundsInRoot,
+                            text("+1 202 555 0123").boundsInRoot, button(env.scene, "返回应用").boundsInRoot)
+                        fun footerBottom() = listOf("接听", "拒接", "取消", "挂断").mapNotNull { label ->
+                            nodes(env.scene).firstOrNull { node ->
+                                node.config.getOrNull(SemanticsProperties.ContentDescription)?.contains(label) == true &&
+                                    node.config.contains(SemanticsActions.OnClick)
+                            }?.boundsInRoot?.bottom
+                        }.max()
+                        val fixedIdentity = identity()
+                        val fixedBottom = footerBottom()
+                        val status = text(if (incoming) "来电" else "正在呼叫").boundsInRoot
+                        val statusRoi = Rect(12f, status.top - 4f, 378f, status.bottom + 4f)
+                        val footerRoi = Rect(12f, fixedBottom - 224f, 378f, (fixedBottom + 28f).coerceAtMost(844f))
+                        fun patch(rect: Rect) = s6Patch(env, testScheduler.currentTime, rect)
+                        suspend fun change(phase: CallPhase, action: suspend () -> Unit) {
+                            val oldText = patch(statusRoi); val oldGroup = patch(footerRoi)
+                            action()
+                            assertEquals(phase, backend.ready().phase, "先确认真实source阶段，不能只改UI投影")
+                            repeat(2) { env.advanceFrameBy(0) }
+                            env.advanceFrameBy(80); val out80 = patch(footerRoi)
+                            assertEquals(fixedIdentity, identity(), "80ms身份区不重排")
+                            assertEquals(fixedBottom, footerBottom(), 2f, "动作组固定底边")
+                            env.advanceFrameBy(20); val middleText = patch(statusRoi)
+                            env.advanceFrameBy(80); val in180 = patch(footerRoi)
+                            env.advanceFrameBy(120)
+                            val newText = patch(statusRoi); val newGroup = patch(footerRoi)
+                            assertEquals(fixedIdentity, identity(), "真实阶段变化后身份/返回入口固定")
+                            assertEquals(fixedBottom, footerBottom(), 2f)
+                            s6AssertCrossfade(oldText, middleText, newText)
+                            s6AssertPartial(oldGroup, out80, "80ms仍有旧动作但非瞬切/满强度")
+                            s6AssertPartial(newGroup, in180, "180ms新动作组必须处于真实淡入中帧")
+                        }
+                        if (incoming) change(CallPhase.Connecting) { click(env.scene, "接听") }
+                        change(CallPhase.InCall) {
+                            if (incoming) wire.emitIncoming(CALL_TOKEN, "IN_CALL")
+                            else wire.emitCallState(CALL_TOKEN, "IN_CALL")
+                        }
+                        dialGate?.complete(Unit)
+                        env.advanceFrameBy(0)
+                        assertEquals(listOf(if (incoming) "answer" else "dial"), wire.requests.map { it.method })
+                        assertEquals(1, audio.starts.size, "阶段动画不能重复启动音频")
+                        // legacy无版本事件不携带可信elapsed；真实计时只能来自现有权威快照入口。
+                        val snapshotsBeforeClock = wire.snapshotRequests.size
+                        backend.refresh(); repeat(3) { env.advanceFrameBy(0) }
+                        assertTrue(wire.snapshotRequests.size > snapshotsBeforeClock)
+                        assertEquals(CallPhase.InCall, backend.ready().phase)
+                        assertEquals(1, audio.starts.size, "采纳同通话快照不能重复启动音频")
+                        val clock = requireNotNull(backend.ready().clock)
+                        val firstDuration = clock.formatted()
+                        env.advanceFrameBy(1000)
+                        val nextDuration = clock.formatted()
+                        assertNotEquals(firstDuration, nextDuration)
+                        assertTrue(nodes(env.scene).any { n -> n.config.getOrNull(SemanticsProperties.Text)
+                            ?.any { it.text.endsWith(nextDuration) } == true }, "真实时钟逐秒更新")
+                        val tick = patch(statusRoi)
+                        env.advanceFrameBy(100)
+                        assertContentEquals(tick, patch(statusRoi), "计时换秒后不得再交叉淡入/滚动")
+                    }
+                } finally { backend.close(); dialGate?.complete(Unit) }
+            }
+        }
+    }
+
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    @Test fun realSourceCrossesInCallAndTerminalWithoutReplacingIdentityFooterOrStageSlot() = onMotionTestThread {
+        runTest(UnconfinedTestDispatcher(), timeout = 20.seconds) {
+            val wire = FakeCallTransport(); val audio = FakeCallAudioController()
+            val backend = sourceOf(listOf(callRunning(CALL_ICCID_A)), wire, audio, monotonicNow = { testScheduler.currentTime })
+            var heldHangup: CompletableDeferred<Unit>? = null
+            val faults = mutableListOf<String>()
+            try {
+                wire.emitIncoming(CALL_TOKEN, "RINGING", peer = "+12025550123")
+                backend.answer()
+                assertEquals(CallPhase.Connecting, backend.ready().phase)
+                MotionTestEnvironment(testScheduler, width = 390, height = 844) {
+                    val actual by backend.state.collectAsState()
+                    val ready = actual as CallUiState.Ready
+                    SoftVoWiFiTheme(false) {
+                        // T6 now enters the same production host, including the public terminal return callback.
+                        CallScreenContent(ready, "SIM 2 · T-Mobile", CallAudioControls(),
+                            onAction = { backend.ready().binding?.let { binding -> backend.act(binding, it) } },
+                            onMute = backend::mute, onSpeaker = backend::speaker, onDigit = {},
+                            onRestoreAudio = {}, onMinimize = {}, ticking = false, onReturn = {})
+                    }
+                }.use { env ->
+                    repeat(24) { env.advanceFrameBy() }
+                    // 结束页背景本身可点击并合并语义；位置测量必须读真实文字叶而非整屏合并节点。
+                    fun text(prefix: String) = s6LeafNodes(env.scene).firstOrNull { n ->
+                        n.config.getOrNull(SemanticsProperties.Text)?.any { it.text.startsWith(prefix) } == true
+                    }
+                    fun identity() = listOf(text("SIM 2 · T-Mobile")?.boundsInRoot, text("+1 202 555 0123")?.boundsInRoot)
+                    fun footer() = nodes(env.scene).filter { n -> n.config.contains(SemanticsActions.OnClick) &&
+                        n.config.getOrNull(SemanticsProperties.ContentDescription)?.any { it in listOf("挂断", "正在挂断", "返回通话记录") } == true
+                    }.maxOfOrNull { it.boundsInRoot.bottom }
+                    val fixedIdentity = identity(); assertTrue(fixedIdentity.all { it != null })
+                    val originalCall = assertNotNull(backend.ready().binding, "真实Connecting须有原call binding")
+                    val fixedFooter = assertNotNull(footer())
+                    val stage = assertNotNull(text("正在接通")).boundsInRoot
+                    val region = Rect(stage.center.x - 48f, stage.top - 4f, stage.center.x + 48f, stage.bottom + 4f)
+                    fun image() = s6Patch(env, testScheduler.currentTime, region)
+                    suspend fun crossing(phase: CallPhase, title: String, change: suspend () -> Unit) {
+                        val before = image(); change()
+                        assertEquals(phase, backend.ready().phase, "必须先由原生产source确认阶段")
+                        if (phase == CallPhase.Idle) {
+                            val endedCall = assertNotNull(backend.ready().terminal,
+                                "真实Idle必须先发布typed terminal，不能用UI补造旧身份").binding
+                            assertEquals(CallSyncState.Ready, backend.ready().sync, "终态宿主须有真实Ready授权前提")
+                            assertTrue(originalCall.sameCall(endedCall), "typed终态须匹配原显示call，不比较或泄露token原值")
+                        }
+                        repeat(3) { env.advanceFrameBy(0) }
+                        env.advanceFrameBy(100)
+                        val middle = image()
+                        if (identity() != fixedIdentity) faults += "$phase：跨branch的100ms身份槽已重排/被替换；期望=$fixedIdentity，实际=${identity()}"
+                        if (footer()?.let { kotlin.math.abs(it - fixedFooter) <= 2f } != true) faults += "$phase：固定footer已移动；期望=$fixedFooter，实际=${footer()}"
+                        val currentStage = assertNotNull(text(title), "真实当前阶段文字须存在，不用原layout空白当动画")
+                        if (kotlin.math.abs(currentStage.boundsInRoot.center.y - stage.center.y) > .5f)
+                            faults += "$phase：当前阶段离开原固定文字slot；期望=$stage，实际=${currentStage.boundsInRoot}"
+                        env.advanceFrameBy(200)
+                        val terminal = image()
+                        if (middle.contentEquals(before) || middle.contentEquals(terminal))
+                            faults += "$phase：100ms没有原位置旧/新文字交接，局部新叶首次组合不算跨branch淡入淡出"
+                        if (identity() != fixedIdentity) faults += "$phase：终态身份槽未保留；期望=$fixedIdentity，实际=${identity()}"
+                    }
+                    crossing(CallPhase.InCall, "通话中") { wire.emitIncoming(CALL_TOKEN, "IN_CALL") }
+                    assertEquals(1, audio.starts.size)
+                    heldHangup = wire.enqueueGate()
+                    crossing(CallPhase.Ending, "正在挂断") { click(env.scene, "挂断") }
+                    crossing(CallPhase.Idle, "通话已结束") { heldHangup!!.complete(Unit) }
+                    assertEquals(listOf("answer", "hangup"), wire.requests.map { it.method })
+                    assertEquals(1, audio.starts.size, "阶段转移不重放音频启动")
+                    assertTrue(faults.isEmpty(), faults.joinToString("\n"))
+                }
+            } finally { backend.close(); heldHangup?.complete(Unit) }
+        }
+    }
+
+    // C11呈现层：confirmed是调用方已确认的投影；不是Android facade端到端确认替身。
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    @Test fun confirmedAudioProjectionAloneChangesSelectionAndTintAfterRealPointerRequests() = onMotionTestThread {
+        runTest(UnconfinedTestDispatcher(), timeout = 20.seconds) {
+            for (label in listOf("静音", "免提")) for (scale in listOf(1f, 0f)) {
+                var confirmed by mutableStateOf(CallAudioControls())
+                val requests = mutableListOf<String>(); var from = 0; var target = 0
+                MotionTestEnvironment(testScheduler, 390, 844, scale) {
+                    SoftVoWiFiTheme(false) {
+                        val palette = phoneColors()
+                        SideEffect { from = palette.surface.toArgb(); target = palette.tonal.toArgb() }
+                        CallScreenContent(ready(CallPhase.InCall), "SIM 1 · 合成线路", confirmed,
+                            onAction = { error("不允许通话业务") }, onMute = { requests += "静音" }, onSpeaker = { requests += "免提" },
+                            onDigit = {}, onRestoreAudio = {}, onMinimize = {}, ticking = false)
+                    }
+                }.use { e ->
+                    repeat(40) { e.advanceFrameBy() }
+                    // combinedClickable合并语义后内部face tag不一定导出；真实72dp命中面与静止圆面同槽。
+                    fun face() = button(e.scene, label).boundsInRoot
+                    val fixed = face()
+                    assertEquals(72f, fixed.width, .1f); assertEquals(72f, fixed.height, .1f)
+                    val region = Rect(fixed.left + 20f, fixed.top + 10f, fixed.left + 28f, fixed.top + 18f)
+                    fun patch() = s3SmallPatch(e, testScheduler, region)
+                    val before = patch(); assertTrue(before.pixels.all { s3RgbDistance(it, from) <= 2 })
+                    s4Tap(e, button(e.scene, label).boundsInRoot.center)
+                    assertEquals(listOf(label), requests)
+                    repeat(50) { e.advanceFrameBy() } // 只在确认前消退原按压；确认后的150ms边界不延长。
+                    assertEquals(false, button(e.scene, label).config.getOrNull(SemanticsProperties.Selected))
+                    assertEquals(CallAudioControls(), confirmed); assertEquals(fixed, face())
+                    assertEquals(0, s4Difference(before, patch()), "点击只请求；未有已确认投影不得乐观选色")
+                    val confirmedAt = testScheduler.currentTime
+                    confirmed = if (label == "静音") CallAudioControls(muted = true) else CallAudioControls(speakerOn = true)
+                    repeat(4) { e.advanceFrameBy(0) }
+                    assertEquals(true, button(e.scene, label).config.getOrNull(SemanticsProperties.Selected))
+                    val instant = patch(); e.advanceFrameBy(80); val middle = patch()
+                    e.advanceFrameBy(70); val terminal = patch()
+                    assertEquals(confirmedAt + 150, testScheduler.currentTime); assertEquals(fixed, face())
+                    assertEquals(listOf(label), requests)
+                    assertTrue(terminal.pixels.all { s3RgbDistance(it, target) <= 2 }, "150ms主题选中面色")
+                    if (scale == 0f) assertTrue(instant.pixels.all { s3RgbDistance(it, target) <= 2 }, "zero同刻终色")
+                    else assertTrue(middle.pixels.all { s3RgbDistance(it, from) > 2 && s3RgbDistance(it, target) > 2 }, "80ms真实面色中帧")
+                }
+            }
+            // 8bit量化可能掩盖10ms差；配合真实像素检查公开调用点的精确时长，不把160ms判合格。
+            val relative = "com/vowifi/sw/manager/ui/InCallScreenContent.kt"
+            val code = listOf("shared/src/commonMain/kotlin/", "src/commonMain/kotlin/", "app/manager/shared/src/commonMain/kotlin/")
+                .map { java.io.File(it + relative) }.first { it.isFile }.readText()
+            for (label in listOf("静音", "免提")) {
+                val start = code.indexOf("PhoneButton(\"$label\""); assertTrue(start >= 0)
+                val next = code.indexOf("PhoneButton(", start + 1).let { if (it < 0) code.length else it }
+                val call = code.substring(start, next)
+                assertTrue("MotionTokens.DurFast" in call && "MotionTokens.EaseStandard" in call,
+                    "仅两音频键的公开颜色spec须150ms/EaseStandard")
+            }
+        }
+    }
+
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    @Test fun normalScaleThemeChangeImmediatelyRecolorsTheRealMuteFaceWithoutBusinessOrRelayout() = onMotionTestThread {
+        runTest(UnconfinedTestDispatcher()) {
+            var dark by mutableStateOf(false); var callbacks = 0; var expectedSurface = 0
+            val state = ready(CallPhase.InCall); val audio = CallAudioControls()
+            MotionTestEnvironment(testScheduler, 390, 844, durationScale = 1f) {
+                CompositionLocalProvider(LocalDensity provides Density(1f)) {
+                    SoftVoWiFiTheme(forceDark = dark) {
+                        val surface = phoneColors().surface
+                        SideEffect { expectedSurface = surface.toArgb() }
+                        CallScreenContent(state, "synthetic-line", audio,
+                            onAction = { callbacks++ }, onMute = { callbacks++ }, onSpeaker = { callbacks++ },
+                            onDigit = { callbacks++ }, onRestoreAudio = { callbacks++ }, onMinimize = { callbacks++ },
+                            onRefresh = { callbacks++ }, onReturn = { callbacks++ }, ticking = false)
+                    }
+                }
+            }.use { e ->
+                repeat(30) { e.advanceFrameBy(16) }
+                fun mute() = button(e.scene, "静音")
+                fun semantics() = mute().config.run {
+                    Triple(getOrNull(SemanticsProperties.Selected), contains(SemanticsProperties.Disabled), contains(SemanticsActions.OnClick))
+                }
+                val bounds = mute().boundsInRoot; val originalSemantics = semantics()
+                assertEquals(72f, bounds.width); assertEquals(72f, bounds.height)
+                assertEquals(Triple(false, false, true), originalSemantics)
+                val left = kotlin.math.floor(bounds.left) + 6f; val top = kotlin.math.floor(bounds.center.y) - 4f
+                val roi = Rect(left, top, left + 8f, top + 8f) // 面内左侧8×8，避开中央30dp图标及圆弧边。
+                assertTrue(roi.right < bounds.center.x - 15f && roi.left > bounds.left && roi.bottom < bounds.bottom)
+                fun patch() = s6Patch(e, testScheduler.currentTime, roi)
+                val before = patch(); val oldExpected = expectedSurface
+                dark = true; val changedAt = testScheduler.currentTime
+                repeat(4) { e.advanceFrameBy(0) }
+                val immediate = patch(); val immediateBounds = mute().boundsInRoot; val immediateSemantics = semantics()
+                val immediateAt = testScheduler.currentTime
+                repeat(10) { e.advanceFrameBy(20) } // 正常scale=1完整200ms终点先封存，再判断同刻。
+                val terminal = patch(); val terminalExpected = expectedSurface
+                assertEquals(64, before.size); assertEquals(64, immediate.size); assertEquals(64, terminal.size)
+                assertTrue(before.all { s6Distance(it, oldExpected) <= 2 }, "前提：ROI确是原主题真实静音面")
+                assertTrue(terminal.all { s6Distance(it, terminalExpected) <= 2 }, "前提：200ms已画出真正新主题surface")
+                assertTrue(s6Distance(oldExpected, terminalExpected) > 8 && before.indices.all { s6Distance(before[it], terminal[it]) > 8 },
+                    "前提：原面与真实新色必须确有差异，不能采到未变背景／图标")
+                assertEquals(changedAt, immediateAt); assertEquals(1f, e.durationScale)
+                assertEquals(bounds, immediateBounds); assertEquals(bounds, mute().boundsInRoot)
+                assertEquals(originalSemantics, immediateSemantics); assertEquals(originalSemantics, semantics())
+                assertEquals(0, callbacks); assertEquals(CallPhase.InCall, state.phase); assertFalse(audio.muted)
+                assertContentEquals(terminal, immediate, "E6：主题变化同刻须直接到真实新色，不继续业务色tween")
+            }
+        }
+    }
+
+    private fun s6LeafNodes(scene: ImageComposeScene): List<SemanticsNode> = scene.semanticsOwners.flatMap { owner ->
+        fun descend(node: SemanticsNode): List<SemanticsNode> = listOf(node) + node.children.flatMap(::descend)
+        descend(owner.unmergedRootSemanticsNode)
+    }
+
+    private fun s6Patch(env: MotionTestEnvironment, at: Long, rect: Rect): IntArray =
+        env.scene.render(at * 1_000_000L).use { image -> Bitmap.makeFromImage(image).use { bitmap ->
+            val left = kotlin.math.floor(rect.left).toInt().coerceIn(0, image.width)
+            val top = kotlin.math.floor(rect.top).toInt().coerceIn(0, image.height)
+            val right = kotlin.math.ceil(rect.right).toInt().coerceIn(left, image.width)
+            val bottom = kotlin.math.ceil(rect.bottom).toInt().coerceIn(top, image.height)
+            IntArray((right - left) * (bottom - top)) { i -> bitmap.getColor(left + i % (right - left), top + i / (right - left)) }
+        } }
+
+    private fun s6Distance(a: Int, b: Int): Int = maxOf(
+        kotlin.math.abs((a and 255) - (b and 255)),
+        kotlin.math.abs(((a ushr 8) and 255) - ((b ushr 8) and 255)),
+        kotlin.math.abs(((a ushr 16) and 255) - ((b ushr 16) and 255)))
+
+    private fun s6AssertCrossfade(old: IntArray, mid: IntArray, target: IntArray) {
+        val canvas = old.first()
+        fun exclusive(from: IntArray, absent: IntArray) = from.indices.filter {
+            s6Distance(from[it], canvas) > 25 && s6Distance(absent[it], canvas) < 5
+        }
+        for ((endpoint, mask) in listOf(old to exclusive(old, target), target to exclusive(target, old))) {
+            assertTrue(mask.size >= 8, "前提：同一自然文字ROI须有旧/新独占墨迹")
+            assertTrue(mask.count { s6Distance(mid[it], canvas) > 2 &&
+                s6Distance(mid[it], canvas) < s6Distance(endpoint[it], canvas) - 2 } >= 8,
+                "100ms必须同时画出旧与新文字的部分强度，语义中只有新文字不等于视觉已接线")
+        }
+    }
+
+    private fun s6AssertPartial(endpoint: IntArray, middle: IntArray, message: String) {
+        val canvas = endpoint.first()
+        assertTrue(endpoint.indices.count { s6Distance(endpoint[it], canvas) > 25 &&
+            s6Distance(middle[it], canvas) > 2 && s6Distance(middle[it], canvas) < s6Distance(endpoint[it], canvas) - 2 } >= 12, message)
     }
 
     @Composable private fun phone(state: CallUiState.Ready, action: (CallAction) -> Unit = {}) {

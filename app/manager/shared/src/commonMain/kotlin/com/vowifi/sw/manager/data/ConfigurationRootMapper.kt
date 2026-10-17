@@ -11,6 +11,22 @@ internal data class ConfigurationCommandOutcome(
 )
 
 internal object ConfigurationRootMapper {
+    fun mapIdentityRefresh(outcome: ConfigurationCommandOutcome): ConfigurationUiState? {
+        if (outcome.output.isPermissionDenied()) return ConfigurationEvaluator.permissionDenied()
+        if (outcome.timedOut || outcome.overflowed || outcome.writeFailed) {
+            return ConfigurationEvaluator.failure("身份刷新未确认，请重新读取配置")
+        }
+        val result = ConfigurationCodec.result(outcome.output)
+        return when (result?.code) {
+            "APPLIED" -> if (outcome.exitCode == 0 && result.ok) null else ConfigurationEvaluator.failure("无法刷新 SIM 身份")
+            "TARGET_RUNNING" -> ConfigurationEvaluator.failure("请先停止该 SIM 的引擎，再刷新身份")
+            "IDENTITY_MISMATCH", "IDENTITY_STALE" -> ConfigurationEvaluator.failure("当前 SIM 身份未通过校验")
+            "IDENTITY_UNREADABLE" -> ConfigurationEvaluator.failure("无法读取 SIM 身份")
+            "USAGE", "USAGE_INVALID" -> ConfigurationEvaluator.unavailable()
+            else -> ConfigurationEvaluator.failure("无法刷新 SIM 身份")
+        }
+    }
+
     fun map(outcome: ConfigurationCommandOutcome): ConfigurationUiState? {
         if (outcome.output.isPermissionDenied()) {
             return ConfigurationEvaluator.permissionDenied()

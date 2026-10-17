@@ -3,15 +3,21 @@ package com.vowifi.sw.manager.ui
 import androidx.compose.foundation.IndicationNodeFactory
 import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.interaction.InteractionSource
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.node.DelegatableNode
 import androidx.compose.ui.semantics.ProgressBarRangeInfo
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.progressBarRangeInfo
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
@@ -19,8 +25,8 @@ import top.yukonga.miuix.kmp.basic.BasicComponent
 import top.yukonga.miuix.kmp.basic.BasicComponentDefaults
 import top.yukonga.miuix.kmp.basic.CircularProgressIndicator
 import top.yukonga.miuix.kmp.basic.Icon
+import top.yukonga.miuix.kmp.basic.Switch
 import top.yukonga.miuix.kmp.preference.ArrowPreference
-import top.yukonga.miuix.kmp.preference.SwitchPreference
 
 internal object NoVisualIndication : IndicationNodeFactory {
     override fun create(interactionSource: InteractionSource): DelegatableNode = object : Modifier.Node() {}
@@ -92,6 +98,7 @@ internal fun ManagerNavigatePreferenceItem(
     modifier: Modifier = Modifier,
 ) {
     val presentation = managerPreferencePresentation(row)
+    val actionable = row.actionable && LocalAppRouteActive.current
     val colors = LocalSoftVoWiFiColors.current
     val itemModifier = modifier
         .defaultMinSize(minHeight = ManagerPreferenceLayoutContract.minTouchTarget)
@@ -113,15 +120,18 @@ internal fun ManagerNavigatePreferenceItem(
     }
 
     if (row.actionable && onClick != null) {
-        val actionHandler = rememberManagerActionHandler(presentation.feedback, onClick)
-        CompositionLocalProvider(LocalIndication provides NoVisualIndication) {
+        val feedback = if (actionable) presentation.feedback else ManagerActionFeedback.None
+        val actionHandler = rememberManagerActionHandler(feedback, onClick)
+        val indication = rememberManagerPressIndication(ManagerPressStyle.CardRow, actionable)
+        CompositionLocalProvider(LocalIndication provides indication) {
             ArrowPreference(
                 title = row.title,
                 summary = row.visibleSummary,
                 summaryColor = summaryColor,
                 startAction = startSlot,
-                onClick = actionHandler,
-                modifier = itemModifier.managerPressScale(presentation.feedback),
+                onClick = actionHandler.takeIf { actionable },
+                enabled = row.actionable,
+                modifier = itemModifier.managerPressInputGate(actionable),
             )
         }
     } else {
@@ -142,7 +152,9 @@ internal fun ManagerTogglePreferenceItem(
     onCheckedChange: (Boolean) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val presentation = managerPreferencePresentation(row)
+    val routeActive = LocalAppRouteActive.current
+    val actionable = row.actionable && routeActive
+    val interaction = remember { MutableInteractionSource() }
     val colors = LocalSoftVoWiFiColors.current
     val itemModifier = modifier
         .defaultMinSize(minHeight = ManagerPreferenceLayoutContract.minTouchTarget)
@@ -163,18 +175,35 @@ internal fun ManagerTogglePreferenceItem(
         BasicComponentDefaults.summaryColor()
     }
 
-    val toggleHandler = rememberManagerToggleHandler(row.actionable, onCheckedChange)
+    // Keep the application handler outside the library-only haptic suppression scope.
+    val toggleHandler = rememberManagerToggleHandler(actionable, onCheckedChange)
+    val indication = rememberManagerPressIndication(ManagerPressStyle.CardRow, actionable)
+    val switchColors = managerPressSwitchColors(row.actionable, routeActive)
+    // miuix 0.9.3 Switch.kt uses CircleShape for its 49x28dp capsule; keep that public shape unchanged.
+    val switchFocus = rememberManagerKeyboardFocusIndication(actionable, shape = CircleShape)
 
-    CompositionLocalProvider(LocalIndication provides NoVisualIndication) {
-        SwitchPreference(
-            checked = row.checked,
-            onCheckedChange = toggleHandler,
+    CompositionLocalProvider(LocalIndication provides indication) {
+        BasicComponent(
             title = row.title,
             summary = row.visibleSummary,
             summaryColor = summaryColor,
             enabled = row.actionable,
             startAction = startSlot,
-            modifier = itemModifier.managerPressScale(presentation.feedback),
+            modifier = itemModifier.managerPressInputGate(actionable),
+            interactionSource = interaction,
+            role = Role.Switch,
+            onClick = if (actionable) ({ toggleHandler(!row.checked) }) else null,
+            endActions = {
+                // Slot geometry reference: miuix 0.9.3 SwitchPreference, c36fab7, Apache-2.0.
+                // https://github.com/compose-miuix-ui/miuix/blob/c36fab72391801d1e3ea5a00f966bf16bac28d4c/miuix-preference/src/commonMain/kotlin/top/yukonga/miuix/kmp/preference/SwitchPreference.kt
+                Row(Modifier.padding(end = 8.dp).align(Alignment.CenterVertically).weight(1f, fill = false)) {}
+                WithoutComponentHaptics {
+                    CompositionLocalProvider(LocalIndication provides switchFocus) {
+                        Switch(checked = row.checked, onCheckedChange = toggleHandler, enabled = actionable,
+                            colors = switchColors, modifier = Modifier.managerPressInputGate(actionable))
+                    }
+                }
+            },
         )
     }
 }

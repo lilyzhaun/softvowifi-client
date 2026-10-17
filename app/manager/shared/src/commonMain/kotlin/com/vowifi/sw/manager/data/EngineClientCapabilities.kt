@@ -64,7 +64,7 @@ object EngineClientCapabilitiesCodec {
         val value = item.text("value") ?: return null
         if (containsIdentityDigits(value)) return null
         val valid = when (field) {
-            MetadataField.SipSecurity -> source in setOf(MetadataSource.User, MetadataSource.Carrier, MetadataSource.Default) &&
+            MetadataField.SipSecurity -> source in setOf(MetadataSource.User, MetadataSource.Carrier, MetadataSource.Catalog, MetadataSource.Default) &&
                 value in setOf("tcp_ipsec_3gpp", "swu_udp_aka")
             MetadataField.PaniInitial -> source in setOf(MetadataSource.User, MetadataSource.Carrier, MetadataSource.Catalog, MetadataSource.Default) &&
                 value in setOf("absent", "wlan", "wlan-node", "wlan-country", "wlan-node-country")

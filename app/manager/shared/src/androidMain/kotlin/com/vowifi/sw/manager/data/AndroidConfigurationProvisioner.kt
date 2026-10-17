@@ -6,6 +6,18 @@ internal class AndroidConfigurationProvisioner(
     private val identityReader: AndroidSubscriptionIdentityReader,
     private val commands: AndroidConfigurationCommands,
 ) {
+    suspend fun refreshIdentity(iccid: String): ConfigurationUiState? {
+        val prepared = when (val candidate = prepareCandidate(identityReader.read(iccid))) {
+            is PreparedCandidate.Ready -> candidate
+            is PreparedCandidate.Failed -> return candidate.state
+        }
+        return when (val result = commands.refreshIdentity(iccid, prepared.subscriptionId, prepared.slot, prepared.payload)) {
+            is CommandRead.Listed -> null
+            is CommandRead.Mapped -> result.state
+            else -> ConfigurationEvaluator.failure("无法刷新 SIM 身份")
+        }
+    }
+
     suspend fun attempt(iccid: String): ProvisionAttempt {
         if (!ConfigurationControlCommand.digitsOnly(iccid)) {
             return ProvisionAttempt.Failed(ConfigurationEvaluator.failure(CREATE_FAILED))
@@ -24,7 +36,7 @@ internal class AndroidConfigurationProvisioner(
             is CommandRead.Created -> ProvisionAttempt.Created
             is CommandRead.Mapped -> when {
                 ConfigurationEvaluator.isExistingTarget(created.state) -> ProvisionAttempt.AlreadyExists
-                else -> ProvisionAttempt.Failed(created.state)
+                else -> ProvisionAttempt.Failed(created.state, created.writeUnconfirmed)
             }
             is CommandRead.Listed, is CommandRead.Snapshot ->
                 ProvisionAttempt.Failed(ConfigurationEvaluator.failure(CREATE_FAILED))
@@ -53,7 +65,7 @@ internal class AndroidConfigurationProvisioner(
 internal sealed interface ProvisionAttempt {
     data object Created : ProvisionAttempt
     data object AlreadyExists : ProvisionAttempt
-    class Failed(val state: ConfigurationUiState) : ProvisionAttempt {
+    class Failed(val state: ConfigurationUiState, val unconfirmed: Boolean = false) : ProvisionAttempt {
         override fun toString(): String = "Failed"
     }
 }

@@ -4,12 +4,15 @@ import androidx.compose.animation.core.spring
 import androidx.compose.foundation.pager.PagerState
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.platform.LocalWindowInfo
 import com.vowifi.sw.manager.ui.navigation.AppNavigationState
 import com.vowifi.sw.manager.ui.navigation.AppRoute
 import kotlinx.coroutines.CoroutineScope
@@ -130,6 +133,16 @@ internal class AppRootPagerState(
         }
     }
 
+    // Only finish our in-flight selection; a resize must not select a root for a user drag.
+    fun finishProgrammaticSelectionOnResize() {
+        if (selectionJob?.isActive != true || !coordinator.hasProgrammaticTarget) return
+        val target = coordinator.selectedPage
+        selectionJob?.cancel()
+        coordinator.select(target, RootSelectionMode.SNAP)
+        selectedPage = coordinator.selectedPage
+        pagerState.requestScrollToPage(target)
+    }
+
     fun observePager(targetPage: Int, settledPage: Int, scrollInProgress: Boolean) {
         coordinator.observePager(targetPage, settledPage, scrollInProgress)
         selectedPage = coordinator.selectedPage
@@ -143,7 +156,16 @@ internal fun rememberAppRootPagerState(initialRoot: AppRoute.Root): AppRootPager
         pageCount = { AppRoute.rootRoutes.size },
     )
     val scope = rememberCoroutineScope()
-    return remember(pagerState, scope) { AppRootPagerState(pagerState, scope) }
+    val state = remember(pagerState, scope) { AppRootPagerState(pagerState, scope) }
+    val containerSize = LocalWindowInfo.current.containerSize
+    var previousSize by remember(state) { mutableStateOf(containerSize) }
+    LaunchedEffect(state, containerSize) {
+        if (previousSize != containerSize) {
+            previousSize = containerSize
+            state.finishProgrammaticSelectionOnResize()
+        }
+    }
+    return state
 }
 
 internal fun pagerPageForRoot(root: AppRoute.Root): Int = AppRoute.rootRoutes.indexOf(root)

@@ -1,6 +1,7 @@
 package com.vowifi.sw.manager.desktop
 
 import com.vowifi.sw.manager.data.SimControlSource
+import com.vowifi.sw.manager.data.RefreshResult
 import com.vowifi.sw.manager.model.EngineLifecycle
 import com.vowifi.sw.manager.model.EngineRuntimeStatus
 import com.vowifi.sw.manager.model.SimControlInstance
@@ -14,8 +15,23 @@ import kotlinx.coroutines.flow.asStateFlow
 class FixtureSimControlSource(mode: String) : SimControlSource {
     private val mutableState = MutableStateFlow(fixture(mode))
     override val state: StateFlow<SimControlUiState> = mutableState.asStateFlow()
+    private var closed = false
 
-    override fun refresh() = Unit
+    override fun refresh() { readSnapshot() }
+    override suspend fun refreshAndAwait(): RefreshResult = readSnapshot()
+    override fun close() { closed = true }
+
+    private fun readSnapshot(): RefreshResult {
+        if (closed) return RefreshResult.Unsupported
+        val snapshot = mutableState.value
+        mutableState.value = snapshot
+        return when (snapshot) {
+            is SimControlUiState.Ready -> RefreshResult.Completed
+            is SimControlUiState.Failure -> RefreshResult.Failed(snapshot.message)
+            is SimControlUiState.PermissionDenied -> RefreshResult.Failed(snapshot.message)
+            SimControlUiState.Loading -> RefreshResult.Unsupported
+        }
+    }
 
     override fun start(handle: SimHandle) {
         replace(handle) { instance ->
@@ -41,6 +57,7 @@ class FixtureSimControlSource(mode: String) : SimControlSource {
     }
 
     private fun replace(handle: SimHandle, update: (SimControlInstance) -> SimControlInstance) {
+        if (closed) return
         val current = mutableState.value as? SimControlUiState.Ready ?: return
         mutableState.value = current.copy(
             instances = current.instances.map { if (it.handle == handle) update(it) else it },

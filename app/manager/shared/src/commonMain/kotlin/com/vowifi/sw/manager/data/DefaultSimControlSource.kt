@@ -8,9 +8,15 @@ import com.vowifi.sw.manager.model.SimEngineJoinInput
 import com.vowifi.sw.manager.model.SimHandle
 import kotlin.coroutines.CoroutineContext
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -24,6 +30,8 @@ internal class DefaultSimControlSource(
 ) : SimControlSource {
     private val scope = CoroutineScope(parentContext.minusKey(Job) + SupervisorJob())
     private val operationGate = EngineOperationGate()
+    private val lock = Any()
+    private var refreshInFlight: CompletableDeferred<RefreshResult>? = null
     private val mutableState = MutableStateFlow<SimControlUiState>(SimControlUiState.Loading)
     override val state: StateFlow<SimControlUiState> = mutableState.asStateFlow()
 
@@ -33,29 +41,62 @@ internal class DefaultSimControlSource(
     @Volatile
     private var latestInventory: SubscriptionInventoryResult? = null
 
-    @Volatile
-    private var latestEngine: EngineControlUiState = engine.state.value
     private val subscriptionWatch = inventory.startWatching(::refresh)
 
     init {
         scope.launch {
-            engine.state.collect { snapshot ->
-                if (closed) return@collect
-                latestEngine = snapshot
-                publish()
+            engine.state.collect {
+                synchronized(lock) { publish() }
             }
         }
         refresh()
     }
 
     override fun refresh() {
-        if (closed || !operationGate.tryEnter()) return
-        scope.launch {
-            val result = inventory.listActive()
-            if (closed) return@launch
-            latestInventory = result
-            publish()
-        }.invokeOnCompletion { operationGate.release() }
+        requestRefresh()
+    }
+
+    override suspend fun refreshAndAwait(): RefreshResult {
+        val result = requestRefresh().await()
+        // A user may have joined an older automatic inventory job; use the engine's value now.
+        synchronized(lock) { publish() }
+        return result
+    }
+
+    private fun requestRefresh(): Deferred<RefreshResult> {
+        var producer: Job? = null
+        val accepted = synchronized(lock) {
+            if (closed) return@synchronized CompletableDeferred(RefreshResult.Unsupported)
+            refreshInFlight?.let { return@synchronized it }
+            if (!operationGate.tryEnter()) return@synchronized CompletableDeferred(RefreshResult.Busy)
+            val completion = CompletableDeferred<RefreshResult>()
+            refreshInFlight = completion
+            var outcome: RefreshResult? = null
+            producer = scope.launch(start = CoroutineStart.LAZY) {
+                val result = inventory.listActive()
+                currentCoroutineContext().ensureActive()
+                synchronized(lock) {
+                    if (!closed) { latestInventory = result; publish() }
+                }
+                outcome = when (result) {
+                    is SubscriptionInventoryResult.Active -> RefreshResult.Completed
+                    is SubscriptionInventoryResult.PermissionDenied -> RefreshResult.Failed("SIM 控制权限不足")
+                    is SubscriptionInventoryResult.Failure -> RefreshResult.Failed("无法读取活动订阅")
+                }
+            }.also { job ->
+                job.invokeOnCompletion { error ->
+                    synchronized(lock) { refreshInFlight = null; operationGate.release() }
+                    when (error) {
+                        null -> completion.complete(checkNotNull(outcome))
+                        is CancellationException -> completion.cancel(error)
+                        else -> completion.completeExceptionally(error)
+                    }
+                }
+            }
+            completion
+        }
+        producer?.start()
+        return accepted
     }
 
     override fun start(handle: SimHandle) {
@@ -69,7 +110,11 @@ internal class DefaultSimControlSource(
     }
 
     override fun close() {
-        closed = true
+        synchronized(lock) {
+            if (closed) return
+            closed = true
+            refreshInFlight?.cancel()
+        }
         subscriptionWatch.stop()
         scope.cancel()
     }
@@ -93,7 +138,7 @@ internal class DefaultSimControlSource(
                 SimControlEvaluator.permissionDenied(inventory.message)
             is SubscriptionInventoryResult.Failure ->
                 SimControlEvaluator.failure(inventory.message)
-            is SubscriptionInventoryResult.Active -> when (val engineState = latestEngine) {
+            is SubscriptionInventoryResult.Active -> when (val engineState = engine.state.value) {
                 EngineControlUiState.Loading -> SimControlUiState.Loading
                 is EngineControlUiState.PermissionDenied ->
                     SimControlEvaluator.permissionDenied(engineState.message)
@@ -115,4 +160,6 @@ private fun engineJoinInput(instance: EngineInstanceState) = SimEngineJoinInput(
     pid = instance.pid,
     runtime = instance.runtime,
     message = instance.message,
+    operationPending = instance.operationPending,
+    controlCompletion = instance.controlCompletion,
 )

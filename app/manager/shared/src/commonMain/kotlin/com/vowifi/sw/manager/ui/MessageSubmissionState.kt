@@ -14,15 +14,18 @@ import com.vowifi.sw.manager.model.MessageUiState
 import com.vowifi.sw.manager.model.OutgoingMessageStatus
 import com.vowifi.sw.manager.data.isStorageAttachmentNotice
 
-internal fun submittedMessageOutcome(snapshot: List<String>, state: MessageUiState): OutgoingMessageStatus? {
+private fun submittedMessageAttempt(snapshot: List<String>, state: MessageUiState): MessageSendAttempt? {
     val ready = state as? MessageUiState.Available ?: return null
     if (ready.ownerId?.wire().orEmpty() != snapshot[0]) return null
     val attempt = ready.sendAttempt ?: return null
     return attempt.takeIf {
         it.owner == ready.ownerId && it.messageId !in snapshot.drop(3) &&
             it.recipient == snapshot[1] && it.body == snapshot[2]
-    }?.status
+    }
 }
+
+internal fun submittedMessageOutcome(snapshot: List<String>, state: MessageUiState): OutgoingMessageStatus? =
+    submittedMessageAttempt(snapshot, state)?.status
 
 internal fun shouldClearSubmittedDraft(status: OutgoingMessageStatus?, submitted: String, current: String): Boolean =
     current == submitted && (status == OutgoingMessageStatus.ACCEPTED || status == OutgoingMessageStatus.DELIVERY_REPORTED)
@@ -31,6 +34,8 @@ internal class MessageDraftSubmission(
     val pending: Boolean,
     val outcome: OutgoingMessageStatus?,
     val draftEdited: () -> Unit,
+    /** The persisted queued record of this still-pending submission; the draft itself is retained. */
+    val handoffId: String? = null,
     val submit: () -> Unit,
 )
 
@@ -83,6 +88,7 @@ internal fun rememberMessageDraftSubmission(
         pending = snapshot != null || ready?.sendBusy == true,
         outcome = visibleFeedback?.attempt?.status,
         draftEdited = { feedback = null; if (snapshot != null) submissionEdited = true },
+        handoffId = snapshot?.takeIf { !submissionEdited }?.let { submittedMessageAttempt(it, state) }?.messageId,
     ) {
         if (routeActive && snapshot == null && canSendMessage(state, recipient, body) && ready != null) {
             feedback = null

@@ -61,8 +61,8 @@ internal fun HomeStatusHero(
     ) {
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             HomeStatusChip(hero.statusText, hero.tone)
-            Text(text.title, color = colors.textPrimary, fontSize = 20.sp, lineHeight = 28.sp, fontWeight = FontWeight.SemiBold)
-            Text(text.summary, color = colors.textSecondary, fontSize = 14.sp, lineHeight = 20.sp)
+            ManagerStateText(text.title, color = { colors.textPrimary }, fontSize = 20.sp, lineHeight = 28.sp, fontWeight = FontWeight.SemiBold)
+            ManagerStateText(text.summary, color = { colors.textSecondary }, fontSize = 14.sp, lineHeight = 20.sp)
         }
     }
 }
@@ -76,8 +76,8 @@ private fun HomeMetricCard(metric: HomeMetricPresentation, modifier: Modifier = 
         colors = CardDefaults.defaultColors(colors.surface, colors.textPrimary),
     ) {
         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text(metric.value, color = colors.textPrimary, fontSize = 26.sp, lineHeight = 32.sp,
-                fontWeight = FontWeight.SemiBold, style = TextStyle(fontFeatureSettings = "tnum"))
+            ManagerStateText(metric.value, color = { colors.textPrimary }, fontSize = 26.sp, lineHeight = 32.sp,
+                fontWeight = FontWeight.SemiBold, style = TextStyle(fontFeatureSettings = "tnum"), numericRoll = true)
             Text(metric.label, color = colors.textSecondary, fontSize = 14.sp, lineHeight = 20.sp)
         }
     }

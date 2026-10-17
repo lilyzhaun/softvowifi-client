@@ -21,6 +21,7 @@ import com.vowifi.sw.manager.ui.*
 import java.nio.file.Files
 import java.nio.file.Path
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
@@ -66,8 +67,19 @@ class MessagePagingRenderTest {
     }
 
     @Test fun rootLoadsMoreAndRunsRealHistorySearchFromInput() = runBlocking {
-        val repository = FakeMessageRepository()
-        repeat(121) { repository.insertIncomingIfAbsent(owner, "id-$it", "engine-$it", "1555$it", if (it == 0) "needle" else "synthetic", it.toLong(), 1) }
+        val stored = FakeMessageRepository()
+        repeat(121) { stored.insertIncomingIfAbsent(owner, "id-$it", "engine-$it", "1555$it", if (it == 0) "needle" else "synthetic", it.toLong(), 1) }
+        val entered = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        var pageReads = 0
+        val repository = object : MessageRepository by stored {
+            override val history = object : MessageHistoryRepository by stored.history {
+                override suspend fun summaries(request: MessageSummaryRequest): MessageSummaryPage {
+                    if (request.cursor != null) { pageReads++; entered.complete(Unit); release.await() }
+                    return stored.history.summaries(request)
+                }
+            }
+        }
         val scope = CoroutineScope(StandardTestDispatcher(scheduler))
         val selection = MessageHistorySelection(repository, scope, MessagePersistenceObserver { _, _, _ -> })
         selection.refreshInbox()
@@ -80,12 +92,19 @@ class MessagePagingRenderTest {
         }
         try {
             frame(scene)
-            // Search now lives in the fixed header, so the pagination footer moved one item up.
+            assertEquals(50, (selection.state.value as MessageUiState.Inbox).page.items.size)
+            assertEquals(0, pageReads)
+            // 规范R6取代手动准入：真实近末视口自动读取，仓库门闸保留首批与单飞断言。
             scroll(scene, 52)
             frame(scene)
-            click(scene, "加载更多会话")
+            assertTrue(entered.isCompleted, "near-end must reach the real repository without a manual load action")
+            assertEquals(1, pageReads)
+            assertEquals(50, (selection.state.value as MessageUiState.Inbox).page.items.size)
+            assertTrue((selection.state.value as MessageUiState.Inbox).page.loading)
+            release.complete(Unit)
             frame(scene)
             assertEquals(100, (selection.state.value as MessageUiState.Inbox).page.items.size)
+            assertEquals(1, pageReads)
             scroll(scene, 0); frame(scene)
             nodes(scene).single { it.config.getOrNull(SemanticsProperties.ContentDescription)?.contains("搜索短信") == true && it.config.contains(SemanticsActions.OnClick) }
                 .config[SemanticsActions.OnClick].action!!.invoke(); frame(scene)
@@ -95,12 +114,27 @@ class MessagePagingRenderTest {
             assertEquals(listOf("needle"), (selection.state.value as MessageUiState.Inbox).page.items.map { it.latestPreview })
             assertTrue(nodes(scene).any { text(it, "needle") })
             screenshot(scene, "issue11-paged-search.png")
-        } finally { scene.close(); selection.close(); scope.cancel() }
+        } finally { release.complete(Unit); scene.close(); selection.close(); scope.cancel() }
     }
 
     @Test fun olderActionPrependsAndKeepsVisibleMessageInsteadOfJumpingToNewest() = runBlocking {
-        val repository = FakeMessageRepository()
-        repeat(121) { repository.insertIncomingIfAbsent(owner, "id-$it", "engine-$it", "1555", "synthetic $it", it.toLong(), 1) }
+        val stored = FakeMessageRepository()
+        repeat(121) { stored.insertIncomingIfAbsent(owner, "id-$it", "engine-$it", "1555", "synthetic $it", it.toLong(), 1) }
+        val entered = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        var olderReads = 0
+        val repository = object : MessageRepository by stored {
+            override val history = object : MessageHistoryRepository by stored.history {
+                override suspend fun thread(identity: StoredMessageConversation, cursor: MessageThreadCursor?): MessageThreadSlice {
+                    if (cursor != null) {
+                        olderReads++
+                        println("MESSAGE_PAGING_OLDER|phase=repository-enter|reads=$olderReads|cursor=${cursor.messageId}|t=${scheduler.currentTime}")
+                        entered.complete(Unit); release.await()
+                    }
+                    return stored.history.thread(identity, cursor)
+                }
+            }
+        }
         val scope = CoroutineScope(StandardTestDispatcher(scheduler))
         val selection = MessageHistorySelection(repository, scope, MessagePersistenceObserver { _, _, _ -> })
         val identity = StoredMessageConversation(owner, "1555")
@@ -140,15 +174,26 @@ class MessagePagingRenderTest {
                 append(" thread=${thread.name}#${thread.id} context=${System.identityHashCode(coroutineContext)}")
                 append(" dispatcher=${dispatcher?.javaClass?.name}#${System.identityHashCode(dispatcher)}")
             })
+            assertEquals(50, (selection.state.value as MessageUiState.Ready).records.size)
+            assertEquals(0, olderReads, "initial bottom positioning must finish before R6 is admitted")
+            // R6：到首部即自动准入；在真实读取门闸内取原可见锚，不能等自动完成后再找旧按钮。
             scroll(scene, 0); frame(scene)
+            assertTrue(entered.isCompleted, "near-start must reach the real repository without a manual load action")
+            assertEquals(1, olderReads)
+            assertEquals(50, (selection.state.value as MessageUiState.Ready).records.size)
+            assertTrue((selection.state.value as MessageUiState.Ready).window?.loading == true)
             val before = nodes(scene).first { text(it, "synthetic 71") }.boundsInRoot.top
-            click(scene, "加载更早消息"); frame(scene)
+            println("MESSAGE_PAGING_OLDER|phase=held|records=${(selection.state.value as MessageUiState.Ready).records.size}|reads=$olderReads|anchor71=$before|t=${scheduler.currentTime}")
+            release.complete(Unit); frame(scene)
+            println("MESSAGE_PAGING_OLDER|phase=after-release|records=${(selection.state.value as MessageUiState.Ready).records.size}|reads=$olderReads|" +
+                "anchor71=${nodes(scene).firstOrNull { text(it, "synthetic 71") }?.boundsInRoot?.top}|t=${scheduler.currentTime}")
             assertEquals(100, (selection.state.value as MessageUiState.Ready).records.size)
+            assertEquals(1, olderReads)
             val after = nodes(scene).first { text(it, "synthetic 71") }.boundsInRoot.top
             assertTrue(kotlin.math.abs(after - before) < 2f, "older prepend moved visible anchor: $before -> $after")
             assertTrue(nodes(scene).none { text(it, "synthetic 120") })
             screenshot(scene, "issue11-paged-thread.png")
-        } finally { scene.close(); selection.close(); scope.cancel() }
+        } finally { release.complete(Unit); scene.close(); selection.close(); scope.cancel() }
     }
 
     // Repository and scene effects share virtual time instead of the runner's ambient event loop.

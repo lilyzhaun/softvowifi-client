@@ -25,6 +25,8 @@ data class SimControlInstance(
     val canApply: Boolean,
     val canProvision: Boolean = false,
     val homeCarrierLabel: String? = null,
+    val operationPending: Boolean = false,
+    val controlCompletion: EngineControlCompletion? = null,
 )
 
 sealed interface SimControlUiState {
@@ -62,4 +64,6 @@ internal data class SimEngineJoinInput(
     val pid: Long? = null,
     val runtime: EngineRuntimeStatus? = null,
     val message: String? = null,
+    val operationPending: Boolean = false,
+    val controlCompletion: EngineControlCompletion? = null,
 )

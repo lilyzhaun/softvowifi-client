@@ -8,7 +8,6 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.view.WindowManager
-import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -51,6 +50,9 @@ import com.vowifi.sw.manager.model.CallUiState
 import com.vowifi.sw.manager.model.CallBinding
 import com.vowifi.sw.manager.model.CallPhase
 import com.vowifi.sw.manager.model.CallSyncState
+import com.vowifi.sw.manager.model.LogExportCompletion
+import com.vowifi.sw.manager.model.LogExportOutcome
+import java.lang.ref.WeakReference
 
 class MainActivity : ComponentActivity() {
     private val incomingRoutes = Channel<AppRoute>(capacity = Channel.CONFLATED)
@@ -70,6 +72,7 @@ class MainActivity : ComponentActivity() {
         val configurationDrafts = androidx.lifecycle.ViewModelProvider(this)[ConfigurationDraftViewModel::class.java]
         processRuntime = (application as SoftVoWiFiApplication).runtime()
         callPermissions = CallPermissionActions(this, processRuntime.calls.lifecycle)
+        managementHost = WeakReference(this)
         lastOpenedCall = intent.getStringExtra(CallActivity.EXTRA_MINIMIZED)
             ?: intent.getStringExtra(AndroidIncomingCallNotificationCoordinator.EXTRA_NOTIFICATION_KEY)
         lastOpenedBinding = processRuntime.notifications.resolveKey(lastOpenedCall)
@@ -83,7 +86,7 @@ class MainActivity : ComponentActivity() {
                             val shouldOpen = key != lastOpenedCall && !sameCall
                             lastOpenedCall = key
                             lastOpenedBinding = state.binding
-                            if (shouldOpen) startActivity(processRuntime.notifications.openIntent(key))
+                            if (shouldOpen) openCall(key)
                         }
                     }
                 }
@@ -140,6 +143,7 @@ class MainActivity : ComponentActivity() {
             }
             var exportBusy by remember { mutableStateOf(false) }
             var pendingExport by remember { mutableStateOf<String?>(null) }
+            var exportCompletion by remember { mutableStateOf<LogExportCompletion?>(null) }
             val scope = rememberCoroutineScope()
             val exportLauncher = rememberLauncherForActivityResult(
                 ActivityResultContracts.CreateDocument("text/plain"),
@@ -148,16 +152,14 @@ class MainActivity : ComponentActivity() {
                 pendingExport = null
                 if (uri == null) {
                     exportBusy = false
+                    exportCompletion = LogExportCompletion((exportCompletion?.sequence ?: 0L) + 1L, LogExportOutcome.Cancelled)
                     return@rememberLauncherForActivityResult
                 }
                 scope.launch {
                     val wrote = withContext(Dispatchers.IO) { writeUtf8Export(uri, text) }
                     exportBusy = false
-                    Toast.makeText(
-                        this@MainActivity,
-                        if (wrote) "脱敏日志已导出" else "无法写入导出文件",
-                        Toast.LENGTH_SHORT,
-                    ).show()
+                    exportCompletion = LogExportCompletion((exportCompletion?.sequence ?: 0L) + 1L,
+                        if (wrote) LogExportOutcome.Written else LogExportOutcome.Failed)
                 }
             }
             SoftVoWiFiApp(
@@ -176,6 +178,7 @@ class MainActivity : ComponentActivity() {
                 initialDestination = launchRoute.destination,
                 incomingRoutes = incomingRouteFlow,
                 exportBusy = exportBusy,
+                exportCompletion = exportCompletion,
                 appVersion = appVersion,
                 microphonePermissionGranted = microphonePermissionGranted,
                 onRequestMicrophonePermission = {
@@ -190,7 +193,7 @@ class MainActivity : ComponentActivity() {
                 appearanceSource = appearanceSource,
                 blurSupported = blurSupported,
                 onCallDial = callPermissions::dial,
-                onOpenCall = { processRuntime.notifications.keyForCurrent()?.let { startActivity(processRuntime.notifications.openIntent(it)) } },
+                onOpenCall = { processRuntime.notifications.keyForCurrent()?.let(::openCall) },
                 callLineLabel = callLine,
                 onCallPermissions = if (micDenied) ({ startActivity(Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName"))) }) else null,
             )
@@ -214,6 +217,13 @@ class MainActivity : ComponentActivity() {
         processRuntime.callNotificationSettings.refresh()
     }
 
+    @Suppress("DEPRECATION")
+    private fun openCall(key: String) {
+        startActivity(processRuntime.notifications.openIntent(key))
+        // API 34+ is owned by CallActivity's open/close transition overrides.
+        if (Build.VERSION.SDK_INT < 34) overridePendingTransition(R.anim.s6_call_up, R.anim.s6_call_stay_enter)
+    }
+
     override fun onPause() {
         processRuntime.messages.setResumed(false)
         processRuntime.calls.lifecycle.setVisible(this, false)
@@ -235,6 +245,10 @@ class MainActivity : ComponentActivity() {
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
+        receiveLaunchIntent(intent)
+    }
+
+    private fun receiveLaunchIntent(intent: Intent) {
         setIntent(intent)
         intent.getStringExtra(CallActivity.EXTRA_MINIMIZED)?.let {
             lastOpenedCall = it
@@ -247,6 +261,11 @@ class MainActivity : ComponentActivity() {
         ) ?: return
         processRuntime.messages.selectConversation(null)
         incomingRoutes.trySend(route)
+    }
+
+    override fun onDestroy() {
+        if (managementHost?.get() === this) managementHost = null
+        super.onDestroy()
     }
 
     private fun consumeMessageLaunch(intent: Intent): Boolean {
@@ -305,9 +324,20 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private companion object {
-        const val EXPORT_FILE_NAME = "vowifi-logs-redacted.txt"
-        const val NOTIFICATION_PERMISSION_PREFERENCES = "incoming-call-notification-permission"
-        const val NOTIFICATION_PERMISSION_REQUESTED = "requested"
+    companion object {
+        private var managementHost: WeakReference<MainActivity>? = null
+
+        internal fun prepareCallReturn(taskId: Int, intent: Intent): Boolean {
+            val target = managementHost?.get()?.takeIf {
+                it.taskId == taskId && !it.isFinishing && !it.isDestroyed
+            } ?: return false
+            // Consume the existing key/route path before RESUMED can reopen the call.
+            target.receiveLaunchIntent(intent)
+            return true
+        }
+
+        private const val EXPORT_FILE_NAME = "vowifi-logs-redacted.txt"
+        private const val NOTIFICATION_PERMISSION_PREFERENCES = "incoming-call-notification-permission"
+        private const val NOTIFICATION_PERMISSION_REQUESTED = "requested"
     }
 }

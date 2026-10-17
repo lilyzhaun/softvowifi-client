@@ -28,6 +28,7 @@ class CallSourceAggregate(
     override val lines = mutableLines.asStateFlow()
     override val history = recorder.state
     override val historyOwners = recorder.owners
+    override val historySnapshot = recorder.historySnapshot
     @Volatile internal var children = emptyList<CallLineChild>()
     @Volatile internal var closed = false
     internal var roster: List<SimOwnerId?>? = null
@@ -106,10 +107,13 @@ class CallSourceAggregate(
             val previous = presented
             val active = children.filter { it.ready()?.phase?.let { phase -> phase != CallPhase.Idle } == true }
             val current = previous?.takeIf { it in active } ?: active.firstOrNull()
+                ?: previous?.takeIf { it in children && it.ready()?.terminal != null }
             presented = current
-            mutableState.value = current?.source?.state?.value
+            val projection = current?.source?.state?.value
                 ?: children.singleOrNull { it.owner == selected }?.source?.state?.value
                 ?: CallUiState.Unavailable(if (selected == null) "请选择通话线路" else "所选线路暂不可用")
+            mutableState.value = if (current == null && projection is CallUiState.Ready)
+                projection.copy(terminal = null) else projection
             val conflict = current?.takeIf { active.size > 1 }
             val key = conflict?.let { it to active.first { candidate -> candidate !== it }.ready()?.binding }
             if (key == null) { reconciliation = null; null }
@@ -122,6 +126,7 @@ class CallSourceAggregate(
         synchronized(lock) {
             if (closed || lines.value.choices.none { it.owner == owner && it.running }) return
             selected = owner
+            if (presented?.ready()?.phase == CallPhase.Idle) presented = null
             explicitSelection = true
         }
         recorder.selectOutgoingOwner(owner)
@@ -173,8 +178,12 @@ class CallSourceAggregate(
     override fun hangup() = current(CallAction.Hangup)
     override fun cancel() = current(CallAction.Cancel)
     override fun selectHistoryOwner(choice: CallHistoryOwnerChoice) = recorder.selectHistory(choice)
+    override suspend fun selectHistoryOwnerAndAwait(choice: CallHistoryOwnerChoice) =
+        if (closed) false else recorder.selectHistoryAndAwait(choice)
     override fun clearHistory(expected: CallHistoryState.Ready) = recorder.clear(expected)
     override fun deleteHistory(expected: CallHistoryState.Ready, ids: Set<CallHistoryRecordId>) = recorder.delete(expected, ids)
+    override suspend fun deleteHistoryAndAwait(expected: CallHistoryState.Ready, ids: Set<CallHistoryRecordId>) =
+        if (closed) CallHistoryDeleteResult.UNAVAILABLE else recorder.deleteAndAwait(expected, ids)
     override fun close() {
         val retiring = synchronized(lock) {
             if (closed) return

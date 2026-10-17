@@ -17,7 +17,7 @@ object AppNavigator {
         subpage: AppRoute.Subpage,
     ): AppNavigationState {
         if (subpage.root != state.currentRoot || state.topRoute == subpage) return state
-        return requireNotNull(AppNavigationState.create(state.backStack + subpage))
+        return AppNavigationState.create(state.backStack + subpage) ?: state
     }
 
     fun open(
@@ -25,12 +25,18 @@ object AppNavigator {
         subpage: AppRoute.Subpage,
     ): AppNavigationState {
         if (state.topRoute == subpage) return state
-        val targetRootState = if (state.currentRoot != subpage.root) {
-            selectRoot(state, subpage.root)
-        } else {
-            state
+        // D5: internal opens retain their source root; reopening a child pops to its existing slot.
+        val existingIndex = state.backStack.indexOf(subpage)
+        if (existingIndex > 0) {
+            return AppNavigationState.create(state.backStack.take(existingIndex + 1)) ?: state
         }
-        return push(targetRootState, subpage)
+        val currentBranch = (state.topRoute as? AppRoute.Subpage)?.root
+        val base = if (currentBranch != null && currentBranch != subpage.root) {
+            listOf(state.currentRoot)
+        } else {
+            state.backStack
+        }
+        return AppNavigationState.create(base + subpage) ?: state
     }
 
     fun back(state: AppNavigationState): AppNavigationState {

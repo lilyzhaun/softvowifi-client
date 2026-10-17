@@ -2,6 +2,7 @@ package com.vowifi.sw.manager.desktop
 
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.ImageComposeScene
@@ -26,12 +27,14 @@ import com.vowifi.sw.manager.model.MessageUiState
 import com.vowifi.sw.manager.model.MessageOrigin
 import java.nio.file.Files
 import java.nio.file.Path
+import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.TestCoroutineScheduler
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 import top.yukonga.miuix.kmp.basic.Scaffold
 
-@OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class)
+@OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class, kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class MessageLinePickerRenderTest {
     private var time = 0L
     @Test fun remarkActionsRemainFullyVisibleWhenHostShrinksTo250dpAt200Percent() {
@@ -141,21 +144,30 @@ class MessageLinePickerRenderTest {
             assertTrue(nodes(scene).any { it.config.getOrNull(SemanticsProperties.Text)?.any { text -> text.text == "选择短信记录线路" } == true })
         } finally { scene.close() }
     }
-    @Test fun searchesTwentyLinesEditsWithoutSelectingAndRetriesFailedSave() {
+    @Test fun searchesTwentyLinesEditsWithoutSelectingAndRetriesFailedSave() = smsOnEdt {
         val lines = ('a'..'t').mapIndexed { index, letter -> MessageHistoryLine(
             requireNotNull(SimOwnerId.parse("sim-owner-v1:" + letter.toString().repeat(43))), index, false,
             MessageOwnerLabel(index.toLong() + 1, if (index == 19) "用于漫游的备用线路长中文备注以验证自动换行" else "合成线路"),
         ) }
         var picked: SimOwnerId? = null
+        val source = SmsDualSimSource(smsReady(lines.first().owner), MessageHistoryChoices(lines, lines.first().owner, true))
+        val clock = TestCoroutineScheduler()
+        fun selectOwner(owner: SimOwnerId) {
+            source.selectHistoryOwner(owner)
+            picked = source.historyChoices.value.selectedOwner
+        }
         var editor by mutableStateOf<MessageRemarkEditor?>(null)
         var fail = true
         var saves = 0
-        val scene = ImageComposeScene(width = 420, height = 900, density = Density(1f)) {
+        val scene = ImageComposeScene(width = 420, height = 900, density = Density(1f), coroutineContext = StandardTestDispatcher(clock)) {
             SoftVoWiFiTheme(forceDark = false) {
                 Scaffold(Modifier.fillMaxSize()) {
                     val editing = editor
-                    if (editing == null) MessageLinePicker(MessageHistoryChoices(lines, lines.first().owner, true), {},
-                        { picked = it }, { editor = MessageRemarkEditor(it.owner, it.label?.remark.orEmpty(), it.label?.ordinal) }, {})
+                    val choices by source.historyChoices.collectAsState()
+                    if (editing == null) MessageLinePicker(choices, {},
+                        ::selectOwner, { editor = MessageRemarkEditor(it.owner, it.label?.remark.orEmpty(), it.label?.ordinal) }, {},
+                        // C2：只提交原source一次，以其已发布owner确认；Unit回调本身不等于成功。
+                        onConfirm = { owner -> selectOwner(owner); source.historyChoices.value.selectedOwner == owner })
                     else MessageRemarkDialog(editing, { editor = null }) { owner, _ ->
                         assertEquals(lines.last().owner, owner)
                         saves++
@@ -165,36 +177,39 @@ class MessageLinePickerRenderTest {
             }
         }
         try {
-            frame(scene)
+            frame(scene, clock)
             screenshot(scene, "issue11-lines.png")
             val search = nodes(scene).single { it.config.getOrNull(SemanticsActions.SetText) != null }
             assertTrue(requireNotNull(search.config[SemanticsActions.SetText].action).invoke(AnnotatedString("20")))
-            frame(scene)
+            frame(scene, clock)
             screenshot(scene, "issue11-lines-search.png")
             click(scene, "备注")
-            frame(scene)
-            frame(scene) // The selector exits before the editor starts entering.
+            frame(scene, clock)
+            frame(scene, clock) // The selector exits before the editor starts entering.
             assertEquals(null, picked)
             assertEquals(lines.last().owner, editor?.owner)
             click(scene, "保存")
-            frame(scene)
+            frame(scene, clock)
             assertEquals(1, saves)
             assertTrue(editor?.error != null)
             assertEquals(lines.last().label?.remark, editor?.input)
             screenshot(scene, "issue11-remark-error.png")
             fail = false
             click(scene, "保存")
-            frame(scene)
+            frame(scene, clock)
             assertEquals(2, saves)
             assertEquals(null, editor)
-            frame(scene)
+            frame(scene, clock)
             val restoredSearch = nodes(scene).single { it.config.getOrNull(SemanticsActions.SetText) != null }
             requireNotNull(restoredSearch.config[SemanticsActions.SetText].action).invoke(AnnotatedString("20"))
-            frame(scene)
+            frame(scene, clock)
             click(scene, requireNotNull(lines.last().label).remark)
-            frame(scene)
+            frame(scene, clock)
+            println("S4_SMS_LINE_CONFIRM|calls=${source.selections.size}|selectedIndex=${lines.indexOfFirst { it.owner == source.historyChoices.value.selectedOwner }}|" +
+                "pickedIndex=${lines.indexOfFirst { it.owner == picked }}|clock=${clock.currentTime}|renderMs=${time / 1_000_000L}")
             assertEquals(lines.last().owner, picked)
-        } finally { scene.close() }
+            assertEquals(listOf(lines.last().owner), source.selections, "C2：原source选线只能提交一次")
+        } finally { scene.close(); clock.runCurrent() }
     }
 
     @Test fun rendersLongCjkAtLargeFontWithBoundedScrollableRows() {
@@ -216,8 +231,15 @@ class MessageLinePickerRenderTest {
         } finally { scene.close() }
     }
 
-    private fun frame(scene: ImageComposeScene) {
-        repeat(8) { time += 100_000_000L; scene.render(time).close() }
+    private fun frame(scene: ImageComposeScene, clock: TestCoroutineScheduler? = null) {
+        repeat(8) {
+            clock?.runCurrent()
+            time += 100_000_000L
+            // C2驻留用协程delay；此测试的scheduler必须与实际渲染帧同钟。
+            if (clock != null) { clock.advanceTimeBy(time / 1_000_000L - clock.currentTime); clock.runCurrent() }
+            scene.render(time).close()
+            clock?.runCurrent()
+        }
     }
 
     private fun nodes(scene: ImageComposeScene): List<SemanticsNode> = scene.semanticsOwners.flatMap { owner ->

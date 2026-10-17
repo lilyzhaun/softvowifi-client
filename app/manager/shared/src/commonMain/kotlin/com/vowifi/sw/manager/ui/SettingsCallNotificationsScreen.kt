@@ -13,11 +13,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import com.vowifi.sw.manager.data.CallNotificationSettingsLaunchResult
 import com.vowifi.sw.manager.data.CallNotificationSettingsSource
+import com.vowifi.sw.manager.data.UnsupportedCallNotificationSettingsSource
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.SmallTitle
 import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.Info
 import top.yukonga.miuix.kmp.icon.extended.Phone
+import top.yukonga.miuix.kmp.icon.extended.Refresh
 
 internal fun callNotificationPreferenceRows(snapshot: CallNotificationSettingsSnapshot): List<ManagerPreferenceRow.Navigate> =
     callNotificationPage(snapshot).rows.map { row ->
@@ -58,9 +60,21 @@ internal fun SettingsCallNotificationsScreen(source: CallNotificationSettingsSou
     val snapshot by source.state.collectAsState()
     val feedback = remember(source) { CallNotificationSettingsFeedback() }
     LaunchedEffect(source) { source.refresh() }
+    val supported = source !== UnsupportedCallNotificationSettingsSource
+    val refresh = rememberManagerRefreshController(if (supported) source::refreshAndAwait else null)
+    val rotation = rememberManagerRefreshRotation(refresh)
+    if (supported) RegisterManagerRefreshAction(refresh, "刷新通知状态", rotation)
+    val inlineRefresh = LocalSubpageTopBarAction.current == null
     val rows = callNotificationPreferenceRows(snapshot)
     val actions = callNotificationPage(snapshot).rows
-    AppPageScaffold(title = "通知设置", showTopBar = false) {
+    AppPageScaffold(title = "通知设置", showTopBar = false, refreshController = refresh, refreshRotation = rotation) {
+        managerRefreshResultItem(refresh, "notification-refresh-result")
+        if (snapshot.freshness == NotificationSnapshotFreshness.STALE) {
+            item(key = "notification-stale") {
+                ManagerInformationPreferenceItem(managerInformationPreference("状态待重新读取",
+                    "上次快照已失效，请刷新后确认权限与渠道。", MiuixIcons.Info))
+            }
+        }
         item(key = "notification-title") { SmallTitle("系统能力") }
         item(key = "notification-card") {
             Card(insideMargin = PaddingValues(vertical = ManagerPreferenceLayoutContract.cardInsideVerticalPadding)) {
@@ -102,10 +116,11 @@ internal fun SettingsCallNotificationsScreen(source: CallNotificationSettingsSou
                     Modifier.padding(top = settingsHubLayoutContract().cardGap))
             }
         }
-        if (snapshot.permission != NotificationPermissionStatus.UNAVAILABLE) {
+        if (supported && inlineRefresh) {
             item(key = "notification-refresh") {
-                ManagerTextAction("刷新状态", ManagerAction.Refresh, source::refresh,
-                    Modifier.padding(top = settingsHubLayoutContract().cardGap))
+                ManagerIconAction(MiuixIcons.Refresh, "刷新通知状态", ManagerAction.Refresh, { refresh.request() },
+                    enabled = refresh.enabled, iconRotation = rotation,
+                    modifier = Modifier.padding(top = settingsHubLayoutContract().cardGap))
             }
         }
     }

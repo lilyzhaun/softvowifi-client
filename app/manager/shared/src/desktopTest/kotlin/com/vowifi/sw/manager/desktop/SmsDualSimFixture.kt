@@ -167,6 +167,9 @@ internal class SmsDualSimDriver(
         repeat(40) {
             scheduler.runCurrent()
             time += 16_666_667L
+            // C2的150ms确认驻留必须与T8渲染共用时钟，不能只推进render而让delay永久挂起。
+            scheduler.advanceTimeBy(time / 1_000_000L - scheduler.currentTime)
+            scheduler.runCurrent()
             scene.render(time).close()
             scheduler.runCurrent()
         }
@@ -195,6 +198,17 @@ internal class SmsDualSimDriver(
         }, "production send action must be enabled"))
     }
     fun hasText(value: String) = nodes().any { value in labels(it) }
+    fun trace(stage: String) {
+        fun owner(value: SimOwnerId?) = when (value) { null -> "none"; smsOwnerA -> "A"; smsOwnerB -> "B"; else -> "other" }
+        val inputs = nodes().filter { it.config.getOrNull(SemanticsProperties.EditableText) != null }.takeLast(4)
+        println("S4_SMS_DUAL|stage=$stage|route=${activeRoute::class.simpleName}|clock=${scheduler.currentTime}|renderMs=${time / 1_000_000L}|" +
+            "state=${source.state.value::class.simpleName}|stateOwner=${owner((source.state.value as? MessageUiState.Available)?.ownerId)}|" +
+            "selected=${owner(source.historyChoices.value.selectedOwner)}|selections=${source.selections.map(::owner)}|sends=${source.sends.size}|" +
+            "picker=${pickerPresent()}|inputs=" + inputs.map { node ->
+                val value = node.config[SemanticsProperties.EditableText].text
+                "${node.id}@${node.boundsInRoot}:disabled=${node.config.contains(SemanticsProperties.Disabled)},length=${value.length},peerA=${value == smsPeerA},peerB=${value == smsPeerB}"
+            })
+    }
     fun click(value: String) {
         if (value == "新建短信" || value == "处理未绑定草稿") {
             coveredRootNodeIds = nodes().map { it.id }.toSet()
@@ -212,6 +226,16 @@ internal class SmsDualSimDriver(
             }
         }, "new-message page must expose a native SIM picker even without history"))
         assertTrue(hasText(if (source.historyChoices.value.lines.any { it.running }) "选择短信线路" else "选择短信记录线路"), "native line picker must open")
+    }
+    fun settlePickerExit() {
+        // C2确认驻留后仍须完成原T8；只等真实宿主移除，不以选线回调到达冒充退场完成。
+        repeat(3) { if (!pickerPresent(visibleOnly = false)) return; frame() }
+        assertTrue(!pickerPresent(visibleOnly = false), "confirmed native line picker must finish its actual exit")
+    }
+    // 未绑定时根入口也叫“选择短信线路”；面板必须以真实heading归属识别，不能把入口当残留宿主。
+    private fun pickerPresent(visibleOnly: Boolean = true) = nodes(visibleOnly).any { node ->
+        node.config.contains(SemanticsProperties.Heading) &&
+            labels(node).any { it == "选择短信线路" || it == "选择短信记录线路" }
     }
     fun selectAtRoot(owner: SimOwnerId) {
         route(AppRoute.Messages)
@@ -233,9 +257,9 @@ internal class SmsDualSimDriver(
     private fun labels(node: SemanticsNode): List<String> =
         node.config.getOrNull(SemanticsProperties.Text).orEmpty().map { it.text } +
             node.config.getOrNull(SemanticsProperties.ContentDescription).orEmpty()
-    private fun nodes(): List<SemanticsNode> = scene.semanticsOwners.flatMap { owner ->
+    private fun nodes(visibleOnly: Boolean = true): List<SemanticsNode> = scene.semanticsOwners.flatMap { owner ->
         fun descend(node: SemanticsNode): List<SemanticsNode> = listOf(node) + node.children.flatMap(::descend)
         descend(owner.rootSemanticsNode)
-    }.filter { it.boundsInRoot.width > 0 && it.boundsInRoot.height > 0 }
+    }.filter { !visibleOnly || it.boundsInRoot.width > 0 && it.boundsInRoot.height > 0 }
     override fun close() { scene.close(); scheduler.runCurrent(); routes.close() }
 }

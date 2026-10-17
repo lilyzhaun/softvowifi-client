@@ -35,10 +35,14 @@ class AppNavigationState private constructor(
 
         internal fun create(backStack: List<AppRoute>): AppNavigationState? {
             val root = backStack.firstOrNull() as? AppRoute.Root ?: return null
-            val validSubpages = backStack.drop(1).all { route ->
-                route is AppRoute.Subpage && route.root == root
+            val subpages = backStack.drop(1)
+            val branch = (subpages.firstOrNull() as? AppRoute.Subpage)?.root ?: root
+            val validSubpages = subpages.all { route ->
+                route is AppRoute.Subpage && route.root == branch
             }
-            return if (validSubpages) AppNavigationState(backStack.toList()) else null
+            return if (validSubpages && subpages.distinct().size == subpages.size) {
+                AppNavigationState(backStack.toList())
+            } else null
         }
     }
 }

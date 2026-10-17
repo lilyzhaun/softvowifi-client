@@ -75,10 +75,13 @@ public final class ObserverService extends Service {
 
     private Notification createNotification() {
         NotificationManager manager = getSystemService(NotificationManager.class);
-        manager.createNotificationChannel(new NotificationChannel(
-                CHANNEL_ID,
-                getString(R.string.observer_channel),
-                NotificationManager.IMPORTANCE_LOW));
+        NotificationChannel channel = manager.getNotificationChannel(CHANNEL_ID);
+        if (channel == null) {
+            channel = new NotificationChannel(CHANNEL_ID,
+                    getString(R.string.observer_channel), NotificationManager.IMPORTANCE_LOW);
+        }
+        channel.setBlockable(true);
+        manager.createNotificationChannel(channel);
         return new Notification.Builder(this, CHANNEL_ID)
                 .setSmallIcon(android.R.drawable.stat_sys_phone_call)
                 .setContentTitle(getString(R.string.app_name))

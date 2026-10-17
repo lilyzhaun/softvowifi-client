@@ -93,10 +93,11 @@ class DiagnosticsScreenTest {
 
     @Test
     fun derivesCatalogLabelsWithoutDisplayingIdOrPath() {
-        assertEquals("引擎 •••• 1234", operationalLogFileLabel(OperationalLogFile("secret-id", "engine.log", "1234")))
-        assertEquals("启动 •••• 5678", operationalLogFileLabel(OperationalLogFile("/private/id", "launcher.log", "5678")))
-        assertEquals("日志 •••• 9999", operationalLogFileLabel(OperationalLogFile("raw-id", "/private/raw.log", "token-9999")))
-        assertEquals("引擎 ••••", operationalLogFileLabel(OperationalLogFile("raw-id", "engine.log", "../")))
+        // U4取代文件来源标签；身份/路径仍不展示，事件kind标签守护不变。
+        assertEquals("运行日志 •••• 1234", operationalLogFileLabel(OperationalLogFile("secret-id", "engine.log", "1234")))
+        assertEquals("运行日志 •••• 5678", operationalLogFileLabel(OperationalLogFile("/private/id", "launcher.log", "5678")))
+        assertEquals("运行日志 •••• 9999", operationalLogFileLabel(OperationalLogFile("raw-id", "/private/raw.log", "token-9999")))
+        assertEquals("运行日志 ••••", operationalLogFileLabel(OperationalLogFile("raw-id", "engine.log", "../")))
     }
 
     @Test

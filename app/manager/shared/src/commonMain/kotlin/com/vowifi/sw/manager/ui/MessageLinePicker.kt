@@ -24,6 +24,8 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
@@ -76,42 +78,56 @@ internal fun MessageLinePicker(
     onSelect: (SimOwnerId) -> Unit,
     onEdit: (MessageHistoryLine) -> Unit,
     onRetry: (() -> Unit)?,
+    onConfirm: (suspend (SimOwnerId) -> Boolean)? = null,
 ) {
     var query by remember { mutableStateOf("") }
     val lines = filterMessageLines(choices.selectableLines(), query)
     val listState = rememberLazyListState()
     val scroll = rememberSmsScrollFeedback(listState.canScrollBackward || listState.canScrollForward)
+    val density = LocalDensity.current
+    var openedViewport by remember { mutableStateOf(0.dp) }
     val sheet = rememberCommunicationSheetState(onDismiss)
-    val interactive = sheet.visible && LocalAppRouteActive.current
-    CommunicationSheet(choices.pickerTitle(), onDismiss, state = sheet) {
+    CommunicationLineConfirmation(choices.selectedOwner, sheet, onDismiss) { pendingOwner, popOwner, confirm ->
+    val interactive = sheet.visible && LocalAppRouteActive.current && pendingOwner == null
+    CommunicationSheet(choices.pickerTitle(), onDismiss, state = sheet, dismissible = pendingOwner == null) {
              CommunicationInput(query, { query = it }, "搜索SIM、备注或历史编号",
                 Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), enabled = interactive,
                 singleLine = true, leading = CommunicationSearch)
             CommunicationFootnote(if (choices.hasRunningEngines) "仅显示已启动引擎的线路；切换同时显示该线路的短信，已有会话仍用原线路回复。"
                 else "切换该线路的本地短信记录，可包含未注册或历史线路。")
-            when {
-                choices.labelsFailed -> {
-                    Text("无法读取线路备注", color = LocalSoftVoWiFiColors.current.error)
-                    if (onRetry != null) CommunicationTextAction("重新读取", onRetry, enabled = interactive)
-                }
-                choices.labelsLoading -> Text("正在读取线路备注")
-                lines.isEmpty() -> Text("没有匹配的线路")
-                else -> LazyColumn(Modifier.fillMaxWidth().weight(1f, fill = false).heightIn(max = MessageLineLayout.viewport).selectableGroup()
-                    .then(scroll.modifier), state = listState, overscrollEffect = scroll.effect) {
-                    items(lines, key = { it.owner.wire() }) { line ->
+             // Keep this opening's natural result viewport while filtering. Incoming window
+             // constraints still shrink it for the IME; short lists do not reserve all 360dp.
+             LazyColumn(Modifier.fillMaxWidth().weight(1f, fill = false)
+                 .heightIn(min = openedViewport, max = MessageLineLayout.viewport)
+                 .onSizeChanged { size ->
+                     openedViewport = maxOf(openedViewport, minOf(MessageLineLayout.viewport, with(density) { size.height.toDp() }))
+                 }.selectableGroup().then(scroll.modifier), state = listState, overscrollEffect = scroll.effect) {
+                 when {
+                     choices.labelsFailed -> item(key = "labels-failed") {
+                         Text("无法读取线路备注", color = LocalSoftVoWiFiColors.current.error)
+                         if (onRetry != null) CommunicationTextAction("重新读取", onRetry, enabled = interactive)
+                     }
+                     choices.labelsLoading -> item(key = "labels-loading") { Text("正在读取线路备注") }
+                     lines.isEmpty() -> item(key = "lines-empty") { Text("没有匹配的线路") }
+                     else -> items(lines, key = { it.owner.wire() }) { line ->
                         MessageLineRow(line, line.owner == choices.selectedOwner,
-                            { if (interactive) sheet.close { onSelect(line.owner) } },
-                            { if (interactive) sheet.close { onEdit(line) } }, enabled = interactive)
-                    }
-                }
+                             { if (interactive) {
+                                 if (line.owner == choices.selectedOwner) sheet.close { onSelect(line.owner) }
+                                 else confirm(line.owner) { onConfirm?.invoke(line.owner) ?: false }
+                             } },
+                             { if (interactive) sheet.close { onEdit(line) } }, enabled = interactive,
+                             popSelection = line.owner == popOwner)
+              }
+    }
             }
+    }
     }
 }
 
 @Composable
 private fun MessageLineRow(line: MessageHistoryLine, selected: Boolean, onSelect: () -> Unit, onEdit: () -> Unit,
-    enabled: Boolean = true) {
-    CommunicationLineRow(line.lineTitle(), line.lineSummary(), selected, onSelect, onEdit, enabled)
+    enabled: Boolean = true, popSelection: Boolean = false) {
+    CommunicationLineRow(line.lineTitle(), line.lineSummary(), selected, onSelect, onEdit, enabled, popSelection = popSelection)
 }
 
 @Composable

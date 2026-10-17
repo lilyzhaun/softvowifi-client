@@ -67,7 +67,8 @@ class OperationalLogRenderTest {
             frame(scene)
             click(scene, "日志文件")
             frame(scene)
-            click(scene, "启动 •••• 0002")
+            // U4统一日志入口名称；旧模块无groupKey仍保持独立文件选择与真实读取守护。
+            click(scene, "运行日志 •••• 0002")
             frame(scene)
             assertEquals(source.second, source.ready().selectedFileId)
             assertTrue(hasText(scene, "正在读取所选日志"))

@@ -1,6 +1,7 @@
 package com.vowifi.sw.manager.desktop
 
 import com.vowifi.sw.manager.data.EngineControlSource
+import com.vowifi.sw.manager.data.RefreshResult
 import com.vowifi.sw.manager.model.EngineControlUiState
 import com.vowifi.sw.manager.model.EngineInstanceState
 import com.vowifi.sw.manager.model.EngineLifecycle
@@ -12,8 +13,24 @@ import kotlinx.coroutines.flow.asStateFlow
 class FixtureEngineControlSource(mode: String) : EngineControlSource {
     private val mutableState = MutableStateFlow(fixture(mode))
     override val state: StateFlow<EngineControlUiState> = mutableState.asStateFlow()
+    private var closed = false
 
-    override fun refresh() = Unit
+    override fun refresh() { readSnapshot() }
+    override suspend fun refreshAndAwait(): RefreshResult = readSnapshot()
+    override fun close() { closed = true }
+
+    // This fixture reads its in-memory backend synchronously; it has no shell or async job.
+    private fun readSnapshot(): RefreshResult {
+        if (closed) return RefreshResult.Unsupported
+        val snapshot = mutableState.value
+        mutableState.value = snapshot
+        return when (snapshot) {
+            is EngineControlUiState.Ready -> RefreshResult.Completed
+            is EngineControlUiState.Failure -> RefreshResult.Failed(snapshot.message)
+            is EngineControlUiState.PermissionDenied -> RefreshResult.Failed(snapshot.message)
+            EngineControlUiState.Loading -> RefreshResult.Unsupported
+        }
+    }
 
     override fun start(iccid: String) {
         replace(iccid, EngineLifecycle.RUNNING, RUNTIME)
@@ -24,6 +41,7 @@ class FixtureEngineControlSource(mode: String) : EngineControlSource {
     }
 
     private fun replace(iccid: String, lifecycle: EngineLifecycle, runtime: EngineRuntimeStatus?) {
+        if (closed) return
         val current = mutableState.value
         if (current !is EngineControlUiState.Ready) return
         mutableState.value = current.copy(

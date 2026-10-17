@@ -8,6 +8,7 @@ import kotlinx.coroutines.flow.StateFlow
 interface SimControlSource {
     val state: StateFlow<SimControlUiState>
     fun refresh()
+    suspend fun refreshAndAwait(): RefreshResult = RefreshResult.Unsupported
     fun start(handle: SimHandle)
     fun stop(handle: SimHandle)
     fun close() = Unit

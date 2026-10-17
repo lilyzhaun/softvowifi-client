@@ -2,11 +2,15 @@ package com.vowifi.sw.manager.data
 
 import com.vowifi.sw.manager.model.CallHistoryState
 import com.vowifi.sw.manager.model.CallHistoryRecordId
+import com.vowifi.sw.manager.model.CallHistoryDeleteResult
+import com.vowifi.sw.manager.model.CallHistoryViewSnapshot
+import com.vowifi.sw.manager.model.HistoryChangeReason
 import kotlin.coroutines.CoroutineContext
 import kotlin.coroutines.cancellation.CancellationException
 import kotlin.time.Clock
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -18,32 +22,38 @@ import kotlinx.coroutines.selects.select
 import kotlinx.coroutines.withTimeoutOrNull
 
 internal class CallHistoryStore(
-    private val repository: CallHistoryRepository?,
+    internal val repository: CallHistoryRepository?,
     parentContext: CoroutineContext,
     clock: () -> Long = { Clock.System.now().toEpochMilliseconds() },
-    private val canClear: () -> Boolean = { true },
-    private val lineLabels: suspend (List<SimOwnerId>) -> Map<SimOwnerId, String> = { emptyMap() },
+    internal val canClear: () -> Boolean = { true },
+    internal val lineLabels: suspend (List<SimOwnerId>) -> Map<SimOwnerId, String> = { emptyMap() },
 ) {
     private val job = SupervisorJob()
     private val scope = CoroutineScope(parentContext.minusKey(Job) + job)
     private val writes = Channel<CallHistoryEffect>(16)
     private val selections = Channel<Unit>(Channel.CONFLATED)
     private val clears = Channel<CallHistoryState.Ready>(Channel.CONFLATED)
-    private val deletions = Channel<Pair<CallHistoryState.Ready, Set<CallHistoryRecordId>>>(Channel.CONFLATED)
-    private val snapshot = MutableStateFlow(
+    internal val deletions = Channel<CallHistoryDeletion>(1)
+    internal val snapshot = MutableStateFlow(
         CallHistorySnapshot(null, if (repository == null) CallHistoryState.Empty else CallHistoryState.Loading, emptyList()),
     )
     val state: StateFlow<CallHistoryState> = CallHistoryProjection(snapshot) { it.view }
     val owners: StateFlow<List<CallHistoryOwnerChoice>> = CallHistoryProjection(snapshot) { it.owners }
-    private var owner: CallHistorySelection? = null
-    private val selectionLock = Any()
+    val historySnapshot: StateFlow<CallHistoryViewSnapshot> = CallHistoryProjection(snapshot) {
+        CallHistoryViewSnapshot(it.view, it.owners, it.change, it.deletePending)
+    }
+    internal var owner: CallHistorySelection? = null
+    internal val selectionLock = Any()
+    internal var pendingDeletion: CallHistoryDeletion? = null
+    internal var changeVersion = 0L
+    internal var closing = false
     private var explicitHistorySelection = false
     private val recoveryTime = clock()
-    private val worker = scope.launch {
+    internal val worker = scope.launch {
         try {
             repository?.interruptOpen(recoveryTime)
             val storedOwner = repository?.lastOwner()
-            val recoveredSelection = storedOwner?.let(::CallHistorySelection)
+            val recoveredSelection = storedOwner?.let { CallHistorySelection(it) }
             val selected = snapshot.updateAndGet { current ->
                 if (current.selection == null) current.copy(selection = recoveredSelection) else current
             }.selection
@@ -58,6 +68,12 @@ internal class CallHistoryStore(
         } catch (_: CallHistoryStorageException) {
             fail()
         } finally {
+            synchronized(selectionLock) {
+                closing = true
+                pendingDeletion?.let { finishDelete(it, if (it.started) CallHistoryDeleteResult.UNCONFIRMED
+                    else CallHistoryDeleteResult.UNAVAILABLE) }
+                snapshot.value.selection?.completion?.cancel()
+            }
             writes.cancel()
             selections.cancel()
             clears.cancel()
@@ -71,10 +87,14 @@ internal class CallHistoryStore(
 
     fun select(owner: SimOwnerId, outgoingSelection: Boolean = false) {
         synchronized(selectionLock) {
+            if (closing) return
             if (outgoingSelection) explicitHistorySelection = false
             if (explicitHistorySelection && snapshot.value.selection?.owner != owner) return
             val selected = CallHistorySelection(owner)
-            snapshot.update { it.copy(selection = selected, view = CallHistoryState.Loading) }
+            snapshot.update {
+                it.selection?.completion?.complete(false)
+                it.copy(selection = selected, view = CallHistoryState.Loading, change = null, deletePending = emptySet())
+            }
             if (selections.trySend(Unit).isFailure) fail()
         }
     }
@@ -84,21 +104,34 @@ internal class CallHistoryStore(
     }
 
     fun delete(expected: CallHistoryState.Ready, ids: Set<CallHistoryRecordId>) {
-        if (ids.isEmpty() || !expected.records.mapNotNull { it.recordId }.containsAll(ids)) return
-        if (deletions.trySend(expected to ids).isFailure) fail()
+        requestDelete(expected, ids)
     }
+    suspend fun deleteAndAwait(expected: CallHistoryState.Ready, ids: Set<CallHistoryRecordId>) = requestDelete(expected, ids).await()
 
     fun selectHistory(choice: CallHistoryOwnerChoice) {
-        synchronized(selectionLock) {
-            val selected = CallHistorySelection(choice.owner)
-            while (true) {
-                val current = snapshot.value
-                if (current.owners.none { it === choice }) return
-                if (snapshot.compareAndSet(current, current.copy(selection = selected, view = CallHistoryState.Loading))) break
+        requestHistory(choice)
+    }
+    suspend fun selectHistoryAndAwait(choice: CallHistoryOwnerChoice) = requestHistory(choice).await()
+
+    fun requestHistory(choice: CallHistoryOwnerChoice): CompletableDeferred<Boolean> = synchronized(selectionLock) {
+        if (closing || repository == null || !worker.isActive) return@synchronized CompletableDeferred(false)
+        val completion = CompletableDeferred<Boolean>()
+        val selected = CallHistorySelection(choice.owner, completion)
+        while (true) {
+            val current = snapshot.value
+            if (current.owners.none { it === choice }) return@synchronized CompletableDeferred(false)
+            if (snapshot.compareAndSet(current, current.copy(selection = selected, view = CallHistoryState.Loading,
+                    change = null, deletePending = emptySet()))) {
+                current.selection?.completion?.complete(false)
+                break
             }
-            explicitHistorySelection = true
-            if (selections.trySend(Unit).isFailure) fail()
         }
+        explicitHistorySelection = true
+        if (selections.trySend(Unit).isFailure) {
+            completion.complete(false)
+            fail()
+        }
+        completion
     }
 
     fun fail() {
@@ -109,9 +142,13 @@ internal class CallHistoryStore(
     }
 
     fun close() {
-        if (!writes.close()) {
-            job.complete()
-            return
+        synchronized(selectionLock) {
+            if (closing) {
+                job.complete()
+                return
+            }
+            closing = true
+            writes.close()
         }
         scope.launch {
             if (withTimeoutOrNull(5_000) { worker.join(); true } != true) {
@@ -135,17 +172,24 @@ internal class CallHistoryStore(
                     owner = snapshot.value.selection
                     owner?.let { repository?.selectOwner(it.owner) }
                 }
-                owner?.let { publish(it) }
+                owner?.let { publish(it, reason = HistoryChangeReason.LIVE_INSERT,
+                    ids = if (it.owner == effect.owner) setOfNotNull(effect.write.toRecord(effect.owner).recordId) else emptySet()) }
                 true
             }
         }
         selections.onReceive {
             val selected = snapshot.value.selection
             if (selected != null && owner !== selected) {
-                if (owner?.owner != selected.owner) repository?.selectOwner(selected.owner)
-                owner = selected
-                publishState(CallHistoryState.Loading, selected)
-                publish(selected)
+                try {
+                    if (owner?.owner != selected.owner) repository?.selectOwner(selected.owner)
+                    owner = selected
+                    publishState(CallHistoryState.Loading, selected)
+                    publish(selected)
+                    selected.completion?.complete(snapshot.value.selection === selected && snapshot.value.view !is CallHistoryState.Failure)
+                } catch (error: CallHistoryStorageException) {
+                    selected.completion?.complete(false)
+                    throw error
+                }
             }
             true
         }
@@ -154,35 +198,13 @@ internal class CallHistoryStore(
             val selected = owner?.takeIf { current.selection === it && current.view === expected }
             if (selected != null && canClear()) {
                 repository?.clearByOwner(selected.owner)
-                publish(selected)
+                publish(selected, reason = HistoryChangeReason.USER_DELETE, ids = expected.records.mapNotNull { it.recordId }.toSet())
             }
             true
         }
-        deletions.onReceive { (expected, ids) ->
-            val current = snapshot.value
-            val selected = owner?.takeIf { current.selection === it && current.view === expected }
-            if (selected != null && canClear()) {
-                repository?.deleteByIds(selected.owner, ids)
-                publish(selected)
-            }
+        deletions.onReceive { request ->
+            processDelete(request)
             true
-        }
-    }
-
-    private suspend fun publish(selected: CallHistorySelection) {
-        val records = repository?.listByOwner(selected.owner).orEmpty()
-        val available = (repository?.listOwners().orEmpty() + selected.owner).distinct().sortedBy { it.wire() }
-        val labels = lineLabels(available)
-        val choices = available.mapIndexed { index, candidate ->
-            CallHistoryOwnerChoice(candidate, labels[candidate] ?: "历史线路 ${index + 1}", candidate == selected.owner)
-        }
-        val next = if (records.isEmpty()) CallHistoryState.Empty else CallHistoryState.Ready(records, selected.owner)
-        snapshot.update { current ->
-            if (current.selection !== selected || current.view is CallHistoryState.Failure) current
-            else current.copy(
-                view = if (current.view == next) current.view else next,
-                owners = choices,
-            )
         }
     }
 

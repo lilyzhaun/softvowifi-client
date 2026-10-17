@@ -1,17 +1,25 @@
 package com.vowifi.sw.manager.data
 
 import com.vowifi.sw.manager.model.CallHistoryState
+import com.vowifi.sw.manager.model.CallHistoryRecordId
+import com.vowifi.sw.manager.model.HistoryListChange
+import com.vowifi.sw.manager.model.HistoryListScope
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalForInheritanceCoroutinesApi
 import kotlinx.coroutines.InternalCoroutinesApi
 import kotlinx.coroutines.flow.FlowCollector
 import kotlinx.coroutines.flow.StateFlow
 
-internal class CallHistorySelection(val owner: SimOwnerId)
+internal class CallHistorySelection(val owner: SimOwnerId, val completion: CompletableDeferred<Boolean>? = null) {
+    val scope = HistoryListScope()
+}
 
 internal data class CallHistorySnapshot(
     val selection: CallHistorySelection?,
     val view: CallHistoryState,
     val owners: List<CallHistoryOwnerChoice>,
+    val change: HistoryListChange<CallHistoryRecordId>? = null,
+    val deletePending: Set<CallHistoryRecordId> = emptySet(),
 )
 
 @OptIn(ExperimentalForInheritanceCoroutinesApi::class)

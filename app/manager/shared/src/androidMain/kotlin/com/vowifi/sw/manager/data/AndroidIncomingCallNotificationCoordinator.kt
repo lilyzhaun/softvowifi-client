@@ -5,7 +5,10 @@ import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.content.Context
+import android.media.AudioAttributes
+import android.media.RingtoneManager
 import android.os.Build
+import com.vowifi.sw.manager.model.CallSyncState
 import com.vowifi.sw.manager.model.CallUiState
 import java.util.UUID
 import kotlinx.coroutines.CoroutineScope
@@ -36,6 +39,7 @@ class AndroidIncomingCallNotificationCoordinator(
     private val appContext = context.applicationContext
     private val notificationManager = appContext.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
     private val builder = IncomingCallNotificationBuilder(appContext, actionReceiverClass, callsActivityClass)
+    private val vibration = IncomingCallVibration(appContext)
     private val launches = CallLaunchRegistry { binding ->
         if (binding.token == null) UUID.randomUUID().toString() else java.security.MessageDigest.getInstance("SHA-256")
             .digest(listOf("call-v1", binding.owner, binding.epoch.orEmpty(), binding.token).joinToString("\u0000").toByteArray())
@@ -94,19 +98,14 @@ class AndroidIncomingCallNotificationCoordinator(
         refreshForeground()
     }
     private fun refreshForeground() {
-        if (appForeground || callForeground) {
-            if (state.isActive) {
-                state = IncomingCallNotificationState(notificationKey = null, peerName = null)
-                cancelCurrentNotification()
-            }
-        } else {
-            onCallStateChanged(callState.value)
-        }
+        onCallStateChanged(callState.value)
     }
 
     fun start() {
         if (collectJob != null) return
         createChannel()
+        // 进程重建时，先撤下上一进程可能遗留的循环提醒，再按真实快照恢复。
+        cancelCurrentNotification()
         collectJob = scope.launch {
             callState.collect { uiState ->
                 onCallStateChanged(uiState)
@@ -117,6 +116,7 @@ class AndroidIncomingCallNotificationCoordinator(
     fun stop() {
         collectJob?.cancel()
         collectJob = null
+        vibration.stop()
         cancelCurrentNotification()
         notificationManager.cancel(CallOngoingNotification.ID)
         scope.cancel()
@@ -132,14 +132,24 @@ class AndroidIncomingCallNotificationCoordinator(
     }
 
     private fun onCallStateChanged(uiState: CallUiState) {
+        if (collectJob == null) return
         val key = launches.update(uiState)
         if (uiState is CallUiState.Ready && key != null && (uiState.phase != com.vowifi.sw.manager.model.CallPhase.Ringing || microphoneRunning)) {
-            notificationManager.notify(CallOngoingNotification.ID, CallOngoingNotification.build(appContext, key, uiState))
+            notificationManager.notify(CallOngoingNotification.ID, CallOngoingNotification.build(appContext, key, uiState, microphoneRunning))
         } else if (!microphoneRunning) notificationManager.cancel(CallOngoingNotification.ID)
-        if (uiState !is CallUiState.Ready || uiState.phase != com.vowifi.sw.manager.model.CallPhase.Ringing || key == null) {
+        if (uiState !is CallUiState.Ready || uiState.phase != com.vowifi.sw.manager.model.CallPhase.Ringing ||
+            uiState.sync != CallSyncState.Ready || key == null || microphoneRunning || uiState.pendingAction != null) {
+            vibration.stop()
             cancelIfActive()
             return
         }
+        if (appForeground || callForeground) {
+            cancelIfActive()
+            vibration.start(key)
+            mutableRecovery.value = IncomingCallRecoveryState.NONE
+            return
+        }
+        vibration.stop()
         val peerName = uiState.peer?.text() ?: "未知号码"
         if (state.notificationKey == key && state.peerName == peerName) return
         if (postNotification(peerName, key)) {
@@ -208,6 +218,10 @@ class AndroidIncomingCallNotificationCoordinator(
         ).apply {
             description = "VoWiFi 来电通知"
             enableVibration(true)
+            vibrationPattern = IncomingCallVibration.pattern()
+            setSound(RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE), AudioAttributes.Builder()
+                .setUsage(AudioAttributes.USAGE_NOTIFICATION_RINGTONE)
+                .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION).build())
         }
         notificationManager.createNotificationChannel(channel)
     }

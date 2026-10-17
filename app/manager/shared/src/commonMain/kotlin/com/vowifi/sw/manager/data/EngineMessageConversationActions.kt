@@ -1,6 +1,7 @@
 package com.vowifi.sw.manager.data
 
 import com.vowifi.sw.manager.model.MessageUiState
+import com.vowifi.sw.manager.model.HistoryChangeReason
 import kotlinx.coroutines.sync.withLock
 
 internal suspend fun changeStoredMessageConversation(
@@ -16,7 +17,7 @@ internal suspend fun changeStoredMessageConversation(
         session.unreadSummary.refresh()
         if (action == MessageConversationAction.MARK_UNREAD) {
             // Only the persisted reminder changed. Keep the visible list and line chrome in place.
-            session.selection.refreshInboxContent()
+            session.selection.refreshInboxContent(MessageHistoryMutation(identity, HistoryChangeReason.CONTENT))
             return@withLock MessageConversationActionResult.APPLIED
         }
         val records = session.repository.listByOwner(identity.owner)
@@ -26,8 +27,9 @@ internal suspend fun changeStoredMessageConversation(
         }
         // Reconcile existing notifications only; a manual reminder is not a new MT.
         session.observer.onThreadUnread(identity, session.repository.history.unreadIds(identity).toSet())
-        session.publish()
-        session.selection.refreshInbox()
+        val mutation = MessageHistoryMutation(identity, HistoryChangeReason.USER_DELETE)
+        session.publish(mutation)
+        session.selection.refreshInbox(mutation)
         MessageConversationActionResult.APPLIED
     } catch (_: MessageStorageException) {
         MessageConversationActionResult.FAILED

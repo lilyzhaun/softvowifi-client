@@ -6,6 +6,8 @@ import com.vowifi.sw.manager.model.EngineLifecycle
 internal data class EngineCallAttachmentSignature(
     val attachmentCount: Int,
     val singleInstanceKey: String?,
+    /** A call snapshot read before IMS registration stays unavailable, so registration changes re-read it. */
+    val registeredInstanceKeys: Set<String>,
 )
 
 internal fun engineCallAttachmentSignature(state: EngineControlUiState): EngineCallAttachmentSignature? {
@@ -16,6 +18,7 @@ internal fun engineCallAttachmentSignature(state: EngineControlUiState): EngineC
     return EngineCallAttachmentSignature(
         attachmentCount = available.size,
         singleInstanceKey = available.singleOrNull()?.iccid,
+        registeredInstanceKeys = available.filter { it.runtime?.ims == "REGISTERED" }.mapTo(mutableSetOf()) { it.iccid },
     )
 }
 

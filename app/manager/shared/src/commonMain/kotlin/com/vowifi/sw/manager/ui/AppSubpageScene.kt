@@ -12,14 +12,20 @@ import top.yukonga.miuix.kmp.basic.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.MutableState
+import androidx.compose.runtime.State
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.semantics.ProgressBarRangeInfo
+import androidx.compose.ui.semantics.progressBarRangeInfo
+import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.semantics.semantics
 import com.vowifi.sw.manager.ui.navigation.AppRoute
 import top.yukonga.miuix.kmp.basic.Scaffold
 import top.yukonga.miuix.kmp.basic.SmallTopAppBar
@@ -59,7 +65,14 @@ internal fun appSubpageSceneContract(route: AppRoute.Subpage = AppRoute.Settings
         topBarOverlaysBody = route != AppRoute.Dialpad,
         listConsumesVerticalInsetViaContentPadding = route != AppRoute.Dialpad,
         listConsumesBottomInsetViaContentPadding = route != AppRoute.Dialpad,
-        topBarBlendAlpha = if (route is AppRoute.MessageThread || route == AppRoute.NewMessage) 0.92f else 0f,
+        topBarBlendAlpha = when (route) {
+            is AppRoute.MessageThread, AppRoute.NewMessage -> 0.92f
+            // R7 supplement (2026-10-15): settings use Home's collapsed top-bar material.
+            AppRoute.SettingsAppearance, AppRoute.SettingsConfiguration,
+            AppRoute.SettingsDiagnostics, AppRoute.SettingsLogs,
+            AppRoute.SettingsCallNotifications, AppRoute.SettingsAbout -> topBarBlendAlpha(1f)
+            else -> 0f
+        },
     )
 
 internal data class SubpageTopBarContract(
@@ -79,6 +92,8 @@ internal data class SubpageTopBarAction(
     val label: String,
     val action: ManagerAction,
     val enabled: Boolean,
+    val iconRotation: State<Float>? = null,
+    val busy: Boolean = false,
     val onClick: () -> Unit,
 )
 
@@ -95,10 +110,13 @@ internal fun AppSubpageScene(
     routeActive: Boolean = true,
     onBack: () -> Unit,
     content: @Composable () -> Unit,
-) {
+) = Box(Modifier.fillMaxSize().pointerInput(Unit) {
+    // 满屏子页参与命中以挡住兄弟根层空白；Final只等待，不消费孩子自己的首个Press。
+    awaitPointerEventScope { while (true) awaitPointerEvent(PointerEventPass.Final) }
+}) {
     if (route == AppRoute.Dialpad) {
         CompositionLocalProvider(LocalPhoneBack provides onBack, LocalAppRouteActive provides routeActive) { content() }
-        return
+        return@Box
     }
     val contract = appSubpageSceneContract(route)
     val colors = LocalSoftVoWiFiColors.current
@@ -125,7 +143,8 @@ internal fun AppSubpageScene(
             SmallTopAppBar(
                 modifier = chromeSurfaceModifier(Modifier, chromeSpec, backdrop, RectangleShape, blendAlpha = contract.topBarBlendAlpha),
                 title = if (expandedPeer) "" else title,
-                color = if (!chromeSpec.effectiveBlur && contract.topBarBlendAlpha > 0f) colors.canvas else Color.Transparent,
+                color = rootTopBarContainerColor(
+                    chromeSurfaceFallbackRenderer(chromeSpec.effectiveBlur, backdrop != null), colors.canvas),
                 titleColor = colors.textPrimary,
                 navigationIcon = {
                     if (communication) CompositionLocalProvider(LocalCommunicationBackdrop provides backdrop) {
@@ -134,7 +153,13 @@ internal fun AppSubpageScene(
                 },
                 actions = {
                     topBarAction.value?.let {
-                        ManagerIconAction(it.icon, it.label, it.action, it.onClick, enabled = routeActive && it.enabled)
+                        ManagerIconAction(it.icon, it.label, it.action, it.onClick, enabled = routeActive && it.enabled,
+                            iconRotation = it.iconRotation, modifier = Modifier.semantics {
+                                if (it.busy) {
+                                    progressBarRangeInfo = ProgressBarRangeInfo.Indeterminate
+                                    stateDescription = "正在刷新"
+                                }
+                            })
                     }
                 },
                 bottomContent = {

@@ -2,6 +2,7 @@ package com.vowifi.sw.manager.desktop
 
 import com.vowifi.sw.manager.data.OperationalLogEvaluator
 import com.vowifi.sw.manager.data.OperationalLogSource
+import com.vowifi.sw.manager.data.RefreshResult
 import com.vowifi.sw.manager.model.OperationalLogCatalogView
 import com.vowifi.sw.manager.model.OperationalLogEntry
 import com.vowifi.sw.manager.model.OperationalLogFile
@@ -20,13 +21,24 @@ class FixtureOperationalLogSource(mode: String) : OperationalLogSource {
     private var filter = OperationalLogFilter()
     private val mutableState = MutableStateFlow(fixture(mode))
     override val state: StateFlow<OperationalLogUiState> = mutableState.asStateFlow()
+    private var closed = false
 
     override fun refresh() {
-        mutableState.value = present(readyEntries())
+        refreshSnapshot()
     }
 
+    override suspend fun refreshAndAwait(): RefreshResult = refreshSnapshot()
+
+    private fun refreshSnapshot(): RefreshResult {
+        if (closed) return RefreshResult.Unsupported
+        mutableState.value = present(readyEntries())
+        return RefreshResult.Completed
+    }
+
+    override fun close() { closed = true }
+
     override fun selectFile(fileId: String) {
-        if (entriesById[fileId] == null) return
+        if (closed || entriesById[fileId] == null) return
         selectedFileId = fileId
         mutableState.value = when (mutableState.value) {
             is OperationalLogUiState.Warning -> presentWarning(entriesById.getValue(fileId))
@@ -42,6 +54,7 @@ class FixtureOperationalLogSource(mode: String) : OperationalLogSource {
     override fun setInstanceFilter(displayLabel: String?) = applyFilter(filter.copy(displayLabel = displayLabel))
 
     private fun applyFilter(next: OperationalLogFilter) {
+        if (closed) return
         filter = next
         mutableState.value = OperationalLogEvaluator.withFilter(mutableState.value, filter)
     }

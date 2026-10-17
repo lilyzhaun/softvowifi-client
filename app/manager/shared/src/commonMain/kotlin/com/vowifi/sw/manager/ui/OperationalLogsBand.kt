@@ -1,6 +1,8 @@
 package com.vowifi.sw.manager.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.indication
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -10,6 +12,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.ProgressBarRangeInfo
@@ -60,27 +63,34 @@ internal fun LogExportButton(
     modifier: Modifier = Modifier,
 ) {
     val colors = LocalSoftVoWiFiColors.current
-    val feedback = managerActionFeedback(ManagerAction.ExportLogs, enabled = presentation.enabled)
+    val routeActive = LocalAppRouteActive.current
+    val businessEnabled = presentation.enabled && !presentation.busy
+    val actionable = businessEnabled && routeActive
+    val feedback = managerActionFeedback(ManagerAction.ExportLogs, enabled = actionable)
     val actionHandler = rememberManagerActionHandler(feedback, onClick)
+    val interaction = remember { MutableInteractionSource() }
+    val indication = rememberManagerPressIndication(ManagerPressStyle.Solid, actionable)
     Button(
         onClick = actionHandler,
-        enabled = presentation.enabled,
+        enabled = actionable,
+        interactionSource = interaction,
+        indication = null,
         colors = ButtonDefaults.buttonColors(
             color = colors.interactive,
             disabledColor = colors.separator,
             contentColor = colors.surface,
             disabledContentColor = colors.textDisabled,
-        ),
+        ).preservingPressBusinessColors(businessEnabled, routeActive),
         modifier = modifier
             .fillMaxWidth()
             .heightIn(min = 48.dp)
-            .managerPressScale(feedback)
             .semantics {
                 if (presentation.busy) {
                     liveRegion = LiveRegionMode.Polite
                     progressBarRangeInfo = ProgressBarRangeInfo.Indeterminate
                 }
-            },
+            }.managerKeyboardFocusRing(interaction, actionable, color = colors.surface)
+            .managerPressInputGate(actionable).indication(interaction, indication),
     ) {
         if (presentation.busy) {
             CircularProgressIndicator(

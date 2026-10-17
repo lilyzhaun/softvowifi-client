@@ -214,4 +214,44 @@ class CallDualSimUiTest {
             assertSame(driver.source.bindingB, driver.requests.single().first)
         }
     }
+
+    @Test fun acceptedOutgoingCallClearsTheSubmittedDraftButFailedDialKeepsIt() = callUiEdt {
+        CallDualSimUiDriver().use { driver ->
+            driver.select(callOwnerA); driver.edit(callNumber); driver.click("拨打")
+            assertEquals(callNumber, driver.requests.single().second)
+            // Optimistic dialing has no engine token yet and may still fail; the number stays for a retry.
+            driver.source.state.value = outgoing(driver, CallBinding("synthetic-a", null, 2))
+            driver.source.lines.value = driver.source.lines.value.copy(outgoingBinding = null)
+            driver.frame()
+            driver.source.state.value = driver.source.ready()
+            driver.source.authorize(callOwnerA)
+            driver.route(AppRoute.Dialpad)
+            assertEquals(callNumber, driver.number())
+
+            driver.click("拨打")
+            driver.source.state.value = outgoing(driver, CallBinding("synthetic-a", "call-a", 3))
+            driver.source.lines.value = driver.source.lines.value.copy(outgoingBinding = null)
+            driver.frame()
+            driver.source.state.value = driver.source.ready()
+            driver.source.authorize(callOwnerA)
+            driver.route(AppRoute.Dialpad)
+            assertEquals("", driver.number())
+        }
+    }
+
+    @Test fun outgoingCallNotDialedFromTheDraftKeepsTheTypedNumber() = callUiEdt {
+        CallDualSimUiDriver().use { driver ->
+            driver.select(callOwnerA); driver.edit(callNumber)
+            driver.source.state.value = outgoing(driver, CallBinding("synthetic-a", "call-a", 2))
+            driver.source.lines.value = driver.source.lines.value.copy(outgoingBinding = null)
+            driver.frame()
+            driver.source.state.value = driver.source.ready()
+            driver.source.authorize(callOwnerA)
+            driver.route(AppRoute.Dialpad)
+            assertEquals(callNumber, driver.number())
+        }
+    }
+
+    private fun outgoing(driver: CallDualSimUiDriver, binding: CallBinding) =
+        driver.source.ready(binding, CallPhase.Dialing).copy(direction = CallDirection.OUTGOING)
 }

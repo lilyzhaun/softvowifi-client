@@ -2,6 +2,7 @@ package com.vowifi.sw.manager.desktop
 
 import com.vowifi.sw.manager.data.EnvironmentDiagnosticsEvaluator
 import com.vowifi.sw.manager.data.EnvironmentDiagnosticsSource
+import com.vowifi.sw.manager.data.RefreshResult
 import com.vowifi.sw.manager.model.ConfigDiagnostics
 import com.vowifi.sw.manager.model.EngineDiagnostics
 import com.vowifi.sw.manager.model.EnvironmentDiagnosticsSnapshot
@@ -18,10 +19,21 @@ import kotlinx.coroutines.flow.asStateFlow
 class FixtureEnvironmentDiagnosticsSource(mode: String) : EnvironmentDiagnosticsSource {
     private val mutableState = MutableStateFlow(fixture(mode))
     override val state: StateFlow<EnvironmentDiagnosticsUiState> = mutableState.asStateFlow()
+    private var closed = false
 
     override fun refresh() {
-        mutableState.value = ready()
+        refreshSnapshot()
     }
+
+    override suspend fun refreshAndAwait(): RefreshResult = refreshSnapshot()
+
+    private fun refreshSnapshot(): RefreshResult {
+        if (closed) return RefreshResult.Unsupported
+        mutableState.value = ready()
+        return RefreshResult.Completed
+    }
+
+    override fun close() { closed = true }
 
     private fun fixture(mode: String): EnvironmentDiagnosticsUiState = when (mode) {
         "loading" -> EnvironmentDiagnosticsUiState.Loading
