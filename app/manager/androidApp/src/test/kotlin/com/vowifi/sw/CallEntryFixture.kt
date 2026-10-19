@@ -74,10 +74,23 @@ internal class CallEntryFixture : AutoCloseable {
         shadowOf(Looper.getMainLooper()).idle()
     }
 
-    suspend fun ready(predicate: (CallUiState.Ready) -> Boolean): CallUiState.Ready {
-        val ready = withTimeout(3000) { delegate.state.first { it is CallUiState.Ready && predicate(it) } } as CallUiState.Ready
-        shadowOf(Looper.getMainLooper()).idle()
-        return ready
+    suspend fun ready(predicate: (CallUiState.Ready) -> Boolean): CallUiState.Ready = withTimeout(3000) {
+        while (true) {
+            shadowOf(Looper.getMainLooper()).idle()
+            val delegated = delegate.state.value as? CallUiState.Ready
+            val current = source.state.value as? CallUiState.Ready
+            if (delegated != null && current != null && current.binding === delegated.binding &&
+                current.sync == delegated.sync && current.phase == delegated.phase &&
+                current.audio == delegated.audio &&
+                current.operationMessage == (source.lifecycle.feedback.value ?: delegated.operationMessage) &&
+                current.busy == (delegated.busy || source.lifecycle.busy.value) &&
+                predicate(delegated) && predicate(current)) {
+                return@withTimeout current
+            }
+            delay(10)
+        }
+        @Suppress("UNREACHABLE_CODE")
+        error("unreachable")
     }
 
     suspend fun history(outcome: CallOutcome) {
@@ -85,10 +98,32 @@ internal class CallEntryFixture : AutoCloseable {
     }
 
     override fun close() {
+        val jobs = ownedJobs()
         runtime.stopObservingNetworks()
         runtime.notifications.stop()
         source.close()
+        runBlocking {
+            withTimeout(3000) {
+                while ((jobs + ownedJobs()).any { !it.isCompleted }) {
+                    shadowOf(Looper.getMainLooper()).idle()
+                    delay(10)
+                }
+                shadowOf(Looper.getMainLooper()).idle()
+            }
+        }
         first.close(); second.close(); repository.close()
+    }
+
+    private fun ownedJobs(): List<Job> {
+        val childScopes = ReflectionHelpers.getField<List<*>>(delegate, "children").mapNotNull { child ->
+            child?.let { ReflectionHelpers.getField<CoroutineScope>(ReflectionHelpers.getField(it, "source"), "scope") }
+        }
+        val scopes = listOf(
+            ReflectionHelpers.getField<CoroutineScope>(source, "uiScope"),
+            ReflectionHelpers.getField<CoroutineScope>(source.lifecycle, "scope"),
+            ReflectionHelpers.getField<CoroutineScope>(delegate, "scope"),
+        ) + childScopes
+        return scopes.mapNotNull { it.coroutineContext[Job] }
     }
 }
 
