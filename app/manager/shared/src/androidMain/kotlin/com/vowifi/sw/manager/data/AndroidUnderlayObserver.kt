@@ -1,6 +1,9 @@
 package com.vowifi.sw.manager.data
 
+import android.content.BroadcastReceiver
 import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
 import android.net.ConnectivityManager
 import android.net.LinkProperties
 import android.net.Network
@@ -9,6 +12,7 @@ import android.net.NetworkRequest
 import android.os.Handler
 import android.os.HandlerThread
 import android.os.SystemClock
+import android.provider.Settings
 import android.telephony.SubscriptionManager
 import java.net.InetAddress
 import kotlinx.coroutines.CoroutineScope
@@ -27,11 +31,13 @@ class AndroidUnderlayObserver(
     private val publish: (String) -> Boolean = ::publishUnderlay,
     private val now: () -> Long = SystemClock::elapsedRealtime,
 ) {
-    private val manager = context.applicationContext.getSystemService(ConnectivityManager::class.java)
+    private val appContext = context.applicationContext
+    private val manager = appContext.getSystemService(ConnectivityManager::class.java)
     private data class LinkState(val iface: String?, val addresses: List<String>, val dns: List<String>)
     private data class Entry(var capabilities: NetworkCapabilities? = null, var links: LinkState? = null, var blocked: Boolean = false)
     private val entries = LinkedHashMap<Network, Entry>()
     private var defaultHandle = 0L
+    private var accessGeneration = 0L
     private var handler: Handler? = null
     private var thread: HandlerThread? = null
     private var scope: CoroutineScope? = null
@@ -62,6 +68,14 @@ class AndroidUnderlayObserver(
             if (defaultHandle == network.networkHandle) { defaultHandle = 0; emit() }
         }
     }
+    private val accessReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            if (intent?.action == Intent.ACTION_AIRPLANE_MODE_CHANGED) {
+                accessGeneration++
+                emit()
+            }
+        }
+    }
     private val heartbeat = object : Runnable {
         override fun run() { emit(); handler?.postDelayed(this, 5_000) }
     }
@@ -73,6 +87,7 @@ class AndroidUnderlayObserver(
         thread = worker
         val handler = Handler(worker.looper)
         this.handler = handler
+        accessGeneration = now()
         val updates = Channel<String>(Channel.CONFLATED)
         this.updates = updates
         scope = CoroutineScope(SupervisorJob() + Dispatchers.IO).also { scope ->
@@ -85,6 +100,8 @@ class AndroidUnderlayObserver(
                 .build()
             manager.registerNetworkCallback(request, callback, handler)
             manager.registerDefaultNetworkCallback(defaultCallback, handler)
+            appContext.registerReceiver(accessReceiver, IntentFilter(Intent.ACTION_AIRPLANE_MODE_CHANGED),
+                null, handler, Context.RECEIVER_NOT_EXPORTED)
             // API26+ sends capabilities and LinkProperties for already available
             // networks when registered. Do not race synchronous enumeration
             // against those initial callback messages.
@@ -100,6 +117,7 @@ class AndroidUnderlayObserver(
         this.handler = null
         try { manager?.unregisterNetworkCallback(callback) } catch (_: IllegalArgumentException) { /* Not registered. */ }
         try { manager?.unregisterNetworkCallback(defaultCallback) } catch (_: IllegalArgumentException) { /* Not registered. */ }
+        try { appContext.unregisterReceiver(accessReceiver) } catch (_: IllegalArgumentException) { /* Not registered. */ }
         handler.removeCallbacksAndMessages(null)
         updates?.close()
         scope?.cancel()
@@ -149,6 +167,8 @@ class AndroidUnderlayObserver(
                 .put("dns", JSONArray(dns)))
         }
         return JSONObject().put("version", 1).put("observedMs", now())
+            .put("airplaneMode", Settings.Global.getInt(appContext.contentResolver, Settings.Global.AIRPLANE_MODE_ON, 0) == 1)
+            .put("accessGeneration", accessGeneration)
             .put("defaultHandle", defaultHandle).put("networks", networks).toString()
     }
 }

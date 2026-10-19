@@ -1,12 +1,15 @@
 package com.vowifi.sw
 
 import android.app.Application
+import android.content.BroadcastReceiver
 import android.content.Context
+import android.content.Intent
 import android.net.ConnectivityManager
 import android.net.LinkAddress
 import android.net.LinkProperties
 import android.net.Network
 import android.net.NetworkCapabilities
+import android.provider.Settings
 import com.vowifi.sw.manager.data.AndroidUnderlayObserver
 import java.net.InetAddress
 import org.json.JSONObject
@@ -15,9 +18,11 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
+import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 import org.robolectric.util.ReflectionHelpers
 import org.robolectric.util.ReflectionHelpers.ClassParameter
+import kotlinx.coroutines.channels.Channel
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [33], application = Application::class)
@@ -119,5 +124,73 @@ class UnderlayNetworkObserverTest {
         val selected = snapshot(observer).getJSONArray("networks").getJSONObject(0)
         assertEquals("wifi_test", selected.getString("interface"))
         assertEquals("192.0.2.53", selected.getJSONArray("dns").getString(0))
+    }
+
+    @Test fun flightChangesArePublishedWithoutChangingTheWifiNetwork() {
+        val context = RuntimeEnvironment.getApplication()
+        val observer = observer()
+        val callback = callback(observer)
+        val network = network(101)
+        callback.onCapabilitiesChanged(network, wifi())
+        callback.onLinkPropertiesChanged(network, links())
+        Settings.Global.putInt(context.contentResolver, Settings.Global.AIRPLANE_MODE_ON, 0)
+        val initial = snapshot(observer)
+        assertFalse(initial.getBoolean("airplaneMode"))
+        Settings.Global.putInt(context.contentResolver, Settings.Global.AIRPLANE_MODE_ON, 1)
+        val flight = snapshot(observer)
+        assertTrue(flight.getBoolean("airplaneMode"))
+        assertEquals(initial.getJSONArray("networks").toString(), flight.getJSONArray("networks").toString())
+        Settings.Global.putInt(context.contentResolver, Settings.Global.AIRPLANE_MODE_ON, 0)
+        assertFalse(snapshot(observer).getBoolean("airplaneMode"))
+    }
+
+    @Test fun flightBroadcastPublishesSettingsImmediatelyAndDoesNotTrustExtras() {
+        val context = RuntimeEnvironment.getApplication()
+        val observer = observer()
+        val updates = Channel<String>(Channel.CONFLATED)
+        ReflectionHelpers.setField(observer, "updates", updates)
+        val receiver = ReflectionHelpers.getField<BroadcastReceiver>(observer, "accessReceiver")
+        Settings.Global.putInt(context.contentResolver, Settings.Global.AIRPLANE_MODE_ON, 1)
+        receiver.onReceive(context, Intent("synthetic.unrelated"))
+        assertTrue(updates.tryReceive().isFailure)
+        receiver.onReceive(context, Intent(Intent.ACTION_AIRPLANE_MODE_CHANGED).putExtra("state", false))
+        assertTrue(JSONObject(updates.tryReceive().getOrThrow()).getBoolean("airplaneMode"))
+        Settings.Global.putInt(context.contentResolver, Settings.Global.AIRPLANE_MODE_ON, 0)
+        receiver.onReceive(context, Intent(Intent.ACTION_AIRPLANE_MODE_CHANGED).putExtra("state", true))
+        assertFalse(JSONObject(updates.tryReceive().getOrThrow()).getBoolean("airplaneMode"))
+        updates.close()
+    }
+
+    @Test fun observerOwnsAndReleasesTheFlightReceiver() {
+        val context = RuntimeEnvironment.getApplication()
+        val observer = AndroidUnderlayObserver(context, publish = { true })
+        val receiver = ReflectionHelpers.getField<BroadcastReceiver>(observer, "accessReceiver")
+        try {
+            observer.start()
+            assertTrue(shadowOf(context).registeredReceivers.any { it.broadcastReceiver === receiver })
+        } finally {
+            observer.stop()
+        }
+        assertFalse(shadowOf(context).registeredReceivers.any { it.broadcastReceiver === receiver })
+        observer.stop()
+    }
+
+    @Test fun rapidReturnToSameModeStillPublishesANewAccessGeneration() {
+        val context = RuntimeEnvironment.getApplication()
+        Settings.Global.putInt(context.contentResolver, Settings.Global.AIRPLANE_MODE_ON, 0)
+        val observer = observer()
+        val before = snapshot(observer)
+        val updates = Channel<String>(Channel.CONFLATED)
+        ReflectionHelpers.setField(observer, "updates", updates)
+        val receiver = ReflectionHelpers.getField<BroadcastReceiver>(observer, "accessReceiver")
+        Settings.Global.putInt(context.contentResolver, Settings.Global.AIRPLANE_MODE_ON, 1)
+        receiver.onReceive(context, Intent(Intent.ACTION_AIRPLANE_MODE_CHANGED))
+        Settings.Global.putInt(context.contentResolver, Settings.Global.AIRPLANE_MODE_ON, 0)
+        receiver.onReceive(context, Intent(Intent.ACTION_AIRPLANE_MODE_CHANGED))
+        val after = JSONObject(updates.tryReceive().getOrThrow())
+        assertEquals(before.getBoolean("airplaneMode"), after.getBoolean("airplaneMode"))
+        assertTrue(after.getLong("accessGeneration") > before.getLong("accessGeneration"))
+        assertEquals(before.getJSONArray("networks").toString(), after.getJSONArray("networks").toString())
+        updates.close()
     }
 }
