@@ -4,6 +4,8 @@ import com.vowifi.sw.manager.model.DiagnosticCheckId
 import com.vowifi.sw.manager.model.DiagnosticCheckStatus
 import com.vowifi.sw.manager.model.DiagnosticCheck
 import com.vowifi.sw.manager.model.EnvironmentDiagnosticsUiState
+import com.vowifi.sw.manager.model.StockWfcCard
+import com.vowifi.sw.manager.model.StockWfcDiagnostics
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -16,7 +18,7 @@ class EnvironmentDiagnosticsEvaluatorTest {
     @Test
     fun healthySnapshotIsReadyWithAllPass() {
         val ready = assertIs<EnvironmentDiagnosticsUiState.Ready>(
-            EnvironmentDiagnosticsEvaluator.fromOutput(healthyJson()),
+            evaluate(healthyJson()),
         )
 
         assertEquals(DiagnosticCheckStatus.PASS, ready.severity)
@@ -31,10 +33,10 @@ class EnvironmentDiagnosticsEvaluatorTest {
     @Test
     fun rootCopyUsesConsistentCapitalization() {
         val healthy = assertIs<EnvironmentDiagnosticsUiState.Ready>(
-            EnvironmentDiagnosticsEvaluator.fromOutput(healthyJson(capable = true)),
+            evaluate(healthyJson(capable = true)),
         ).checks.single { it.id == DiagnosticCheckId.ROOT }
         val warning = assertIs<EnvironmentDiagnosticsUiState.Ready>(
-            EnvironmentDiagnosticsEvaluator.fromOutput(healthyJson(capable = false)),
+            evaluate(healthyJson(capable = false)),
         ).checks.single { it.id == DiagnosticCheckId.ROOT }
 
         assertEquals("Root 权限", healthy.title)
@@ -46,7 +48,7 @@ class EnvironmentDiagnosticsEvaluatorTest {
     @Test
     fun markersConfigZeroDegradedObserverAndUnreadableWfcAreWarnings() {
         val ready = assertIs<EnvironmentDiagnosticsUiState.Ready>(
-            EnvironmentDiagnosticsEvaluator.fromOutput(
+            evaluate(
                 healthyJson(
                     disable = true,
                     configCount = 0,
@@ -56,8 +58,8 @@ class EnvironmentDiagnosticsEvaluatorTest {
                     packagePid = true,
                     processRecord = true,
                     foreground = false,
-                    wfc = """{"readable":false}""",
                 ),
+                StockWfcDiagnostics.Unreadable,
             ),
         )
 
@@ -76,7 +78,7 @@ class EnvironmentDiagnosticsEvaluatorTest {
     @Test
     fun missingModuleAndAbsentObserverAreFailures() {
         val ready = assertIs<EnvironmentDiagnosticsUiState.Ready>(
-            EnvironmentDiagnosticsEvaluator.fromOutput(
+            evaluate(
                 healthyJson(
                     installed = false,
                     packagePid = false,
@@ -94,7 +96,7 @@ class EnvironmentDiagnosticsEvaluatorTest {
     @Test
     fun updateMarkerWarnsWithoutTreatingItAsDisableOrRemove() {
         val ready = assertIs<EnvironmentDiagnosticsUiState.Ready>(
-            EnvironmentDiagnosticsEvaluator.fromOutput(healthyJson(update = true)),
+            evaluate(healthyJson(update = true)),
         )
         val module = ready.checks.single { it.id == DiagnosticCheckId.MODULE }
         val guidance = assertNotNull(module.guidance)
@@ -113,7 +115,7 @@ class EnvironmentDiagnosticsEvaluatorTest {
     @Test
     fun disableAndRemoveMarkersListMeaningsAndDirectToKernelSu() {
         val ready = assertIs<EnvironmentDiagnosticsUiState.Ready>(
-            EnvironmentDiagnosticsEvaluator.fromOutput(healthyJson(disable = true, remove = true)),
+            evaluate(healthyJson(disable = true, remove = true)),
         )
         val module = ready.checks.single { it.id == DiagnosticCheckId.MODULE }
         val guidance = assertNotNull(module.guidance)
@@ -161,7 +163,7 @@ class EnvironmentDiagnosticsEvaluatorTest {
     @Test
     fun readyCopyOmitsSensitiveIdentifiersAndLongDigitRuns() {
         val ready = assertIs<EnvironmentDiagnosticsUiState.Ready>(
-            EnvironmentDiagnosticsEvaluator.fromOutput(HEALTHY_WITH_SECRETS),
+            evaluate(HEALTHY_WITH_SECRETS),
         )
 
         ready.checks.forEach { check ->
@@ -174,7 +176,7 @@ class EnvironmentDiagnosticsEvaluatorTest {
     @Test
     fun warnAndFailGuidanceIsPresentAndNonMutating() {
         val ready = assertIs<EnvironmentDiagnosticsUiState.Ready>(
-            EnvironmentDiagnosticsEvaluator.fromOutput(
+            evaluate(
                 healthyJson(
                     installed = false,
                     remove = true,
@@ -182,8 +184,8 @@ class EnvironmentDiagnosticsEvaluatorTest {
                     packagePid = false,
                     processRecord = false,
                     foreground = false,
-                    wfc = """{"readable":false}""",
                 ),
+                StockWfcDiagnostics.Unreadable,
             ),
         )
 
@@ -196,25 +198,73 @@ class EnvironmentDiagnosticsEvaluatorTest {
     }
 
     @Test
-    fun readableWfcValuesArePassAndReportConciseReadOnlyCopy() {
-        listOf(0, 1).forEach { value ->
-            val ready = assertIs<EnvironmentDiagnosticsUiState.Ready>(
-                EnvironmentDiagnosticsEvaluator.fromOutput(
-                    healthyJson(wfc = """{"readable":true,"global":$value}"""),
-                ),
-            )
-            val wfc = ready.checks.single { it.id == DiagnosticCheckId.WFC }
+    fun stockWfcOffOnEveryActiveSimIsPassAndIgnoresLegacyGlobalKey() {
+        val ready = assertIs<EnvironmentDiagnosticsUiState.Ready>(
+            evaluate(healthyJson(wfc = """{"readable":true,"global":1}"""), STOCK_WFC_OFF),
+        )
+        val wfc = ready.checks.single { it.id == DiagnosticCheckId.WFC }
 
-            assertEquals(DiagnosticCheckStatus.PASS, wfc.status)
-            assertEquals("Android 原生 WFC 只读值：$value", wfc.detail)
-            listOf("开启", "关闭", "打开", "关掉").forEach { token ->
-                assertFalse(wfc.title.contains(token), "WFC title advises $token")
-                assertFalse(wfc.detail.contains(token), "WFC detail advises $token")
-                assertFalse(wfc.guidance.orEmpty().contains(token), "WFC guidance advises $token")
-            }
-            assertPrivate(wfc.title)
-            assertPrivate(wfc.detail)
-        }
+        assertEquals(DiagnosticCheckStatus.PASS, wfc.status)
+        assertEquals("SIM1、SIM2 均未开启", wfc.detail)
+        assertEquals(null, wfc.guidance)
+    }
+
+    @Test
+    fun stockWfcEnabledOnAnyActiveSimWarnsAboutConflict() {
+        val ready = assertIs<EnvironmentDiagnosticsUiState.Ready>(
+            evaluate(
+                healthyJson(wfc = """{"readable":true,"global":0}"""),
+                StockWfcDiagnostics.Readable(
+                    listOf(StockWfcCard(slot = 1, enabled = true), StockWfcCard(slot = 0, enabled = false)),
+                ),
+            ),
+        )
+        val wfc = ready.checks.single { it.id == DiagnosticCheckId.WFC }
+        val guidance = assertNotNull(wfc.guidance)
+
+        assertEquals(DiagnosticCheckStatus.WARN, ready.severity)
+        assertEquals(DiagnosticCheckStatus.WARN, wfc.status)
+        assertEquals("SIM2 已开启", wfc.detail)
+        assertTrue(guidance.contains("冲突"))
+        assertTrue(guidance.contains("系统设置"))
+        assertTrue(guidance.contains("本页不会改写该设置"))
+        assertPrivate(wfc.detail)
+        assertPrivate(guidance)
+    }
+
+    @Test
+    fun stockWfcListsEveryEnabledSimInSlotOrder() {
+        val wfc = assertIs<EnvironmentDiagnosticsUiState.Ready>(
+            evaluate(
+                healthyJson(),
+                StockWfcDiagnostics.Readable(
+                    listOf(StockWfcCard(slot = 1, enabled = true), StockWfcCard(slot = 0, enabled = true)),
+                ),
+            ),
+        ).checks.single { it.id == DiagnosticCheckId.WFC }
+
+        assertEquals(DiagnosticCheckStatus.WARN, wfc.status)
+        assertEquals("SIM1、SIM2 已开启", wfc.detail)
+    }
+
+    @Test
+    fun stockWfcOffOnSingleActiveSimNamesOnlyThatSim() {
+        val wfc = assertIs<EnvironmentDiagnosticsUiState.Ready>(
+            evaluate(healthyJson(), StockWfcDiagnostics.Readable(listOf(StockWfcCard(slot = 1, enabled = false)))),
+        ).checks.single { it.id == DiagnosticCheckId.WFC }
+
+        assertEquals(DiagnosticCheckStatus.PASS, wfc.status)
+        assertEquals("SIM2 未开启", wfc.detail)
+    }
+
+    @Test
+    fun stockWfcWithoutActiveSimIsPass() {
+        val wfc = assertIs<EnvironmentDiagnosticsUiState.Ready>(
+            evaluate(healthyJson(), StockWfcDiagnostics.Readable(emptyList())),
+        ).checks.single { it.id == DiagnosticCheckId.WFC }
+
+        assertEquals(DiagnosticCheckStatus.PASS, wfc.status)
+        assertEquals("未发现活动 SIM", wfc.detail)
     }
 
     @Test
@@ -229,20 +279,20 @@ class EnvironmentDiagnosticsEvaluatorTest {
             EnvironmentDiagnosticsEvaluator.failure(),
         )
         assertIs<EnvironmentDiagnosticsUiState.Unavailable>(
-            EnvironmentDiagnosticsEvaluator.fromOutput(
+            evaluate(
                 """{"ok":false,"code":"USAGE","message":"control.sh list|diagnose"}""",
             ),
         )
         assertIs<EnvironmentDiagnosticsUiState.Failure>(
-            EnvironmentDiagnosticsEvaluator.fromOutput(
+            evaluate(
                 """{"ok":false,"code":"DIRECTORY_FAILED","message":"/data/adb/vowifi"}""",
             ),
         )
         assertIs<EnvironmentDiagnosticsUiState.Failure>(
-            EnvironmentDiagnosticsEvaluator.fromOutput("""{"module":{"installed":true}"""),
+            evaluate("""{"module":{"installed":true}"""),
         )
         assertIs<EnvironmentDiagnosticsUiState.Failure>(
-            EnvironmentDiagnosticsEvaluator.fromOutput(healthyJson(ok = false)),
+            evaluate(healthyJson(ok = false)),
         )
         assertIs<EnvironmentDiagnosticsUiState.Loading>(EnvironmentDiagnosticsUiState.Loading)
         val source = object : EnvironmentDiagnosticsSource {
@@ -257,7 +307,7 @@ class EnvironmentDiagnosticsEvaluatorTest {
     @Test
     fun commandFailureCopyOmitsSensitiveIdentifiers() {
         val failure = assertIs<EnvironmentDiagnosticsUiState.Failure>(
-            EnvironmentDiagnosticsEvaluator.fromOutput(
+            evaluate(
                 """{"ok":false,"code":"CONFIG_MISSING","message":"/data/adb/vowifi/config/8986000000000000001.json"}""",
             ),
         )
@@ -273,9 +323,18 @@ private fun statusOf(
 
 private fun engineResult(output: String): DiagnosticCheck {
     val ready = assertIs<EnvironmentDiagnosticsUiState.Ready>(
-        EnvironmentDiagnosticsEvaluator.fromOutput(output),
+        evaluate(output),
     )
     return ready.checks.single { it.id == DiagnosticCheckId.ENGINE }
 }
+
+private fun evaluate(
+    output: String,
+    stockWfc: StockWfcDiagnostics = STOCK_WFC_OFF,
+): EnvironmentDiagnosticsUiState = EnvironmentDiagnosticsEvaluator.fromOutput(output, stockWfc)
+
+private val STOCK_WFC_OFF = StockWfcDiagnostics.Readable(
+    listOf(StockWfcCard(slot = 0, enabled = false), StockWfcCard(slot = 1, enabled = false)),
+)
 
 private val MUTATING_TOKENS = listOf("写入", "删除", "setprop", "pm install")

@@ -109,7 +109,7 @@ class MainActivity : ComponentActivity() {
             val callSource = processRuntime.calls
             val callLine by callSource.lifecycle.lineLabel.collectAsState()
             val micDenied by callSource.lifecycle.microphoneDenied.collectAsState()
-            val diagnosticsSource = remember { AndroidEnvironmentDiagnosticsSource() }
+            val diagnosticsSource = remember { AndroidEnvironmentDiagnosticsSource(applicationContext) }
             val operationalLogSource = remember { AndroidOperationalLogSource(this@MainActivity, observerSource) }
             val appearanceSource = remember { AndroidAppearanceSettingsSource(applicationContext) }
             val blurSupported = remember { androidBlurSupported(runtimeBlurSupported()) }

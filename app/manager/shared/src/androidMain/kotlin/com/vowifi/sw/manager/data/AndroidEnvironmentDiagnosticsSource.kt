@@ -1,6 +1,11 @@
 package com.vowifi.sw.manager.data
 
+import android.content.Context
+import android.telephony.SubscriptionManager
+import android.telephony.ims.ImsManager
 import com.vowifi.sw.manager.model.EnvironmentDiagnosticsUiState
+import com.vowifi.sw.manager.model.StockWfcCard
+import com.vowifi.sw.manager.model.StockWfcDiagnostics
 import java.io.IOException
 import java.util.concurrent.TimeUnit
 import kotlin.coroutines.CoroutineContext
@@ -21,10 +26,12 @@ import kotlinx.coroutines.runInterruptible
 class AndroidEnvironmentDiagnosticsSource internal constructor(
     private val start: (String) -> Process,
     parentContext: CoroutineContext,
+    private val readStockWfc: () -> StockWfcDiagnostics,
 ) : EnvironmentDiagnosticsSource {
-    constructor() : this(
+    constructor(context: Context) : this(
         { command -> ProcessBuilder("su", "-c", command).redirectErrorStream(true).start() },
         Dispatchers.IO,
+        { readStockWfc(context.applicationContext) },
     )
 
     private val scope = CoroutineScope(parentContext + SupervisorJob(parentContext[Job]))
@@ -87,7 +94,7 @@ class AndroidEnvironmentDiagnosticsSource internal constructor(
             } else {
                 val output = process.inputStream.bufferedReader().use { it.readText() }.trim()
                 if (process.exitValue() == 0) {
-                    EnvironmentDiagnosticsEvaluator.fromOutput(output)
+                    EnvironmentDiagnosticsEvaluator.fromOutput(output, readStockWfc())
                 } else {
                     mapCommandFailure(output)
                 }
@@ -128,6 +135,25 @@ class AndroidEnvironmentDiagnosticsSource internal constructor(
         const val DIAGNOSE_COMMAND = "/data/adb/modules/vowifi_sw/control.sh diagnose"
         const val TIMEOUT_SECONDS = 20L
     }
+}
+
+/** Same per-subscription setting as ITelephony.isVoWiFiSettingEnabled, via the public IMS API. */
+private fun readStockWfc(context: Context): StockWfcDiagnostics = try {
+    val subscriptions = context.getSystemService(SubscriptionManager::class.java)
+    val ims = context.getSystemService(ImsManager::class.java)
+    if (subscriptions == null || ims == null) {
+        StockWfcDiagnostics.Unreadable
+    } else {
+        StockWfcDiagnostics.Readable(subscriptions.activeSubscriptionInfoList.orEmpty().map { info ->
+            StockWfcCard(
+                slot = info.simSlotIndex,
+                enabled = ims.getImsMmTelManager(info.subscriptionId).isVoWiFiSettingEnabled,
+            )
+        })
+    }
+} catch (_: RuntimeException) {
+    // SecurityException, IllegalArgumentException for a vanished subscription, or framework failure.
+    StockWfcDiagnostics.Unreadable
 }
 
 private fun String?.isPermissionDenied(): Boolean =

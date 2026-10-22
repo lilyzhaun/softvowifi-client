@@ -4,11 +4,15 @@ package com.vowifi.sw
 
 import com.vowifi.sw.manager.data.AndroidEnvironmentDiagnosticsSource
 import com.vowifi.sw.manager.data.RefreshResult
+import com.vowifi.sw.manager.model.DiagnosticCheckId
 import com.vowifi.sw.manager.model.DiagnosticCheckStatus
 import com.vowifi.sw.manager.model.EnvironmentDiagnosticsUiState
+import com.vowifi.sw.manager.model.StockWfcCard
+import com.vowifi.sw.manager.model.StockWfcDiagnostics
 import java.io.IOException
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
@@ -52,7 +56,7 @@ class EnvironmentDiagnosticsRefreshAwaitHostTest {
                         }
                     }
                     process
-                }, parentContext = Dispatchers.IO)
+                }, parentContext = Dispatchers.IO, readStockWfc = { STOCK_WFC_OFF })
                 try {
                     // 首次也等待真实结果，不把 Ready 值当 gate 已释放的证明。
                     val initial = async(start = CoroutineStart.UNDISPATCHED) {
@@ -103,7 +107,7 @@ class EnvironmentDiagnosticsRefreshAwaitHostTest {
                     val source = AndroidEnvironmentDiagnosticsSource(start = { command ->
                         assertEquals("/data/adb/modules/vowifi_sw/control.sh diagnose", command)
                         host.start(script).also { started.countDown() }
-                    }, parentContext = Dispatchers.IO)
+                    }, parentContext = Dispatchers.IO, readStockWfc = { STOCK_WFC_OFF })
                     try {
                         withContext(Dispatchers.IO) { assertTrue(started.await(3, TimeUnit.SECONDS)) }
                         val result = withTimeout(3000) { source.refreshAndAwait() }
@@ -136,7 +140,7 @@ class EnvironmentDiagnosticsRefreshAwaitHostTest {
                     try { assertTrue(release.await(3, TimeUnit.SECONDS)) }
                     catch (error: InterruptedException) { process.destroyForcibly(); throw error }
                     process
-                }, parentContext = Dispatchers.IO)
+                }, parentContext = Dispatchers.IO, readStockWfc = { STOCK_WFC_OFF })
                 try {
                     withContext(Dispatchers.IO) { assertTrue(entered.await(3, TimeUnit.SECONDS)) }
                     val leaving = async(start = CoroutineStart.UNDISPATCHED) { source.refreshAndAwait() }
@@ -173,7 +177,7 @@ class EnvironmentDiagnosticsRefreshAwaitHostTest {
                     try { assertTrue(release.await(3, TimeUnit.SECONDS)) }
                     catch (_: InterruptedException) { assertTrue(release.await(3, TimeUnit.SECONDS)) }
                     process
-                }, parentContext = Dispatchers.IO + parent)
+                }, parentContext = Dispatchers.IO + parent, readStockWfc = { STOCK_WFC_OFF })
                 try {
                     withContext(Dispatchers.IO) { assertTrue(entered.await(3, TimeUnit.SECONDS)) }
                     val waiting = async(start = CoroutineStart.UNDISPATCHED) { source.refreshAndAwait() }
@@ -192,6 +196,31 @@ class EnvironmentDiagnosticsRefreshAwaitHostTest {
         }
     }
 
+    @Test(timeout = 10000)
+    fun everyRefreshReadsPerSimStockWfcInsteadOfTheModuleGlobalKey() {
+        val host = HostLogProcesses()
+        val enabled = AtomicBoolean(false)
+        host.bounded {
+            runBlocking {
+                val source = AndroidEnvironmentDiagnosticsSource(start = {
+                    host.start("printf '%s' '$diagnosticsJson'")
+                }, parentContext = Dispatchers.IO, readStockWfc = {
+                    StockWfcDiagnostics.Readable(listOf(StockWfcCard(slot = 0, enabled = enabled.get())))
+                })
+                try {
+                    assertEquals(RefreshResult.Completed, withTimeout(3000) { source.refreshAndAwait() })
+                    assertEquals(DiagnosticCheckStatus.PASS, wfcStatus(source.state.value))
+                    enabled.set(true)
+                    assertEquals(RefreshResult.Completed, withTimeout(3000) { source.refreshAndAwait() })
+                    assertEquals(DiagnosticCheckStatus.WARN, wfcStatus(source.state.value))
+                } finally { source.close() }
+            }
+        }
+    }
+
+    private fun wfcStatus(state: EnvironmentDiagnosticsUiState): DiagnosticCheckStatus =
+        (state as EnvironmentDiagnosticsUiState.Ready).checks.single { it.id == DiagnosticCheckId.WFC }.status
+
     private val diagnosticsJson = """{"ok":true,
         "module":{"installed":false,"markers":{"disable":false,"remove":false,"update":false}},
         "root":{"capable":true},"config":{"count":1},
@@ -199,4 +228,10 @@ class EnvironmentDiagnosticsRefreshAwaitHostTest {
         "engine":{"instanceCount":1,"configMissingCount":0,"stoppedCount":1,"startingCount":0,"runningCount":0,"stoppingCount":0},
         "wfc":{"readable":true,"global":0}}
     """.trimIndent()
+
+    private companion object {
+        val STOCK_WFC_OFF = StockWfcDiagnostics.Readable(
+            listOf(StockWfcCard(slot = 0, enabled = false), StockWfcCard(slot = 1, enabled = false)),
+        )
+    }
 }

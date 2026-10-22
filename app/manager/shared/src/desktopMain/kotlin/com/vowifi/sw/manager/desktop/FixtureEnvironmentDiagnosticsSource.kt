@@ -11,7 +11,8 @@ import com.vowifi.sw.manager.model.ModuleDiagnostics
 import com.vowifi.sw.manager.model.ModuleMarkers
 import com.vowifi.sw.manager.model.ObserverDiagnostics
 import com.vowifi.sw.manager.model.RootDiagnostics
-import com.vowifi.sw.manager.model.WfcDiagnostics
+import com.vowifi.sw.manager.model.StockWfcCard
+import com.vowifi.sw.manager.model.StockWfcDiagnostics
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -63,8 +64,8 @@ class FixtureEnvironmentDiagnosticsSource(mode: String) : EnvironmentDiagnostics
                 stoppingCount = 0,
                 configMissingCount = 0,
             ),
-            wfc = WfcDiagnostics(readable = true, global = 1),
         ),
+        StockWfcDiagnostics.Readable(listOf(StockWfcCard(slot = 0, enabled = false), StockWfcCard(slot = 1, enabled = false))),
     )
 
     private fun warning(): EnvironmentDiagnosticsUiState = EnvironmentDiagnosticsEvaluator.ready(
@@ -86,7 +87,7 @@ class FixtureEnvironmentDiagnosticsSource(mode: String) : EnvironmentDiagnostics
                 stoppingCount = 0,
                 configMissingCount = 0,
             ),
-            wfc = WfcDiagnostics(readable = false),
         ),
+        StockWfcDiagnostics.Readable(listOf(StockWfcCard(slot = 0, enabled = false), StockWfcCard(slot = 1, enabled = true))),
     )
 }

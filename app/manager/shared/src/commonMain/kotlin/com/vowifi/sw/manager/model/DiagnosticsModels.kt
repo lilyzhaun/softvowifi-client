@@ -58,7 +58,6 @@ data class EnvironmentDiagnosticsSnapshot(
     val config: ConfigDiagnostics,
     val observer: ObserverDiagnostics,
     val engine: EngineDiagnostics,
-    val wfc: WfcDiagnostics? = null,
 )
 
 @Serializable
@@ -104,8 +103,15 @@ data class EngineDiagnostics(
     val configMissingCount: Int,
 )
 
-@Serializable
-data class WfcDiagnostics(
-    val readable: Boolean,
-    val global: Int? = null,
+/** Per-SIM stock Wi-Fi Calling user setting, read by the App rather than the module's global key. */
+sealed interface StockWfcDiagnostics {
+    data object Unreadable : StockWfcDiagnostics
+
+    data class Readable(val cards: List<StockWfcCard>) : StockWfcDiagnostics
+}
+
+/** [slot] is the zero-based SIM slot index. */
+data class StockWfcCard(
+    val slot: Int,
+    val enabled: Boolean,
 )

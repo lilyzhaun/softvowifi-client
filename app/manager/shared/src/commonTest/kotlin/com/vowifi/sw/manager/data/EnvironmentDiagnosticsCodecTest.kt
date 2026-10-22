@@ -31,16 +31,15 @@ class EnvironmentDiagnosticsCodecTest {
         assertEquals(0, snapshot.engine.startingCount)
         assertEquals(0, snapshot.engine.stoppingCount)
         assertEquals(0, snapshot.engine.configMissingCount)
-        assertEquals(true, snapshot.wfc?.readable)
-        assertEquals(1, snapshot.wfc?.global)
         assertNull(EnvironmentDiagnosticsCodec.failure(HEALTHY_WITH_SECRETS))
     }
 
     @Test
-    fun treatsMissingWfcAsOptional() {
-        val snapshot = EnvironmentDiagnosticsCodec.snapshot(healthyJson(wfc = null))
+    fun legacyGlobalWfcFieldIsOptionalAndNotPartOfSnapshot() {
+        val legacy = EnvironmentDiagnosticsCodec.snapshot(healthyJson(wfc = """{"readable":true,"global":1}"""))
+        val absent = EnvironmentDiagnosticsCodec.snapshot(healthyJson(wfc = null))
 
-        assertNull(snapshot.wfc)
+        assertEquals(absent, legacy)
     }
 
     @Test

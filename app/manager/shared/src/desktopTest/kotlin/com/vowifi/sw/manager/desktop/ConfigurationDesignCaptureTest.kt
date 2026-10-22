@@ -87,12 +87,12 @@ class ConfigurationDesignCaptureTest {
                 SettingsConfigurationSimScreen(route.sim, state, null, actions, dirty)
             }
         }
-        capture("field-dialog", steps = { scene, settle -> click(scene, "ePDG 地址"); settle() }) {
+        capture("field-dialog", steps = { scene, settle -> click(scene, settle, "ePDG 地址"); settle() }) {
             AppSubpageScene(route, spec, onBack = {}) {
                 SettingsConfigurationSimScreen(route.sim, state, null, actions, ConfigurationDraftStore())
             }
         }
-        capture("security-menu", steps = { scene, settle -> click(scene, "SIP 安全策略"); settle() }) {
+        capture("security-menu", steps = { scene, settle -> click(scene, settle, "SIP 安全策略"); settle() }) {
             AppSubpageScene(route, spec, onBack = {}) {
                 SettingsConfigurationSimScreen(route.sim, state, null, actions, ConfigurationDraftStore())
             }
@@ -103,7 +103,7 @@ class ConfigurationDesignCaptureTest {
             }
         }
         var backs by mutableStateOf(0)
-        capture("leave-dialog", steps = { scene, settle -> click(scene, "返回"); settle() }) {
+        capture("leave-dialog", steps = { scene, settle -> click(scene, settle, "返回"); settle() }) {
             AppSubpageScene(route, spec, onBack = { backs++ }) {
                 SettingsConfigurationSimScreen(route.sim, state, null, actions, dirty)
             }
@@ -128,11 +128,22 @@ class ConfigurationDesignCaptureTest {
         return scene.semanticsOwners.flatMap { descend(it.unmergedRootSemanticsNode) }
     }
 
-    private fun click(scene: ImageComposeScene, label: String) {
-        val node = nodes(scene).last { n ->
-            n.config.getOrNull(SemanticsProperties.Text)?.any { it.text == label } == true ||
-                n.config.getOrNull(SemanticsProperties.ContentDescription)?.contains(label) == true
+    private fun find(scene: ImageComposeScene, label: String): SemanticsNode? = nodes(scene).lastOrNull { n ->
+        n.config.getOrNull(SemanticsProperties.Text)?.any { it.text == label } == true ||
+            n.config.getOrNull(SemanticsProperties.ContentDescription)?.contains(label) == true
+    }
+
+    // Lazy rows below the viewport are not composed (font metrics differ between hosts), so scroll like a user first.
+    private fun click(scene: ImageComposeScene, settle: () -> Unit, label: String) {
+        var node = find(scene, label)
+        var scrolls = 0
+        while (node == null && scrolls++ < 20) {
+            val scroll = nodes(scene).firstNotNullOf { it.config.getOrNull(SemanticsActions.ScrollBy)?.action }
+            scroll(0f, 600f)
+            settle()
+            node = find(scene, label)
         }
+        checkNotNull(node) { "未找到可点击的“$label”" }
         val action = generateSequence(node) { it.parent }.firstNotNullOf { it.config.getOrNull(SemanticsActions.OnClick)?.action }
         assertTrue(action())
     }

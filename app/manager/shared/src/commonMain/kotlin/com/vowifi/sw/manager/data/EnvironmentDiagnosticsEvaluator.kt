@@ -12,7 +12,7 @@ import com.vowifi.sw.manager.model.ModuleDiagnostics
 import com.vowifi.sw.manager.model.ModuleMarkers
 import com.vowifi.sw.manager.model.ObserverDiagnostics
 import com.vowifi.sw.manager.model.RootDiagnostics
-import com.vowifi.sw.manager.model.WfcDiagnostics
+import com.vowifi.sw.manager.model.StockWfcDiagnostics
 
 object EnvironmentDiagnosticsEvaluator {
     fun permissionDenied(
@@ -30,7 +30,7 @@ object EnvironmentDiagnosticsEvaluator {
     ): EnvironmentDiagnosticsUiState.Failure =
         EnvironmentDiagnosticsUiState.Failure(message)
 
-    fun fromOutput(output: String): EnvironmentDiagnosticsUiState {
+    fun fromOutput(output: String, stockWfc: StockWfcDiagnostics): EnvironmentDiagnosticsUiState {
         val commandFailure = EnvironmentDiagnosticsCodec.failure(output)
         if (commandFailure != null) {
             return when (commandFailure.code) {
@@ -39,20 +39,23 @@ object EnvironmentDiagnosticsEvaluator {
             }
         }
         return try {
-            ready(EnvironmentDiagnosticsCodec.snapshot(output))
+            ready(EnvironmentDiagnosticsCodec.snapshot(output), stockWfc)
         } catch (_: EnvironmentDiagnosticsFormatException) {
             failure("诊断结果无法解析")
         }
     }
 
-    fun ready(snapshot: EnvironmentDiagnosticsSnapshot): EnvironmentDiagnosticsUiState.Ready {
+    fun ready(
+        snapshot: EnvironmentDiagnosticsSnapshot,
+        stockWfc: StockWfcDiagnostics,
+    ): EnvironmentDiagnosticsUiState.Ready {
         val checks = listOf(
             moduleCheck(snapshot.module),
             rootCheck(snapshot.root),
             configCheck(snapshot.config),
             observerCheck(snapshot.observer),
             engineCheck(snapshot.engine),
-            wfcCheck(snapshot.wfc),
+            wfcCheck(stockWfc),
         )
         return EnvironmentDiagnosticsUiState.Ready(checks.maxOf { it.status }, checks)
     }
@@ -205,24 +208,29 @@ private fun StringBuilder.appendCount(label: String, count: Int) {
     }
 }
 
-private fun wfcCheck(wfc: WfcDiagnostics?): DiagnosticCheck {
-    val readable = wfc?.readable == true
-    val status = if (readable) DiagnosticCheckStatus.PASS else DiagnosticCheckStatus.WARN
-    val value = wfc?.global
+// Stock WFC on a SIM registers IMS over Wi-Fi alongside SoftVoWiFi, so any enabled SIM is a warning.
+private fun wfcCheck(wfc: StockWfcDiagnostics): DiagnosticCheck {
+    val cards = (wfc as? StockWfcDiagnostics.Readable)?.cards?.sortedBy { it.slot }
+    val enabled = cards.orEmpty().filter { it.enabled }
+    val status = if (cards == null || enabled.isNotEmpty()) DiagnosticCheckStatus.WARN else DiagnosticCheckStatus.PASS
     val detail = when {
-        !readable -> "无法读取 Android 原生系统 Wi-Fi Calling 设置"
-        value != null -> "Android 原生 WFC 只读值：$value"
-        else -> "Android 原生系统 Wi-Fi Calling 只读设置，未返回具体数值"
+        cards == null -> "无法读取各 SIM 的原生 Wi-Fi Calling 设置"
+        cards.isEmpty() -> "未发现活动 SIM"
+        enabled.isNotEmpty() -> "${simLabels(enabled.map { it.slot })} 已开启"
+        cards.size == 1 -> "${simLabels(cards.map { it.slot })} 未开启"
+        else -> "${simLabels(cards.map { it.slot })} 均未开启"
     }
     return DiagnosticCheck(
         id = DiagnosticCheckId.WFC,
         status = status,
         title = "原生系统 Wi-Fi Calling",
         detail = detail,
-        guidance = if (status == DiagnosticCheckStatus.PASS) {
-            null
-        } else {
-            "原生系统设置当前不可读。请刷新后重试。本页不会改写该设置。"
+        guidance = when {
+            status == DiagnosticCheckStatus.PASS -> null
+            cards == null -> "原生系统设置当前不可读。请刷新后重试。本页不会改写该设置。"
+            else -> "原生 Wi-Fi Calling 与 SoftVoWiFi 冲突。请在系统设置中关闭对应 SIM 的 Wi-Fi Calling 后刷新。本页不会改写该设置。"
         },
     )
 }
+
+private fun simLabels(slots: List<Int>): String = slots.joinToString("、") { "SIM${it + 1}" }
