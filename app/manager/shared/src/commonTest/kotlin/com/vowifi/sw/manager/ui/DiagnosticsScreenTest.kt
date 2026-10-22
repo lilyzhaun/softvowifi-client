@@ -68,7 +68,7 @@ class DiagnosticsScreenTest {
 
     @Test
     fun exposesEveryKindAndLevelFilterLabel() {
-        assertEquals(listOf("全部", "引擎", "隧道", "IMS"), operationalLogKindOptions().map { it.second })
+        assertEquals(listOf("全部", "引擎", "隧道", "IMS", "诊断"), operationalLogKindOptions().map { it.second })
         assertEquals(listOf("全部", "信息", "告警", "错误"), operationalLogLevelOptions().map { it.second })
     }
 

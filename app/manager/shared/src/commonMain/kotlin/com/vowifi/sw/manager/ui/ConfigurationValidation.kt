@@ -8,12 +8,12 @@ internal enum class ConfigurationFieldKey { Smsc, Epdg, Realm, Dns, SipSecurity,
 internal enum class ConfigurationEditStatus { Idle, Invalid, Unchanged, Saving, Saved, Failed, Unconfirmed, BusyRejected, Unavailable }
 
 internal fun configurationFieldErrors(values: ConfigurationOverrides): Map<ConfigurationFieldKey, String> {
-    val blank = values.copy(smsc = "", epdgFqdn = "", imsRealm = "", dns = "", imsSipSecurity = null, paniInitial = null, paniCountry = null, imsDigestRealm = null)
+    val blank = values.copy(smsc = "", epdgFqdn = "", imsRealm = "", dns = "", imsSipSecurity = null, paniInitial = null, paniCountry = null, imsDigestRealm = null, dnsOverrides = emptyMap())
     val fields = mapOf(
         ConfigurationFieldKey.Smsc to blank.copy(smsc = values.smsc),
         ConfigurationFieldKey.Epdg to blank.copy(epdgFqdn = values.epdgFqdn),
         ConfigurationFieldKey.Realm to blank.copy(imsRealm = values.imsRealm),
-        ConfigurationFieldKey.Dns to blank.copy(dns = values.dns),
+        ConfigurationFieldKey.Dns to blank.copy(dns = values.dns, dnsOverrides = values.dnsOverrides),
         ConfigurationFieldKey.SipSecurity to blank.copy(imsSipSecurity = values.imsSipSecurity),
         ConfigurationFieldKey.PaniInitial to blank.copy(paniInitial = values.paniInitial),
         ConfigurationFieldKey.PaniCountry to blank.copy(paniCountry = values.paniCountry),
@@ -35,6 +35,8 @@ internal fun configurationFieldErrors(values: ConfigurationOverrides): Map<Confi
                 put(field, "输入两个 ASCII 字母，或留空继承归属国家")
             } catch (_: ConfigurationFormatException.InvalidDigestRealm) {
                 put(field, "输入认证域，不含用户信息、端口或控制字符，或留空继承")
+            } catch (_: ConfigurationFormatException.InvalidDns) {
+                put(field, "输入 IP 或 IP:端口（IPv6 用 [地址]:端口），或留空使用所选网络的实时 DNS")
             }
         }
     }

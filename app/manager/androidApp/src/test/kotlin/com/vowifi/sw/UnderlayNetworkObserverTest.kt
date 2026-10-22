@@ -66,7 +66,7 @@ class UnderlayNetworkObserverTest {
         assertFalse(state.toString().contains("imsi", ignoreCase = true))
     }
 
-    @Test fun lostBlockedAndVpnNetworksNeverRetainBindingMetadata() {
+    @Test fun lostAndBlockedNetworksNeverRetainBindingMetadataAndVpnIsExplicitV2() {
         val observer = observer()
         val callback = callback(observer)
         val network = network(101)
@@ -77,7 +77,14 @@ class UnderlayNetworkObserverTest {
         assertEquals(0, snapshot(observer).getJSONArray("networks").length())
         callback.onBlockedStatusChanged(network, false)
         callback.onCapabilitiesChanged(network, capsCall(wifi(), "addTransportType", NetworkCapabilities.TRANSPORT_VPN))
+        val vpn = snapshot(observer)
+        assertEquals(2, vpn.getInt("version"))
+        assertEquals(1, vpn.getJSONArray("networks").length())
+        assertEquals("vpn", vpn.getJSONArray("networks").getJSONObject(0).getString("transport"))
+        assertEquals(0, vpn.getJSONArray("networks").getJSONObject(0).getJSONArray("slots").length())
+        callback.onBlockedStatusChanged(network, true)
         assertEquals(0, snapshot(observer).getJSONArray("networks").length())
+        callback.onBlockedStatusChanged(network, false)
         callback.onCapabilitiesChanged(network, wifi())
         callback.onLost(network)
         assertEquals(0, snapshot(observer).getJSONArray("networks").length())

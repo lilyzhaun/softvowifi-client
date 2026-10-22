@@ -37,22 +37,28 @@ object ConfigurationCodec {
             throw ConfigurationFormatException.Unsuccessful()
         }
         requireValidSmsc(wire.smsc)
+        val transport = transportOf(wire.transport)
+        if (wire.dnsOverrides.size > MAX_DNS_OVERRIDES || wire.dnsOverrides.any { (key, value) ->
+                runCatching { transportOf(key) }.isFailure || dnsServerValue(value) != value
+            }
+        ) throw ConfigurationFormatException.Unparseable()
         val digestSource = policySource(wire.imsDigestRealmSource.takeIf { wire.imsDigestRealm != null }, setOf("user", "carrier", "identity"), "identity")
         val digestRealm = wire.imsDigestRealm ?: wire.resolvedImsRealm
         return ConfigurationSnapshot(
             displayLabel = displayLabelOf(wire.displayLabel),
             lifecycle = lifecycleOf(wire.lifecycle),
-            transport = transportOf(wire.transport),
+            transport = transport,
             smsc = wire.smsc,
             epdgFqdn = wire.epdgFqdn,
             imsRealm = wire.imsRealm,
-            dns = wire.dns,
+            dns = wire.dnsOverrides[wire.transport].orEmpty(),
             resolvedEpdgFqdn = wire.resolvedEpdgFqdn,
             resolvedImsRealm = wire.resolvedImsRealm,
             mcc = wire.mcc,
             mnc = wire.mnc,
             identitySource = ConfigurationIdentitySource.entries.firstOrNull { it.wireValue == wire.identitySource }
                 ?: ConfigurationIdentitySource.UNKNOWN,
+            dnsOverrides = wire.dnsOverrides,
             imsPolicy = ConfigurationImsPolicy(
                 security = sipSecurityValue(wire.imsSipSecurity).ifEmpty { "tcp_ipsec_3gpp" },
                 securitySource = policySource(wire.imsSipSecuritySource, setOf("user", "carrier", "catalog", "default"), "default"),
@@ -80,9 +86,9 @@ object ConfigurationCodec {
                 smsc = overrides.smsc,
                 epdgFqdn = overrides.epdgFqdn,
                 imsRealm = overrides.imsRealm,
-                dns = overrides.dns,
             ),
         )).toMutableMap()
+        fields["dnsOverrides"] = JsonObject(dnsOverridesFor(overrides).mapValues { JsonPrimitive(it.value) })
         overrides.imsSipSecurity?.let { fields["imsSipSecurity"] = JsonPrimitive(sipSecurityValue(it)) }
         overrides.paniInitial?.let { fields["paniInitial"] = JsonPrimitive(paniInitialValue(it)) }
         overrides.paniCountry?.let { fields["paniCountry"] = JsonPrimitive(paniCountryValue(it)) }
@@ -128,15 +134,12 @@ internal fun transportOf(wire: String): ConfigurationTransport = when (wire) {
     "sim1" -> ConfigurationTransport.SIM1
     "sim2" -> ConfigurationTransport.SIM2
     "auto" -> ConfigurationTransport.AUTO
-    else -> throw ConfigurationFormatException.InvalidTransport()
+    "route:system" -> ConfigurationTransport.SYSTEM_ROUTE
+    else -> if (wire.startsWith("iface:")) ConfigurationTransport.Interface(wire.removePrefix("iface:"))
+        else throw ConfigurationFormatException.InvalidTransport()
 }
 
-internal fun transportWire(transport: ConfigurationTransport): String = when (transport) {
-    ConfigurationTransport.WIFI -> "wifi"
-    ConfigurationTransport.SIM1 -> "sim1"
-    ConfigurationTransport.SIM2 -> "sim2"
-    ConfigurationTransport.AUTO -> "auto"
-}
+internal fun transportWire(transport: ConfigurationTransport): String = transport.wireValue
 
 private fun requireValidSmsc(smsc: String) {
     if (smsc.isNotEmpty() && !smsc.startsWith("+")) {
@@ -207,6 +210,8 @@ private data class WireShow(
     val paniCountrySource: String? = null,
     val imsDigestRealm: String? = null,
     val imsDigestRealmSource: String? = null,
+    // Engines before per-transport DNS report no map; their single dns is retired.
+    val dnsOverrides: Map<String, String> = emptyMap(),
 )
 
 @Serializable
@@ -215,10 +220,10 @@ private data class WireOverrides(
     val smsc: String,
     val epdgFqdn: String,
     val imsRealm: String,
-    val dns: String,
 )
 
 private const val SMSC_KEY = "smsc"
+private const val MAX_DNS_OVERRIDES = 16
 private const val MAX_PATCH_BYTES = 64 * 1024
 private val FORBIDDEN_KEYS = setOf("iccid", "imsi", "imei", "line1", "slot", "enabled")
 private val IDENTITY_DIGITS = Regex("""\d{15,22}""")
@@ -241,6 +246,46 @@ internal fun paniCountryValue(value: String?): String {
         throw ConfigurationFormatException.InvalidPaniCountry()
     }
     return trimmed.uppercase()
+}
+
+/** The saved map with [ConfigurationOverrides.dns] as the selected transport's entry; blank removes it. */
+internal fun dnsOverridesFor(overrides: ConfigurationOverrides): Map<String, String> {
+    val key = transportWire(overrides.transport)
+    val merged = overrides.dnsOverrides.mapValues { dnsServerValue(it.value) }.filterValues(String::isNotEmpty) - key
+    val selected = dnsServerValue(overrides.dns)
+    val result = if (selected.isEmpty()) merged else merged + (key to selected)
+    if (result.size > MAX_DNS_OVERRIDES) throw ConfigurationFormatException.InvalidDns()
+    return result
+}
+
+/** Normalizes a DNS override to host:port (port 53 when omitted); blank stays blank. */
+internal fun dnsServerValue(value: String): String {
+    val text = value.trim()
+    if (text.isEmpty()) return ""
+    if (isIpv4(text)) return "$text:53"
+    if (isIpv6(text)) return "[$text]:53"
+    val (host, port) = when {
+        text.startsWith("[") -> text.substringAfter('[').substringBefore(']') to text.substringAfter("]:", "")
+        else -> text.substringBeforeLast(':') to text.substringAfterLast(':', "")
+    }
+    val portValue = port.toIntOrNull()
+    val bracketed = text.startsWith("[")
+    if (portValue == null || portValue !in 1..65535 || port.length > 5 ||
+        !(if (bracketed) isIpv6(host) && text == "[$host]:$port" else isIpv4(host))
+    ) throw ConfigurationFormatException.InvalidDns()
+    return text
+}
+
+private fun isIpv4(text: String): Boolean =
+    text.split('.').let { parts -> parts.size == 4 && parts.all { it.length in 1..3 && it.toIntOrNull() in 0..255 } }
+
+private fun isIpv6(text: String): Boolean {
+    if (':' !in text || text.length > 39 || text.count { it == ':' } > 7) return false
+    if (text.any { it !in '0'..'9' && it !in 'a'..'f' && it !in 'A'..'F' && it != ':' }) return false
+    val doubles = text.windowed(2).count { it == "::" }
+    if (doubles > 1 || ":::" in text) return false
+    val groups = text.split(':')
+    return groups.all { it.length <= 4 } && if (doubles == 1) groups.size <= 8 else groups.size == 8 && groups.none(String::isEmpty)
 }
 
 private fun policySource(value: String?, allowed: Set<String>, fallback: String): String =

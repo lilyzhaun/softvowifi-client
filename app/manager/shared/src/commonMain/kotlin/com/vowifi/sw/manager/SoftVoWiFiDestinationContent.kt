@@ -16,6 +16,7 @@ import com.vowifi.sw.manager.ui.SettingsScreen
 import com.vowifi.sw.manager.ui.SettingsAppearanceScreen
 import com.vowifi.sw.manager.ui.SettingsConfigurationActions
 import com.vowifi.sw.manager.ui.SettingsConfigurationScreen
+import com.vowifi.sw.manager.ui.SettingsConfigurationSimScreen
 import com.vowifi.sw.manager.ui.SettingsDiagnosticsScreen
 import com.vowifi.sw.manager.ui.SettingsLogsActions
 import com.vowifi.sw.manager.ui.SettingsLogsScreen
@@ -38,6 +39,8 @@ internal data class SoftVoWiFiContentActions(
     val onCallDraftChange: (String) -> Unit,
     val onNavigate: (AppRoute.Subpage) -> Unit,
     val onOpenHomeNotice: (AppRoute.Subpage) -> Unit,
+    // Opens a child of the current branch, keeping the source root (e.g. Home → configuration → one SIM).
+    val onOpenSubpage: (AppRoute.Subpage) -> Unit = onOpenHomeNotice,
     val blurSupported: Boolean,
     val appearanceActions: com.vowifi.sw.manager.ui.AppearanceSettingsActions,
     val configurationDrafts: com.vowifi.sw.manager.ui.ConfigurationDraftStore = com.vowifi.sw.manager.ui.ConfigurationDraftStore(),
@@ -189,6 +192,19 @@ internal fun SoftVoWiFiDestinationContent(
                 onProvision = sources::provisionSim,
                 onSubmit = sources.configuration::submit,
                 onRefresh = sources.configuration::refreshIdentitiesAndAwait,
+                onOpenSim = { actions.onOpenSubpage(AppRoute.SettingsConfigurationSim(it)) },
+            ),
+        )
+        is AppRoute.SettingsConfigurationSim -> SettingsConfigurationSimScreen(
+            handle = route.sim,
+            state = state.configuration,
+            simState = state.simControl,
+            drafts = actions.configurationDrafts,
+            provisioning = sources.configuration.provisioning,
+            actions = SettingsConfigurationActions(
+                onProvision = sources::provisionSim,
+                onSubmit = sources.configuration::submit,
+                onRefresh = sources.configuration::refreshIdentitiesAndAwait,
             ),
         )
         AppRoute.SettingsDiagnostics -> SettingsDiagnosticsScreen(state.diagnostics, onRefresh = sources.diagnostics::refreshAndAwait)
@@ -199,8 +215,11 @@ internal fun SoftVoWiFiDestinationContent(
                 setKind = sources.logs::setKindFilter,
                 setLevel = sources.logs::setLevelFilter,
                 setInstance = sources.logs::setInstanceFilter,
+                fullDiagnosticExport = sources.logs.fullDiagnosticExport,
+                exportWindow = sources.logs.diagnosticExportWindow?.collectAsState()?.value ?: sources.logs.exportWindow(),
+                setExportWindow = sources.logs::setExportWindow,
                 onExport = { entries ->
-                    if (!actions.exportBusy) actions.exportLogs(OperationalLogExporter.utf8(entries))
+                    if (!actions.exportBusy) actions.exportLogs(if(sources.logs.fullDiagnosticExport) "" else OperationalLogExporter.utf8(entries))
                 },
             ),
             exportBusy = actions.exportBusy,

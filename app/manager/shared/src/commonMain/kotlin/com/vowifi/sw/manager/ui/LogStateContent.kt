@@ -8,6 +8,8 @@ import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import top.yukonga.miuix.kmp.preference.OverlayDropdownPreference
+import com.vowifi.sw.manager.data.DiagnosticExportWindow
 import com.vowifi.sw.manager.model.OperationalLogEntry
 import com.vowifi.sw.manager.model.OperationalLogFilter
 import com.vowifi.sw.manager.model.OperationalLogUiState
@@ -120,7 +122,8 @@ private fun LazyListScope.operationalLogDataItems(
             }
             OperationalLogDataSection.EVENTS -> {
                 item(key = "operational-log-read-status") {
-                    val labels = listOfNotNull(
+                     val labels = listOfNotNull(
+                         if(selectedFileId=="root-diagnostics-v1" || selectedFileId=="all-diagnostics-v1") "仅受管结构化事件；旧文本请选原日志源。旧启动可能缺DNS读写阶段；未观察到不视为成功。" else null,
                         if (loadInfo.legacy) "旧模块兼容模式：文件序号可能随目录变化，未启用缓存" else null,
                          if (loadInfo.issue != null) "上次快照 · 本次读取失败，不能作为当前结果" else if (loadInfo.cached) "缓存快照 · 刷新可重新读取" else null,
                         if (loadInfo.reading) "正在读取所选日志" else null,
@@ -156,9 +159,16 @@ private fun LazyListScope.operationalLogDataItems(
                     Column(
                         modifier = Modifier.fillMaxWidth(),
                         verticalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
+                     ) {
+                        if(actions.fullDiagnosticExport) {
+                            OverlayDropdownPreference(title="导出时间范围", items=DiagnosticExportWindow.entries.map { it.label },
+                                selectedIndex=actions.exportWindow.ordinal,enabled=!exportBusy,onSelectedIndexChange={index->
+                                    DiagnosticExportWindow.entries.getOrNull(index)?.let(actions.setExportWindow)
+                                })
+                            Text("导出所选时间内App及Root受管结构化事件，包含当前和两代轮转，不受页面筛选或50行窗口限制。旧文本不包含在内；缺证写入导出回执。",color=colors.textSecondary,fontSize=14.sp,lineHeight=20.sp)
+                        }
                         LogExportButton(
-                            presentation = logExportPresentation(filteredEntries.isNotEmpty(), exportBusy),
+                            presentation = logExportPresentation(actions.fullDiagnosticExport || filteredEntries.isNotEmpty(), exportBusy),
                             onClick = { actions.onExport(filteredEntries) },
                         )
                         Text(

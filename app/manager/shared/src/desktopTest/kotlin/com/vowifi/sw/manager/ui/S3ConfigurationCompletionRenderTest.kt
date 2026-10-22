@@ -42,8 +42,8 @@ class S3ConfigurationCompletionRenderTest {
         MotionTestEnvironment(testScheduler, width = 440, height = 1600) {
             SoftVoWiFiTheme(false) { CompositionLocalProvider(LocalHapticFeedback provides recorder, LocalDensity provides Density(1f)) {
                 Scaffold(Modifier.fillMaxSize()) { key(remount) {
-                    ConfigurationEditor(ConfigurationEditorModel(instance, ConfigurationUiState.Ready(listOf(instance)), true, null),
-                        draft, expanded = true, onSubmit = { _, _, complete -> calls++
+                    ConfigurationSimEditor(ConfigurationEditorModel(instance, ConfigurationUiState.Ready(listOf(instance)), true, null),
+                        draft, onSubmit = { _, _, complete -> calls++
                             if (busy) ConfigurationApplyAcceptance.Busy else { complete(outcome); ConfigurationApplyAcceptance.Accepted } })
                 } }
             } }
@@ -80,8 +80,8 @@ class S3ConfigurationCompletionRenderTest {
     } }
 
     @Test fun failedSaveRejectsOnceAndBusyKeepsItsActualButtonWidth() = onMotionTestThread { runTest {
-        ConfigurationStateMotionRenderTest.Fixture(testScheduler, initiallyExpanded = true).use { f ->
-            f.openAdvanced(); f.setSmsc("+123"); f.advance(1000)
+        ConfigurationStateMotionRenderTest.Fixture(testScheduler).use { f ->
+            f.editSmscDraft("+123"); f.advance(1000)
             val initial = f.nodes(merged = true).single { it.config.contains(SemanticsActions.OnClick) &&
                 it.config.getOrNull(SemanticsProperties.Text)?.any { t -> t.text == "保存配置" } == true }.boundsInRoot
             f.tapText("保存配置")
@@ -107,18 +107,21 @@ class S3ConfigurationCompletionRenderTest {
     } }
 
     @Test fun unconfirmedSaveExplanationFadesAndOldResultDoesNotReplayOnReentry() = onMotionTestThread { runTest {
-        ConfigurationStateMotionRenderTest.Fixture(testScheduler, initiallyExpanded = true).use { f ->
-            f.openAdvanced(); f.setSmsc("+123"); f.advance(1000)
+        ConfigurationStateMotionRenderTest.Fixture(testScheduler).use { f ->
+            f.editSmscDraft("+123"); f.advance(1000)
             f.tapText("保存配置"); assertTrue(f.draft.pending); assertEquals(1, f.submissions)
             assertTrue(f.haptics.any { it == HapticFeedbackType.Confirm }, "前提：不能把关闭触感偏好当缺 Reject")
             requireNotNull(f.completion).invoke(ConfigurationApplyOutcome.Unconfirmed)
             f.advance(1000)
             assertEquals(ConfigurationEditStatus.Unconfirmed, f.draft.status)
-            val probe = f.probe(configurationEditFooter(f.draft, f.instance.lifecycle), firstLineOnly = true)
+            val probe = f.probe(configurationSaveBarDetail(f.draft, f.instance.lifecycle), firstLineOnly = true)
             assertTrue(f.strength(probe) in .95..1.05, "前提：先校准真实结果说明首行的局部墨迹")
+            val unconfirmedText = configurationSaveBarDetail(f.draft, f.instance.lifecycle)
             f.tapText("保存配置"); assertTrue(f.draft.pending); assertEquals(2, f.submissions)
             f.advance(1000)
-            assertTrue(f.strength(probe) < .03, "前提：新的真实在途态已替代旧说明，不能误采后台旧错误")
+            // The bar reuses one line for the outcome, so check by semantics: a pixel probe would correlate unrelated glyphs.
+            assertFalse(f.hasText(unconfirmedText), "前提：新的真实在途态已替代旧说明，不能误采后台旧错误")
+            assertTrue(f.hasText("正在保存配置，请稍候"))
             val rejects = f.haptics.count { it == HapticFeedbackType.Reject }
             requireNotNull(f.completion).invoke(ConfigurationApplyOutcome.Unconfirmed)
             f.advance(1)

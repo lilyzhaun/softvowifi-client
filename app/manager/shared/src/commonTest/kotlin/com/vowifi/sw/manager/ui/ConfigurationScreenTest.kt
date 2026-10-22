@@ -111,7 +111,7 @@ class ConfigurationScreenTest {
     fun editActionsAppearOnlyForUnsavedOrPendingDraftAndNameTheRestart() {
         val draft = ConfigurationEditorDraft(instance())
         assertFalse(configurationEditActionsVisible(draft))
-        draft.dns.edit { append("user.invalid") }
+        draft.dns.edit { append("192.0.2.10:53") }
         assertTrue(configurationEditActionsVisible(draft))
         assertEquals("保存配置", configurationSubmitLabel(draft, ConfigurationLifecycle.STOPPED))
         assertEquals("保存并重启", configurationSubmitLabel(draft, ConfigurationLifecycle.RUNNING))

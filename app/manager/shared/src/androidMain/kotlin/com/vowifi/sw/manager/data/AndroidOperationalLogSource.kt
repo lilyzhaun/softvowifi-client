@@ -1,5 +1,6 @@
 package com.vowifi.sw.manager.data
 
+import android.content.Context
 import com.vowifi.sw.manager.model.OperationalLogFilter
 import com.vowifi.sw.manager.model.OperationalLogKind
 import com.vowifi.sw.manager.model.OperationalLogLevel
@@ -20,14 +21,24 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runInterruptible
 import kotlinx.coroutines.isActive
 
 class AndroidOperationalLogSource internal constructor(
     command: LogCommand,
     private val scope: CoroutineScope,
     private val nowMillis: () -> Long = { System.nanoTime() / 1_000_000 },
+    private val local: LocalDiagnosticLogReader? = null,
+    private val rootDiagnostics: RootDiagnosticLogReader? = null,
 ) : OperationalLogSource {
+    override val fullDiagnosticExport: Boolean get() = local != null
+    private val window = MutableStateFlow(DiagnosticExportWindow.HOUR)
+    override val diagnosticExportWindow: StateFlow<DiagnosticExportWindow> = window.asStateFlow()
+    override fun exportWindow() = window.value
+    override fun setExportWindow(window: DiagnosticExportWindow) { this.window.value=window }
     constructor() : this(CancelLogShellRun(), CoroutineScope(SupervisorJob() + Dispatchers.IO))
+    constructor(context: Context) : this(CancelLogShellRun(), CoroutineScope(SupervisorJob() + Dispatchers.IO),
+        local = LocalDiagnosticLogReader(context.applicationContext), rootDiagnostics = RootDiagnosticLogReader(context.applicationContext))
 
     private val reader = OperationalLogReader(command)
     private val groups = OperationalLogGroupReader(reader)
@@ -47,6 +58,7 @@ class AndroidOperationalLogSource internal constructor(
     private var refreshRequest: Request? = null
     private var readIssue: String? = null
     private var blockingFailure: OperationalLogUiState? = null
+    private var moduleIssue: String? = null
 
     init {
         scope.launch {
@@ -142,14 +154,22 @@ class AndroidOperationalLogSource internal constructor(
     }
 
     private suspend fun list(request: Request, completeEmpty: Boolean = true): Boolean {
-        val result = reader.catalog()
+        val result = try {
+            reader.catalog().also { moduleIssue = null }
+        } catch (error: LogReadFailure) {
+            if (local == null) throw error
+            moduleIssue = "模块日志读取失败：${error.safeMessage}"
+            LogCatalogResult(OperationalLogList(0, emptyList()), false)
+        }
         return synchronized(lock) {
             if (!current(request)) {
                 finish(request, RefreshResult.Cancelled)
                 return@synchronized false
             }
-            val choice = groups.selection(result.catalog.files, catalog.files.firstOrNull { it.id == selected }, selected)
-            catalog = result.catalog
+            val files = (if (local == null) emptyList() else listOf(LocalDiagnosticLogReader.FILE)) +
+                (if(rootDiagnostics==null) emptyList() else listOf(RootDiagnosticLogReader.ALL_FILE,RootDiagnosticLogReader.FILE)) + result.catalog.files
+            val choice = groups.selection(files, catalog.files.firstOrNull { it.id == selected }, selected)
+            catalog = result.catalog.copy(files = files)
             legacy = result.legacy
             cache.keys.retainAll(catalog.files.map { it.id }.toSet())
             if (!choice.sameGroup) readIssue = null
@@ -171,7 +191,12 @@ class AndroidOperationalLogSource internal constructor(
             Triple(selected ?: return, legacy, catalog.files)
         }
         val result = try {
-            groups.read(identity.first, identity.second, identity.third)
+            if (local != null && identity.first == LocalDiagnosticLogReader.ID) {
+                val read = local.read()
+                read.copy(issue = listOfNotNull(moduleIssue, read.issue).takeIf { it.isNotEmpty() }?.joinToString("；"))
+            } else if(rootDiagnostics!=null && identity.first==RootDiagnosticLogReader.ID) runInterruptible { rootDiagnostics.read() }
+            else if(rootDiagnostics!=null && identity.first==RootDiagnosticLogReader.ALL_ID) runInterruptible { rootDiagnostics.combined() }
+            else groups.read(identity.first, identity.second, identity.third)
         } catch (error: LogReadFailure) {
             if (error.missing && retry && list(request, completeEmpty = false)) {
                 read(request, retry = false)

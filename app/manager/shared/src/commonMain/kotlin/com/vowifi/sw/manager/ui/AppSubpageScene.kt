@@ -15,6 +15,7 @@ import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.State
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.Modifier
@@ -68,7 +69,7 @@ internal fun appSubpageSceneContract(route: AppRoute.Subpage = AppRoute.Settings
         topBarBlendAlpha = when (route) {
             is AppRoute.MessageThread, AppRoute.NewMessage -> 0.92f
             // R7 supplement (2026-10-15): settings use Home's collapsed top-bar material.
-            AppRoute.SettingsAppearance, AppRoute.SettingsConfiguration,
+            AppRoute.SettingsAppearance, AppRoute.SettingsConfiguration, is AppRoute.SettingsConfigurationSim,
             AppRoute.SettingsDiagnostics, AppRoute.SettingsLogs,
             AppRoute.SettingsCallNotifications, AppRoute.SettingsAbout -> topBarBlendAlpha(1f)
             else -> 0f
@@ -99,6 +100,25 @@ internal data class SubpageTopBarAction(
 
 internal val LocalSubpageTopBarAction = staticCompositionLocalOf<MutableState<SubpageTopBarAction?>?> { null }
 
+/**
+ * One back owner per settings scene. A page holding unsaved edits installs [guard]; the toolbar asks it first,
+ * the page's own NavigationBackHandler covers system/predictive back, and [leave] pops after the page decided.
+ */
+internal class SubpageBackController(private val back: () -> Unit) {
+    var guard: (() -> Boolean)? = null
+
+    fun request() {
+        if (guard?.invoke() != true) back()
+    }
+
+    fun leave() = back()
+}
+
+internal val LocalSubpageBackController = staticCompositionLocalOf<SubpageBackController?> { null }
+
+/** Page-owned title for settings scenes whose name comes from live data (kept per scene during its exit). */
+internal val LocalSubpageTitle = staticCompositionLocalOf<MutableState<String?>?> { null }
+
 internal fun subpageTitleOverride(route: AppRoute.Subpage, messageThreadTitle: String?): String? =
     messageThreadTitle.takeIf { route is AppRoute.MessageThread }
 
@@ -123,9 +143,12 @@ internal fun AppSubpageScene(
     val communication = route is AppRoute.MessageThread || route == AppRoute.NewMessage || route is AppRoute.CallHistoryDetail
     val pageControl = remember(route) { mutableStateOf<CommunicationPageControl?>(null) }
     val topBarAction = remember(route) { mutableStateOf<SubpageTopBarAction?>(null) }
+    val latestBack = rememberUpdatedState(onBack)
+    val backController = remember(route) { SubpageBackController { latestBack.value() } }
+    val pageTitle = remember(route) { mutableStateOf<String?>(null) }
     val backdrop = if (communication) rememberCommunicationBackdrop()
         else if (chromeSpec.effectiveBlur) rememberSoftVoWiFiBackdrop(chromeSpec) else null
-    val currentTitle = titleOverride ?: route.topBarTitle
+    val currentTitle = titleOverride ?: pageTitle.value ?: route.topBarTitle
     val title = if (route is AppRoute.MessageThread) rememberMessageRouteFrame(currentTitle, route, routeActive) else currentTitle
     val expandedPeer = route is AppRoute.MessageThread && (LocalDensity.current.fontScale > 1.3f || title.length > 16)
     val phoneDetail = communication
@@ -149,7 +172,7 @@ internal fun AppSubpageScene(
                 navigationIcon = {
                     if (communication) CompositionLocalProvider(LocalCommunicationBackdrop provides backdrop) {
                         CommunicationIconAction(MiuixIcons.Back, "返回", onBack, enabled = routeActive)
-                    } else ManagerIconAction(MiuixIcons.Back, "返回", ManagerAction.Navigate, onBack, enabled = routeActive)
+                    } else ManagerIconAction(MiuixIcons.Back, "返回", ManagerAction.Navigate, backController::request, enabled = routeActive)
                 },
                 actions = {
                     topBarAction.value?.let {
@@ -180,6 +203,8 @@ internal fun AppSubpageScene(
                 LocalAppRouteActive provides routeActive,
                 LocalCommunicationPageControl provides pageControl.takeIf { communication },
                 LocalSubpageTopBarAction provides topBarAction.takeIf { !communication },
+                LocalSubpageBackController provides backController.takeIf { !communication },
+                LocalSubpageTitle provides pageTitle.takeIf { !communication },
             ) {
                 content()
             }

@@ -1,22 +1,19 @@
 package com.vowifi.sw.manager.ui
 
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.key
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.hapticfeedback.HapticFeedback
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
-import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.semantics.SemanticsNode
@@ -26,7 +23,10 @@ import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.IntSize
-import androidx.compose.ui.unit.dp
+import androidx.navigationevent.NavigationEventDispatcher
+import androidx.navigationevent.NavigationEventDispatcherOwner
+import androidx.navigationevent.NavigationEventInput
+import androidx.navigationevent.compose.LocalNavigationEventDispatcherOwner
 import com.vowifi.sw.manager.data.SimOwnerId
 import com.vowifi.sw.manager.model.ConfigurationApplyAcceptance
 import com.vowifi.sw.manager.model.ConfigurationApplyOutcome
@@ -48,101 +48,17 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
-/** S3 C7/C8/C9 草案：旧生产 API、真实 draft、真实指针与既有统一帧时钟。尚未执行。 */
+/** 单卡详情页：固定保存栏(C9)、字段对话框校验(C8)、在途冻结(C3)与离开守卫；真实 draft、真实指针、统一帧时钟。 */
 @OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class, kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class ConfigurationStateMotionRenderTest {
-    @Test fun collapsingContentFadesBeforeRemovalAndCannotSubmitFromItsOldPosition() = onMotionTestThread { runTest {
-        Fixture(testScheduler, initiallyExpanded = true).use { f ->
-            f.editSmscDraft("+123")
-            f.advance(1200)
-            val probe = f.probe("运营商 001 / 01")
-            val oldSavePoint = f.text("保存配置").boundsInRoot.center
-            assertTrue(f.draft.dirty)
-            f.tapText(Fixture.TITLE)
-            assertFalse(f.expanded, "前提：真实头部点击已经提交折叠")
-            f.advance(19) // 加上 tapText 的首帧为抬起后 20ms。
-            f.assertNotClipped(probe)
-            assertTrue(f.strength(probe) > .05, "C7：退出 20ms 仍须绘制旧内容，不能 if 分支立即移除")
-            assertFalse(f.nodes(merged = true).any {
-                it.config.contains(SemanticsActions.SetText) ||
-                    it.config.getOrNull(SemanticsProperties.Text)?.any { text -> text.text == "保存配置" } == true
-            }, "C7：退场旧内容保留绘制，但立即撤销编辑／保存的公开语义")
-            f.tapPoint(oldSavePoint)
-            f.advance(1000)
-            assertEquals(0, f.submissions, "退出内容只留绘制，不得由旧按钮位置提交配置")
-            assertTrue(f.draft.dirty)
-            assertTrue(f.strength(probe) < .03, "退出完成后旧内容应消失")
-            assertTrue(f.text(Fixture.TITLE).boundsInRoot.top >= 0f, "折叠头仍在可见范围")
-        }
-    } }
-
-    @Test fun expandedContentWaits50msThenFadesFor150ms() = onMotionTestThread { runTest {
+    @Test fun saveBarSlidesInFromBelowRatherThanAppearingInPlace() = onMotionTestThread { runTest {
         Fixture(testScheduler).use { f ->
-            f.tapText(Fixture.TITLE)
-            f.advance(1200)
-            assertTrue(f.expanded)
-            val probe = f.probe("运营商 001 / 01")
-            f.tapText(Fixture.TITLE)
-            f.advance(1200)
-            assertFalse(f.expanded)
-            assertTrue(f.strength(probe) < .03, "前提：稳定折叠后没有该文字墨迹")
-
-            f.tapText(Fixture.TITLE)
-            assertTrue(f.expanded, "前提：再次展开由同一真实头部提交")
-            f.advance(48) // 抬起后 49ms：50ms 延迟尚未结束。
-            f.assertNotClipped(probe)
-            assertTrue(f.strength(probe) < .05, "C7：内容不能在 50ms 延迟结束前直接显现")
-            f.advance(76) // 抬起后 125ms：淡入区间的中间帧。
-            val middle = f.strength(probe)
-            assertTrue(middle > .15 && middle < .95, "C7：150ms 淡入必须有真实中间墨迹，实际=$middle")
-            f.advance(100) // 抬起后 225ms：50ms + 150ms 已结束。
-            assertTrue(f.strength(probe) in .95..1.05, "进入终态须恢复同一内容原色")
-            assertEquals(0, f.submissions)
-        }
-    } }
-
-    @Test fun latestDraftSurvivesRealPointerReversal() = onMotionTestThread { runTest {
-        Fixture(testScheduler, initiallyExpanded = true).use { f ->
-            f.openAdvanced()
-            f.setSmsc("+123")
-            f.advance(1000)
-            val probe = f.probe("运营商 001 / 01")
-            f.tapText(Fixture.TITLE)
-            f.advance(19)
-            assertFalse(f.expanded)
-            assertTrue(f.strength(probe) > .05, "前提：反向点按发生在真实旧内容退场期间")
-            f.tapText(Fixture.TITLE)
-            assertTrue(f.expanded, "C7：真实头部可直接反向，不等退场或卡片高度完成")
-            f.advance(1000)
-            assertEquals("+123", f.draft.smsc.text.toString())
-            assertTrue(f.draft.dirty)
-            assertTrue(f.nodes().any { it.config.contains(SemanticsActions.SetText) }, "途中反向不能丢失仍保留的高级设置")
-            f.setSmsc("+456")
-            f.tapText(Fixture.TITLE)
-            f.advance(19)
-            f.tapText(Fixture.TITLE)
-            assertTrue(f.expanded)
-            f.advance(1000)
-            assertEquals("+456", f.draft.smsc.text.toString(), "反向呈现只消费同一个实际 draft，不重建或清草稿")
-            assertTrue(f.draft.dirty)
-            assertEquals(0, f.submissions)
-        }
-    } }
-
-    @Test fun dirtyActionGroupEntersByHeightAndFadeRatherThanImmediateInsertion() = onMotionTestThread { runTest {
-        // 隔离实际叶组件，避免 ConfigurationEditor 的外层卡片高度裁剪掩盖 Row 的即时插入。
-        Fixture(testScheduler, actionsOnly = true).use { f ->
-            assertFalse(f.draft.dirty)
-            assertFalse(f.hasText("保存配置"))
+            assertFalse(f.hasText("保存配置"), "干净草稿不显示保存栏")
             f.editSmscDraft("+123")
             f.advance(1000)
-            // Both actions share the same C9 group; use its dark secondary label for an unambiguous ink probe.
-            // The probe checks the complete natural layout and clearance before capturing any ink.
             val probe = f.probe("放弃修改", naturalBounds = true)
-            val fullHeight = f.subjectBounds().height
-            val save = f.text("保存配置").boundsInRoot
-            val discard = f.text("放弃修改").boundsInRoot
-            assertTrue(save.left > discard.left, "前提：实际双列动作已出现")
+            val settled = f.text("保存配置").boundsInRoot
+            assertTrue(settled.bottom <= f.viewport.bottom, "前提：保存栏完整位于视口内")
             f.draft.discard()
             f.advance(1000)
             assertFalse(f.draft.dirty)
@@ -150,84 +66,98 @@ class ConfigurationStateMotionRenderTest {
             f.editSmscDraft("+123")
             f.advance(1)
             assertTrue(f.draft.dirty, "草稿变脏不等待视觉动画")
-            assertTrue(f.subjectBounds().height < fullHeight - 4f, "C9：第一帧不能插入完整按钮组高度；${probe.metrics}")
-            assertTrue(f.strength(probe) < .95, "C9：第一帧不能出现完整按钮文字墨迹；${probe.metrics}")
+            assertTrue(f.strength(probe) < .95, "C9：第一帧不能在终点直接出现完整按钮文字；${probe.metrics}")
             f.advance(1000)
-            assertEquals(fullHeight, f.subjectBounds().height, 1f, probe.metrics)
+            assertEquals(settled, f.text("保存配置").boundsInRoot, "保存栏落位后位置稳定")
             assertTrue(f.strength(probe) in .95..1.05, probe.metrics)
             assertEquals(0, f.submissions, "呈现不得自动提交配置")
         }
     } }
 
-    @Test fun validationExplanationFadesInAfterARealInvalidSave() = onMotionTestThread { runTest {
-        Fixture(testScheduler, initiallyExpanded = true).use { f ->
-            f.openAdvanced()
-            f.setSmsc("invalid")
-            f.advance(1000) // Let the existing card/dirty-row layout settle before the real save tap.
-            f.tapText("保存配置")
+    @Test fun exitingBarCannotSubmitFromItsOldPosition() = onMotionTestThread { runTest {
+        Fixture(testScheduler).use { f ->
+            f.editSmscDraft("+123")
             f.advance(1000)
-            assertEquals(ConfigurationEditStatus.Invalid, f.draft.status)
-            assertTrue(f.hasErrorSemantics())
-            val message = requireNotNull(f.draft.errors[ConfigurationFieldKey.Smsc])
-            val probe = f.probe(message)
-            f.setSmsc("+123")
+            val oldSavePoint = f.text("保存配置").boundsInRoot.center
+            f.draft.discard()
+            f.advance(20)
+            f.tapPoint(oldSavePoint)
             f.advance(1000)
-            assertFalse(f.hasErrorSemantics(), "前提：合法输入确已清错误")
-            assertTrue(f.strength(probe) < .03, "前提：错误稳定退场后局部墨迹为空")
-
-            // 真实 draft 的 validationRequested 已成立；后继非法编辑直接产生当前校验结果。
-            f.setSmsc("invalid", afterMillis = 1)
-            assertTrue(f.hasErrorSemantics(), "错误目标/语义即时反映真实校验，不等待淡入")
-            f.assertNotClipped(probe)
-            assertTrue(f.strength(probe) < .95, "C8：错误说明不能第一帧直接完整插入")
-            f.advance(225)
-            assertTrue(f.strength(probe) in .95..1.05, "150ms 淡入完成后说明回到真实原色")
-            assertEquals(0, f.submissions, "非法保存与呈现都不能调用后端")
+            assertEquals(0, f.submissions, "退场中的保存栏只留绘制，不得由旧位置提交")
+            assertFalse(f.hasText("保存配置"))
         }
     } }
 
-    @Test fun legitimateInputClearsValidationWithoutAnotherSave() = onMotionTestThread { runTest {
-        Fixture(testScheduler, initiallyExpanded = true).use { f ->
-            f.openAdvanced()
-            f.setSmsc("invalid")
-            f.advance(1000) // Validation assertions require a stable, actually hittable save action.
-            f.tapText("保存配置")
-            f.advance(225)
-            assertEquals(ConfigurationEditStatus.Invalid, f.draft.status)
-            assertTrue(f.hasErrorSemantics())
-            assertEquals(0, f.submissions)
-            f.setSmsc("+123", afterMillis = 1)
-            assertTrue(f.draft.errors.isEmpty(), "旧业务守护：合法编辑立即清当前错误")
-            assertFalse(f.hasErrorSemantics(), "语义不能保留已过期错误到下一次保存")
-            assertFalse(configurationEditSummary(f.draft).contains("请检查"))
+    @Test fun lastRowScrollsClearOfThePinnedBar() = onMotionTestThread { runTest {
+        Fixture(testScheduler).use { f ->
+            f.editSmscDraft("+123")
+            f.advance(1000)
+            val list = f.nodes().first { it.config.contains(SemanticsActions.ScrollBy) }
+            requireNotNull(list.config[SemanticsActions.ScrollBy].action).invoke(0f, 20_000f)
+            f.advance(1000)
+            val last = f.text("Digest 认证域").boundsInRoot
+            val barTop = f.nodes().filter { it.config.getOrNull(SemanticsProperties.Text)?.any { t -> t.text == "1 项修改未保存" } == true }
+                .single().boundsInRoot.top
+            // The bar title sits 16dp inside the card; the row must end above the card, not merely above the title.
+            assertTrue(last.height > 0f && last.bottom + 16f <= barTop, "最后一行须能滚到保存栏上方，不被遮挡：last=$last barTop=$barTop")
+        }
+    } }
+
+    @Test fun fieldDialogValidatesBeforeWritingAndLegalInputClearsTheErrorWithoutAnotherConfirm() = onMotionTestThread { runTest {
+        Fixture(testScheduler).use { f ->
+            f.tapText("短信中心")
+            f.advance(1000)
+            f.setDialogText("invalid")
+            f.tapText("确定")
+            f.advance(1000)
+            assertEquals("", f.draft.smsc.text.toString(), "非法值不得写入草稿")
+            assertFalse(f.draft.dirty)
+            assertTrue(f.hasErrorSemantics(), "错误就地显示在对话框字段上")
+            assertTrue(f.hasText("SMSC 须以 + 开头，或留空"))
+            f.setDialogText("+123")
+            assertFalse(f.hasErrorSemantics(), "输入一变为合法，错误在下一帧即消失，不必再次确定")
+            f.tapText("确定")
+            f.advance(1000)
             assertEquals("+123", f.draft.smsc.text.toString())
-            assertTrue(f.draft.dirty)
-            assertEquals(0, f.submissions)
+            assertFalse(f.nodes().any { it.config.contains(SemanticsActions.SetText) }, "确定后对话框关闭")
+            assertTrue(f.hasText("1 项修改未保存"), "写入草稿后保存栏立即说明待保存")
+            assertTrue(f.hasTextContaining("+123 · 未保存"), "被修改的行标出未保存")
+            assertEquals(0, f.submissions, "对话框只改草稿，不调用后端")
         }
     } }
 
-    @Test fun pendingSaveFreezesInputAndDiscardAndFailureKeepsTheDraft() = onMotionTestThread { runTest {
-        Fixture(testScheduler, initiallyExpanded = true).use { f ->
-            f.openAdvanced()
-            f.setSmsc("+123")
+    @Test fun cancellingTheFieldDialogLeavesTheDraftUntouched() = onMotionTestThread { runTest {
+        Fixture(testScheduler).use { f ->
+            f.tapText("DNS")
+            f.advance(1000)
+            f.setDialogText("dns.user.invalid")
+            f.tapText("取消")
+            f.advance(1000)
+            assertEquals("", f.draft.dns.text.toString())
+            assertFalse(f.draft.dirty)
+            assertFalse(f.hasText("保存配置"))
+        }
+    } }
+
+    @Test fun pendingSaveFreezesRowsAndDiscardAndFailureKeepsTheDraft() = onMotionTestThread { runTest {
+        Fixture(testScheduler).use { f ->
+            f.editSmscDraft("+123")
             f.advance(1000)
             f.tapText("保存配置")
             assertEquals(1, f.submissions, "真实单次点按应受理一次保存")
             assertTrue(f.draft.pending)
-            assertTrue(f.nodes(merged = true).any {
-                it.config.getOrNull(SemanticsProperties.EditableText)?.text == "+123" &&
-                    it.config.contains(SemanticsProperties.Disabled)
-            }, "旧业务守护：真实字段在 pending 立即禁用")
+            f.advance(16)
+            assertTrue(f.nodes(merged = true).any { node ->
+                node.config.getOrNull(SemanticsProperties.Text)?.any { it.text == "短信中心" } == true &&
+                    node.config.contains(SemanticsProperties.Disabled)
+            }, "pending 期间参数行立即禁用")
             f.tapText("放弃修改")
             f.tapText("正在保存")
             f.advance(600)
             assertTrue(f.draft.pending)
-            assertTrue(f.draft.dirty)
             assertEquals("+123", f.draft.smsc.text.toString())
             assertEquals(1, f.submissions, "pending 重复点击不能再提交")
             assertFalse(f.hasText("放弃修改？"), "pending 不能打开放弃确认")
-            f.draft.discard()
-            assertEquals("+123", f.draft.smsc.text.toString(), "draft 内部放弃保护也应保持")
             requireNotNull(f.completion).invoke(ConfigurationApplyOutcome.Failed)
             f.advance(1000)
             assertFalse(f.draft.pending)
@@ -239,43 +169,137 @@ class ConfigurationStateMotionRenderTest {
         }
     } }
 
+    @Test fun runningInstanceSaveConfirmsTheRestartFirst() = onMotionTestThread { runTest {
+        Fixture(testScheduler, lifecycle = ConfigurationLifecycle.RUNNING).use { f ->
+            f.editSmscDraft("+123")
+            f.advance(1000)
+            f.tapText("保存并重启")
+            f.advance(1000)
+            assertTrue(f.hasText("保存并重启实例？"))
+            assertEquals(0, f.submissions, "确认前不得提交")
+            f.tapLast("保存并重启")
+            assertEquals(1, f.submissions)
+            assertTrue(f.draft.pending)
+        }
+    } }
+
+    @Test fun toolbarBackWithUnsavedEditsAsksAndDiscardThenLeaves() = onMotionTestThread { runTest {
+        Fixture(testScheduler).use { f ->
+            f.editSmscDraft("+123")
+            f.advance(1000)
+            f.backController.request()
+            f.advance(1000)
+            assertEquals(0, f.leaves, "有未保存修改时不能直接离开")
+            assertTrue(f.hasText("保存修改？"))
+            assertTrue(f.hasText("1 项修改尚未保存。保存后下次启动生效。"))
+            f.tapLast("放弃修改")
+            f.advance(1000)
+            assertEquals(1, f.leaves)
+            assertFalse(f.draft.dirty, "放弃并离开恢复最近读取的配置")
+            assertEquals(0, f.submissions)
+        }
+    } }
+
+    @Test fun systemBackWithUnsavedEditsCanSaveFromTheDialog() = onMotionTestThread { runTest {
+        Fixture(testScheduler).use { f ->
+            f.editSmscDraft("+123")
+            f.advance(1000)
+            f.systemBack()
+            f.advance(1000)
+            assertEquals(0, f.fallbackBacks, "系统返回由页面守卫消费，不落到导航")
+            assertTrue(f.hasText("保存修改？"))
+            f.tapLast("保存")
+            assertEquals(1, f.submissions)
+            assertEquals(1, f.leaves, "保存被受理后离开，结果交给总览行")
+            assertTrue(f.draft.pending)
+        }
+    } }
+
+    @Test fun dismissingTheLeaveDialogKeepsEditing() = onMotionTestThread { runTest {
+        Fixture(testScheduler).use { f ->
+            f.editSmscDraft("+123")
+            f.advance(1000)
+            f.systemBack()
+            f.advance(1000)
+            assertTrue(f.hasText("保存修改？"))
+            f.systemBack()
+            f.advance(1000)
+            assertFalse(f.hasText("保存修改？"), "再次返回关闭询问，继续编辑")
+            assertEquals(0, f.leaves)
+            assertEquals(0, f.fallbackBacks)
+            assertTrue(f.draft.dirty)
+        }
+    } }
+
+    @Test fun cleanDraftBackLeavesWithoutAsking() = onMotionTestThread { runTest {
+        Fixture(testScheduler).use { f ->
+            f.systemBack()
+            f.advance(100)
+            assertEquals(1, f.fallbackBacks, "无修改时系统返回照常交给导航")
+            f.backController.request()
+            assertEquals(1, f.leaves, "无修改时顶栏返回直接离开")
+            assertFalse(f.hasText("保存修改？"))
+        }
+    } }
+
+    @Test fun synchronousFailureFromTheLeaveDialogStaysOnThePage() = onMotionTestThread { runTest {
+        Fixture(testScheduler, completeWith = ConfigurationApplyOutcome.Failed).use { f ->
+            f.editSmscDraft("+123")
+            f.advance(1000)
+            f.backController.request()
+            f.advance(1000)
+            f.tapLast("保存")
+            f.advance(1000)
+            assertEquals(1, f.submissions)
+            assertEquals(0, f.leaves, "同步失败必须留在页面，草稿和说明都在")
+            assertEquals(ConfigurationEditStatus.Failed, f.draft.status)
+            assertTrue(f.hasTextContaining("保存失败，修改已保留"))
+        }
+    } }
+
     internal class Fixture(
         private val scheduler: TestCoroutineScheduler,
-        initiallyExpanded: Boolean = false,
-        actionsOnly: Boolean = false,
+        lifecycle: ConfigurationLifecycle = ConfigurationLifecycle.STOPPED,
         durationScale: Float = 1f,
+        private val completeWith: ConfigurationApplyOutcome? = null,
+        val width: Int = 440,
+        val height: Int = 900,
     ) : AutoCloseable {
         val instance = ConfigurationInstance(
-            ConfigurationInstanceId("sim-1"), TITLE, ConfigurationLifecycle.STOPPED,
+            ConfigurationInstanceId("sim-1"), TITLE, lifecycle,
             ConfigurationTransport.AUTO, "", "", "", "", "epdg.invalid", "ims.invalid", "001", "01",
             draftOwnerId = SimOwnerId.fromHmacSha256(ByteArray(32) { 1 }),
         )
         val draft = ConfigurationEditorDraft(instance)
-        var expanded by mutableStateOf(initiallyExpanded)
         var submissions = 0
+        var leaves = 0
+        var fallbackBacks = 0
         var completion: ((ConfigurationApplyOutcome) -> Unit)? = null
         var remount by mutableStateOf(0)
         val haptics = mutableListOf<HapticFeedbackType>()
+        val viewport = Rect(0f, 0f, width.toFloat(), height.toFloat())
+        val backController = SubpageBackController { leaves++ }
+        private val input = object : NavigationEventInput() { fun back() = dispatchOnBackCompleted() }
+        private val back = object : NavigationEventDispatcherOwner {
+            override val navigationEventDispatcher = NavigationEventDispatcher(onBackCompletedFallback = { fallbackBacks++ }).apply { addInput(input) }
+        }
         private val recorder = object : HapticFeedback {
             override fun performHapticFeedback(hapticFeedbackType: HapticFeedbackType) { haptics += hapticFeedbackType }
         }
         private val model = ConfigurationEditorModel(instance, ConfigurationUiState.Ready(listOf(instance)), true, null)
-        val environment = MotionTestEnvironment(scheduler, width = if (actionsOnly) 640 else 440,
-            height = if (actionsOnly) 3200 else 2800, durationScale = durationScale) {
+        val environment = MotionTestEnvironment(scheduler, width = width, height = height, durationScale = durationScale) {
             SoftVoWiFiTheme(false) {
-                CompositionLocalProvider(LocalDensity provides Density(1f), LocalHapticFeedback provides recorder) {
-                    Scaffold(if (actionsOnly) Modifier.fillMaxSize() else Modifier) {
-                        Box(Modifier.fillMaxWidth().padding(16.dp).testTag(SUBJECT)) {
+                CompositionLocalProvider(LocalDensity provides Density(1f), LocalHapticFeedback provides recorder,
+                    LocalNavigationEventDispatcherOwner provides back, LocalSubpageBackController provides backController) {
+                    Scaffold(Modifier.fillMaxSize()) {
+                        Box(Modifier.fillMaxSize().testTag(SUBJECT)) {
                             val submit: com.vowifi.sw.manager.model.ConfigurationSubmit = { _, _, complete ->
                                 submissions++
                                 completion = complete
+                                completeWith?.let(complete)
                                 ConfigurationApplyAcceptance.Accepted
                             }
-                            key(remount) { if (actionsOnly) Column {
-                                ConfigurationEditActions(model, draft, submit)
-                            } else ConfigurationEditor(model, draft, expanded,
-                                onToggleExpand = { expanded = !expanded }, onSubmit = submit)
-                            }
+                            key(remount) { ConfigurationSimEditor(model, draft, submit) }
                         }
                     }
                 }
@@ -303,22 +327,20 @@ class ConfigurationStateMotionRenderTest {
         }
         fun subjectBounds(): Rect = nodes().single { it.config.getOrNull(SemanticsProperties.TestTag) == SUBJECT }.boundsInRoot
         fun tapText(value: String) = tapPoint(text(value).boundsInRoot.center)
+        fun tapLast(value: String) = tapPoint(nodes().last {
+            it.config.getOrNull(SemanticsProperties.Text)?.any { text -> text.text == value } == true
+        }.boundsInRoot.center)
         fun tapPoint(point: Offset) {
             environment.press(point)
             advance(16)
             environment.release(point)
             advance(1)
         }
-        fun openAdvanced() {
-            tapText("高级设置")
-            advance(1000)
-            assertTrue(nodes().any { it.config.contains(SemanticsActions.SetText) }, "前提：真实高级设置确已打开")
-        }
-        fun setSmsc(value: String, afterMillis: Long = 16) {
-            val field = nodes().first { it.config.contains(SemanticsActions.SetText) }
-            assertTrue(requireNotNull(field.config[SemanticsActions.SetText].action).invoke(AnnotatedString(value)), "旧 SetText API 必须命中真实 SMSC 字段")
+        fun systemBack() = input.back()
+        fun setDialogText(value: String, afterMillis: Long = 16) {
+            val field = nodes().single { it.config.contains(SemanticsActions.SetText) }
+            assertTrue(requireNotNull(field.config[SemanticsActions.SetText].action).invoke(AnnotatedString(value)), "必须命中对话框中的真实字段")
             advance(afterMillis)
-            assertEquals(value, draft.smsc.text.toString(), "前提：必须修改真实 draft，不能只改影子输入")
         }
         fun editSmscDraft(value: String) { draft.smsc.edit { replace(0, length, value) } }
         fun hasErrorSemantics(): Boolean = nodes().any { it.config.contains(SemanticsProperties.Error) }
@@ -337,9 +359,8 @@ class ConfigurationStateMotionRenderTest {
             val glyphBounds = Rect(origin.left + layout.getLineLeft(0), origin.top + layout.getLineTop(0),
                 origin.left + layout.getLineRight(0), origin.top + layout.getLineBottom(0))
             if (naturalBounds) {
-                // C9's actual button Text has natural width. Its semantics rectangle has
-                // real height even when GetTextLayoutResult reports a zero-height line.
-                // C7/C8/save-summary probes deliberately keep their original line bounds.
+                // Button Text has natural width; its semantics rectangle has real height even when
+                // GetTextLayoutResult reports a zero-height line. Summary probes keep their line bounds.
                 val metrics = "semantics=$origin layoutSize=${layout.size} lineBounds=$glyphBounds " +
                     "lineTop=${layout.getLineTop(0)} lineBottom=${layout.getLineBottom(0)} " +
                     "lineCount=${layout.lineCount} ellipsized=${layout.isLineEllipsized(0)}"
@@ -354,7 +375,7 @@ class ConfigurationStateMotionRenderTest {
         internal fun <T> pixels(block: (Bitmap) -> T): T = environment.scene.render(scheduler.currentTime * 1_000_000L).use { image ->
             Bitmap.makeFromImage(image).use(block)
         }
-        override fun close() { environment.close() }
+        override fun close() { environment.close(); back.navigationEventDispatcher.dispose() }
         companion object {
             const val TITLE = "SIM 1 · 合成配置"
             private const val SUBJECT = "configuration-motion-subject"

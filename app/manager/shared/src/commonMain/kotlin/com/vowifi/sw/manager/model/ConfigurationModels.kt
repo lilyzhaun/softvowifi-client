@@ -12,13 +12,6 @@ enum class ConfigurationIdentitySource(val wireValue: String) {
     UNKNOWN("unknown"),
 }
 
-enum class ConfigurationTransport {
-    WIFI,
-    SIM1,
-    SIM2,
-    AUTO,
-}
-
 enum class ConfigurationLifecycle {
     CONFIG_MISSING,
     STOPPED,
@@ -37,6 +30,8 @@ data class ConfigurationOverrides(
     val paniInitial: String? = null,
     val paniCountry: String? = null,
     val imsDigestRealm: String? = null,
+    // Per-transport DNS overrides; [dns] replaces the entry for [transport] when encoded.
+    val dnsOverrides: Map<String, String> = emptyMap(),
 ) {
     override fun toString(): String = "ConfigurationOverrides"
 }
@@ -71,6 +66,7 @@ data class ConfigurationSnapshot(
     val mnc: String,
     val imsPolicy: ConfigurationImsPolicy = ConfigurationImsPolicy(),
     val identitySource: ConfigurationIdentitySource = ConfigurationIdentitySource.UNKNOWN,
+    val dnsOverrides: Map<String, String> = emptyMap(),
 ) {
     override fun toString(): String = "ConfigurationSnapshot"
 }
@@ -104,6 +100,10 @@ data class ConfigurationInstance(
     val draftOwnerId: SimOwnerId? = null,
     val imsPolicy: ConfigurationImsPolicy = ConfigurationImsPolicy(),
     val identitySource: ConfigurationIdentitySource = ConfigurationIdentitySource.UNKNOWN,
+    // Saved DNS override per transport; [dns] is the entry for [transport], empty means live network DNS.
+    val dnsOverrides: Map<String, String> = emptyMap(),
+    // The running instance's SIM-derived SMSC, separate from the editable disk value.
+    val resolvedSmsc: String = "",
 ) {
     override fun toString(): String = "ConfigurationInstance"
 }
@@ -116,6 +116,7 @@ sealed interface ConfigurationUiState {
         val applyingInstanceId: ConfigurationInstanceId? = null,
         val message: String? = null,
         val isFixture: Boolean = false,
+        val networkOutlets: ConfigurationNetworkOutlets = ConfigurationNetworkOutlets(),
     ) : ConfigurationUiState
 
     data object Empty : ConfigurationUiState
@@ -149,4 +150,5 @@ sealed class ConfigurationFormatException(
     class InvalidPaniInitial : ConfigurationFormatException("初始 PANI 策略无效")
     class InvalidPaniCountry : ConfigurationFormatException("国家参数须为两个 ASCII 字母")
     class InvalidDigestRealm : ConfigurationFormatException("Digest 认证域格式无效")
+    class InvalidDns : ConfigurationFormatException("DNS 须为 IP 或 IP:端口")
 }

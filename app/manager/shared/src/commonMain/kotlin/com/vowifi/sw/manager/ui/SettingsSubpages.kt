@@ -33,6 +33,7 @@ internal data class SettingsConfigurationActions(
     val onSubmit: com.vowifi.sw.manager.model.ConfigurationSubmit,
     val onProvision: (SimHandle) -> Unit,
     val onRefresh: suspend () -> RefreshResult,
+    val onOpenSim: (com.vowifi.sw.manager.ui.navigation.ConfigurationSimHandle) -> Unit = {},
 )
 
 internal data class SettingsLogsActions(
@@ -41,6 +42,9 @@ internal data class SettingsLogsActions(
     val setLevel: (OperationalLogLevel?) -> Unit,
     val setInstance: (String?) -> Unit,
     val onExport: (List<OperationalLogEntry>) -> Unit,
+    val fullDiagnosticExport: Boolean = false,
+    val exportWindow: com.vowifi.sw.manager.data.DiagnosticExportWindow = com.vowifi.sw.manager.data.DiagnosticExportWindow.HOUR,
+    val setExportWindow: (com.vowifi.sw.manager.data.DiagnosticExportWindow) -> Unit = {},
 )
 
 @Composable
@@ -53,7 +57,6 @@ internal fun SettingsConfigurationScreen(
     provisionBusy: Boolean = false,
 ) {
     val presentation = configurationPresentation(state, simState)
-    val expansionState = rememberConfigurationExpansionState()
     val progress = provisioning?.collectAsState()?.value ?: ConfigurationProvisionState()
     val draftPending = (state as? ConfigurationUiState.Ready)?.instances.orEmpty().any { drafts.draftFor(it).pending }
     val refresh = rememberManagerRefreshController(actions.onRefresh,
@@ -62,15 +65,15 @@ internal fun SettingsConfigurationScreen(
     RegisterManagerRefreshAction(refresh, "刷新配置", rotation)
     val loading = rememberManagerLoadingState(state == ConfigurationUiState.Loading, presentation.rows.isNotEmpty())
     val empty = rememberManagerEmptyFade(!loading.hidden && !loading.showLoading && presentation.panelKind == ConfigurationPanelKind.EMPTY)
-    AppPageScaffold(title = "SIM 与网络配置", showTopBar = false, refreshController = refresh,
+    AppPageScaffold(title = "SIM 与网络配置", showTopBar = false, contentHorizontalInset = CONFIGURATION_PAGE_INSET,
+        refreshController = refresh,
         refreshRotation = rotation, contentAlpha = loading.alpha, emptyAlpha = empty) {
         managerRefreshResultItem(refresh, "configuration-refresh-result")
         configurationItems(
             state = state,
             presentation = presentation,
             drafts = drafts,
-            expansionState = expansionState,
-            actions = ConfigurationActions(actions.onSubmit, actions.onProvision) { refresh.request() },
+            actions = ConfigurationActions(actions.onSubmit, actions.onProvision, { refresh.request() }, actions.onOpenSim),
             refreshEnabled = refresh.enabled,
             refreshRotation = rotation,
             loading = loading,

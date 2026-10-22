@@ -30,7 +30,7 @@ class ConfigurationRuntimeRetentionTest {
             }
         val first = compose(firstSource, memory)
         val draft = store.draftFor(instance("sim-1"))
-        draft.dns.edit { append("synthetic.invalid") }
+        draft.dns.edit { append("192.0.2.10:53") }
         draft.submit { _, _, _ -> ConfigurationApplyAcceptance.Accepted }
         assertTrue(registry.performSave().isEmpty())
         first.dispose()
@@ -38,7 +38,7 @@ class ConfigurationRuntimeRetentionTest {
         val second = compose(secondSource, memory)
         assertSame(ConfigurationUiState.Loading, secondSource.state.value)
         val restored = store.draftFor(instance("sim-2"))
-        assertEquals("synthetic.invalid", restored.dns.text.toString())
+        assertEquals("192.0.2.10:53", restored.dns.text.toString())
         assertEquals(ConfigurationEditStatus.Unconfirmed, restored.status)
         assertEquals(0, secondSource.calls)
         store.reconcile(ConfigurationUiState.Failure("无法读取配置"))

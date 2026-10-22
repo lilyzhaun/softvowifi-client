@@ -102,7 +102,8 @@ class FixtureConfigurationSource(
                     smsc = overrides.smsc,
                     epdgFqdn = overrides.epdgFqdn,
                     imsRealm = overrides.imsRealm,
-                    dns = overrides.dns,
+                    dns = com.vowifi.sw.manager.data.dnsServerValue(overrides.dns),
+                    dnsOverrides = com.vowifi.sw.manager.data.dnsOverridesFor(overrides),
                 )
             } else {
                 instance
@@ -180,15 +181,17 @@ class FixtureConfigurationSource(
         smsc = "",
         epdgFqdn = "epdg.example.invalid",
         imsRealm = "ims.example.invalid",
-        dns = "dns.example.invalid",
+        dns = FIXTURE_DNS,
         resolvedEpdgFqdn = "resolved-epdg.example.invalid",
         resolvedImsRealm = "resolved-ims.example.invalid",
         mcc = if (id == FIRST_ID) "460" else "505",
         mnc = if (id == FIRST_ID) "09" else "03",
+        dnsOverrides = mapOf((if (id == FIRST_ID) "auto" else "wifi") to FIXTURE_DNS),
     )
 
     private companion object {
         val FIRST_ID = ConfigurationInstanceId("sim-1")
         val SECOND_ID = ConfigurationInstanceId("sim-2")
+        const val FIXTURE_DNS = "192.0.2.53:53"
     }
 }

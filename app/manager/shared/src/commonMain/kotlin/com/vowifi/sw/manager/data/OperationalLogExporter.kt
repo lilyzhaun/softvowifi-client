@@ -20,7 +20,9 @@ object OperationalLogExporter {
             entry.timestamp.takeIf(timestamp::matches) ?: "时间不可用",
             levelText(entry.level),
             kindText(entry.kind),
-            OperationalLogRedactor.displayLabel(entry.displayLabel),
+            if (entry.kind == OperationalLogKind.DIAGNOSTIC) {
+                entry.displayLabel.takeIf { it == "SIM 1" || it == "SIM 2" } ?: "全局诊断"
+            } else OperationalLogRedactor.displayLabel(entry.displayLabel),
             messageText(entry.message),
             operationalLogSafeSummary(entry),
         ).joinToString("\t"),
@@ -33,6 +35,7 @@ object OperationalLogExporter {
     }
 
     private fun kindText(kind: OperationalLogKind): String = when (kind) {
+        OperationalLogKind.DIAGNOSTIC -> "诊断"
         OperationalLogKind.ENGINE -> "引擎"
         OperationalLogKind.TUNNEL -> "隧道"
         OperationalLogKind.IMS -> "IMS"

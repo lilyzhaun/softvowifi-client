@@ -65,14 +65,14 @@ class ConfigurationDigestRealmTest {
             val draft = ConfigurationEditorDraft(original)
             val before = draft.overrides()
             val readback = JsonObject(Json.parseToJsonElement(legacyStandardShow(mnc)).jsonObject +
-                ("dns" to JsonPrimitive("1.1.1.1"))).toString()
+                ("dnsOverrides" to JsonObject(mapOf("wifi" to JsonPrimitive("1.1.1.1:53"))))).toString()
             val confirmed = ConfigurationEvaluator.instance(id, ConfigurationCodec.show(readback))
             var submissions = 0
 
             draft.dns.edit { replace(0, length, "1.1.1.1") }
             draft.submit { _, next, complete ->
                 submissions++
-                assertEquals("""{"dns":"1.1.1.1"}""", ConfigurationCodec.encodeChanges(before, next))
+                assertEquals("""{"dnsOverrides":{"wifi":"1.1.1.1:53"}}""", ConfigurationCodec.encodeChanges(before, next))
                 complete(ConfigurationApplyOutcome.Confirmed(confirmed))
                 ConfigurationApplyAcceptance.Accepted
             }
@@ -82,7 +82,7 @@ class ConfigurationDigestRealmTest {
             assertFalse(draft.dirty)
             assertEquals(original.imsPolicy, confirmed.imsPolicy)
             assertEquals("identity", confirmed.imsPolicy.digestRealmSource)
-            assertEquals(before.copy(dns = "1.1.1.1"), draft.overrides())
+            assertEquals(before.copy(dns = "1.1.1.1:53", dnsOverrides = mapOf("wifi" to "1.1.1.1:53")), draft.overrides())
         }
     }
 
@@ -106,8 +106,8 @@ class ConfigurationDigestRealmTest {
             assertEquals("{}", ConfigurationCodec.encodeChanges(before, draft.overrides()))
             draft.dns.edit { replace(0, length, "1.1.1.1") }
             draft.submit { _, next, complete ->
-                assertEquals("""{"dns":"1.1.1.1"}""", ConfigurationCodec.encodeChanges(before, next))
-                complete(ConfigurationApplyOutcome.Confirmed(original.copy(dns = next.dns)))
+                assertEquals("""{"dnsOverrides":{"wifi":"1.1.1.1:53"}}""", ConfigurationCodec.encodeChanges(before, next))
+                complete(ConfigurationApplyOutcome.Confirmed(original.copy(dns = "1.1.1.1:53")))
                 ConfigurationApplyAcceptance.Accepted
             }
             assertEquals(ConfigurationEditStatus.Saved, draft.status)
@@ -148,7 +148,7 @@ class ConfigurationDigestRealmTest {
         assertEquals("legacy_name.test", identity.imsPolicy.digestRealm)
         assertEquals("", identity.imsPolicy.digestRealmOverride)
         val identityDraft = ConfigurationEditorDraft(identity)
-        assertEquals("""{"dns":"1.1.1.1"}""", ConfigurationCodec.encodeChanges(
+        assertEquals("""{"dnsOverrides":{"wifi":"1.1.1.1:53"}}""", ConfigurationCodec.encodeChanges(
             identityDraft.overrides(), identityDraft.overrides().copy(dns = "1.1.1.1")))
     }
 

@@ -13,7 +13,7 @@ internal const val FAKE_SMSC = "+155501"
 internal const val FAKE_E164_SMSC = "+155500000000001"
 internal const val FAKE_EPDG = "epdg.example.invalid"
 internal const val FAKE_REALM = "ims.example.invalid"
-internal const val FAKE_DNS = "192.0.2.53"
+internal const val FAKE_DNS = "192.0.2.53:53"
 internal const val FAKE_RESOLVED_EPDG = "epdg.epc.mnc001.mcc001.pub.3gppnetwork.org"
 internal const val FAKE_RESOLVED_REALM = "ims.mnc001.mcc001.3gppnetwork.org"
 internal const val FAKE_DIGIT_RUN = "99999999999991234"
@@ -43,6 +43,7 @@ internal fun redactedShowJson(
         put("epdgFqdn", epdgFqdn)
         put("imsRealm", imsRealm)
         put("dns", dns)
+        put("dnsOverrides", buildJsonObject { if (dns.isNotEmpty()) put(transport, dns) })
         put("resolvedEpdgFqdn", resolvedEpdgFqdn)
         put("resolvedImsRealm", resolvedImsRealm)
         put("mcc", mcc)

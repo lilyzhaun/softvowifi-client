@@ -11,19 +11,19 @@ class ConfigurationPatchLimitTest {
     private val empty = ConfigurationOverrides(ConfigurationTransport.WIFI, "", "", "", "")
 
     @Test fun rejectsEncodedPatchBeyondModuleLimit() {
-        val failure = runCatching { ConfigurationCodec.encodeChanges(empty, empty.copy(dns = "a".repeat(65_536))) }.exceptionOrNull()
+        val failure = runCatching { ConfigurationCodec.encodeChanges(empty, empty.copy(epdgFqdn = "a".repeat(65_536))) }.exceptionOrNull()
         assertTrue(failure is ConfigurationFormatException, "oversized encoded patch was accepted")
         assertEquals("PayloadTooLarge", failure::class.simpleName)
     }
 
     @Test fun unicodeAndJsonEscapesCountAsWireBytesNotCharacters() {
         for (value in listOf("é".repeat(33_000), "\n".repeat(33_000))) {
-            assertTrue(runCatching { ConfigurationCodec.encodeChanges(empty, empty.copy(dns = value)) }.exceptionOrNull() is ConfigurationFormatException)
+            assertTrue(runCatching { ConfigurationCodec.encodeChanges(empty, empty.copy(epdgFqdn = value)) }.exceptionOrNull() is ConfigurationFormatException)
         }
     }
 
     @Test fun exactModuleLimitAndSparseNoChangeRemainValid() {
-        val payload = ConfigurationCodec.encodeChanges(empty, empty.copy(dns = "a".repeat(65_536 - "{\"dns\":\"\"}".length)))
+        val payload = ConfigurationCodec.encodeChanges(empty, empty.copy(epdgFqdn = "a".repeat(65_536 - "{\"epdgFqdn\":\"\"}".length)))
         assertEquals(65_536, payload.encodeToByteArray().size)
         assertEquals("{}", ConfigurationCodec.encodeChanges(empty, empty))
     }

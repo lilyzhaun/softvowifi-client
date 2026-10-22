@@ -3,6 +3,11 @@ package com.vowifi.sw.manager.data
 import android.net.LocalSocket
 import com.vowifi.sw.manager.model.ClientCapabilitiesFailure
 import com.vowifi.sw.manager.model.ClientCapabilitiesResult
+import com.vowifi.sw.manager.model.resolvedSmsc
+import java.io.IOException
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.serialization.json.JsonPrimitive
 
 class AndroidEngineClientPool(private val socketFactory: () -> LocalSocket = { LocalSocket() }) : AutoCloseable {
     private val lock = Any()
@@ -24,6 +29,21 @@ class AndroidEngineClientPool(private val socketFactory: () -> LocalSocket = { L
             if (!closed && clients[iccid] === client) result
             else ClientCapabilitiesResult.Unavailable(ClientCapabilitiesFailure.Transport)
         }
+    }
+
+    /** Read only an existing instance; a missing/retired connection cannot provide an automatic value. */
+    internal suspend fun automaticSmsc(iccid: String): String? {
+        val client = synchronized(lock) { clients[iccid] } ?: return null
+        val response = try {
+            withTimeoutOrNull(1_500) { client.request("getConfig", timeoutMillis = 1_000) }
+        } catch (cancelled: CancellationException) { throw cancelled
+        } catch (_: IOException) { null
+        } catch (_: EngineRequestTimeoutException) { null
+        } catch (_: ProtocolVersionMismatchException) { null
+        } catch (_: IllegalStateException) { null } // The shared client may close during a refresh.
+        val raw = if (response?.error == null) response?.result?.get("smsc") as? JsonPrimitive else null
+        val value = raw?.takeIf { it.isString }?.content?.let { resolvedSmsc(it, "").takeIf(String::isNotEmpty) }
+        return synchronized(lock) { value.takeIf { !closed && clients[iccid] === client } }
     }
 
     internal fun remove(iccid: String): LocalSocketEngineClient? = synchronized(lock) {

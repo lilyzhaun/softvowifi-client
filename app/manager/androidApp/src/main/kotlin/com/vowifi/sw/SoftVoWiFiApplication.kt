@@ -4,6 +4,8 @@ import android.app.Application
 import android.os.UserManager
 import com.vowifi.sw.manager.data.AndroidIncomingCallNotificationCoordinator
 import com.vowifi.sw.manager.data.AndroidObserverNotificationDefaults
+import com.vowifi.sw.manager.data.AndroidDiagnosticLog
+import com.vowifi.sw.manager.data.AndroidDiagnosticExport
 import com.vowifi.sw.manager.data.SoftVoWiFiRuntime
 import com.vowifi.sw.manager.data.SoftVoWiFiRuntimeHolder
 
@@ -14,6 +16,12 @@ class SoftVoWiFiApplication : Application(), ProcessRuntimeStarter {
 
     override fun onCreate() {
         super.onCreate()
+        AndroidDiagnosticLog.start(this)
+        // Reap only this feature's fixed temporary slot after a killed export; no root or log deletion.
+        if(!isDeviceProtectedStorage && getSystemService(UserManager::class.java)?.isUserUnlocked==true) {
+            Thread({ try { AndroidDiagnosticExport.cleanup(this) } catch (_: java.io.IOException) { }
+                catch (_: SecurityException) { } }, "vowifi-export-cleanup").apply { isDaemon=true }.start()
+        }
         observerNotificationDefaults = AndroidObserverNotificationDefaults(this)
         holder = SoftVoWiFiRuntimeHolder(this, MainActivity::class.java, R.drawable.ic_stat_message)
         holder.startFromApplication()

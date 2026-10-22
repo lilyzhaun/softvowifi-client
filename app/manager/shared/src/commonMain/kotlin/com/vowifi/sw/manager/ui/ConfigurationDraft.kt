@@ -23,6 +23,8 @@ internal data class ConfigurationDraftValues(
     val paniInitial: String = "",
     val paniCountry: String = "",
     val imsDigestRealm: String = "",
+    // Every transport's DNS override as edited; [dns] mirrors the entry for [transport].
+    val dnsOverrides: Map<String, String> = emptyMap(),
 ) {
     override fun toString(): String = "ConfigurationDraftValues"
     companion object {
@@ -36,25 +38,38 @@ internal data class ConfigurationDraftValues(
             paniInitial = instance.imsPolicy.initialOverride,
             paniCountry = instance.imsPolicy.countryOverride,
             imsDigestRealm = instance.imsPolicy.digestRealmOverride,
+            dnsOverrides = instance.dnsOverrides.withDns(instance.transport, instance.dns),
         )
     }
 }
+
+private fun Map<String, String>.withDns(transport: ConfigurationTransport, value: String): Map<String, String> =
+    if (value.isBlank()) this - transport.wireValue else this + (transport.wireValue to value)
 
 internal fun synchronizedConfigurationDraft(
     current: ConfigurationDraftValues,
     baseline: ConfigurationDraftValues,
     incoming: ConfigurationDraftValues,
-): ConfigurationDraftValues = ConfigurationDraftValues(
-    transport = current.transport.takeUnless { it == baseline.transport } ?: incoming.transport,
-    smsc = current.smsc.takeUnless { it == baseline.smsc } ?: incoming.smsc,
-    epdgFqdn = current.epdgFqdn.takeUnless { it == baseline.epdgFqdn } ?: incoming.epdgFqdn,
-    imsRealm = current.imsRealm.takeUnless { it == baseline.imsRealm } ?: incoming.imsRealm,
-    dns = current.dns.takeUnless { it == baseline.dns } ?: incoming.dns,
-    imsSipSecurity = current.imsSipSecurity.takeUnless { it == baseline.imsSipSecurity } ?: incoming.imsSipSecurity,
-    paniInitial = current.paniInitial.takeUnless { it == baseline.paniInitial } ?: incoming.paniInitial,
-    paniCountry = current.paniCountry.takeUnless { it == baseline.paniCountry } ?: incoming.paniCountry,
-    imsDigestRealm = current.imsDigestRealm.takeUnless { it == baseline.imsDigestRealm } ?: incoming.imsDigestRealm,
-)
+): ConfigurationDraftValues {
+    val transport = current.transport.takeUnless { it == baseline.transport } ?: incoming.transport
+    // Per transport: keep the user's edited override, otherwise take the refreshed one.
+    val dnsOverrides = (current.dnsOverrides.keys + baseline.dnsOverrides.keys + incoming.dnsOverrides.keys).mapNotNull { key ->
+        val edited = current.dnsOverrides[key] != baseline.dnsOverrides[key]
+        (if (edited) current.dnsOverrides[key] else incoming.dnsOverrides[key])?.let { key to it }
+    }.toMap()
+    return ConfigurationDraftValues(
+        transport = transport,
+        smsc = current.smsc.takeUnless { it == baseline.smsc } ?: incoming.smsc,
+        epdgFqdn = current.epdgFqdn.takeUnless { it == baseline.epdgFqdn } ?: incoming.epdgFqdn,
+        imsRealm = current.imsRealm.takeUnless { it == baseline.imsRealm } ?: incoming.imsRealm,
+        dns = dnsOverrides[transport.wireValue].orEmpty(),
+        imsSipSecurity = current.imsSipSecurity.takeUnless { it == baseline.imsSipSecurity } ?: incoming.imsSipSecurity,
+        paniInitial = current.paniInitial.takeUnless { it == baseline.paniInitial } ?: incoming.paniInitial,
+        paniCountry = current.paniCountry.takeUnless { it == baseline.paniCountry } ?: incoming.paniCountry,
+        imsDigestRealm = current.imsDigestRealm.takeUnless { it == baseline.imsDigestRealm } ?: incoming.imsDigestRealm,
+        dnsOverrides = dnsOverrides,
+    )
+}
 
 internal class ConfigurationEditorDraft(
     instance: ConfigurationInstance,
@@ -64,7 +79,18 @@ internal class ConfigurationEditorDraft(
         private set
     private val owner = instance.draftOwnerId
     private var baseline by mutableStateOf(retained?.baseline ?: ConfigurationDraftValues.from(instance))
-    var transport by mutableStateOf(baseline.transport)
+    private var selectedTransport by mutableStateOf(baseline.transport)
+    private var dnsOverrides by mutableStateOf(baseline.dnsOverrides)
+
+    /** Switching transport keeps the edited DNS of the old one and shows the new one's override. */
+    var transport: ConfigurationTransport
+        get() = selectedTransport
+        set(value) {
+            if (value == selectedTransport) return
+            dnsOverrides = dnsOverrides.withDns(selectedTransport, dns.text.toString())
+            selectedTransport = value
+            dns.replaceText(dnsOverrides[value.wireValue].orEmpty())
+        }
     val smsc = TextFieldState(baseline.smsc)
     val epdgFqdn = TextFieldState(baseline.epdgFqdn)
     val imsRealm = TextFieldState(baseline.imsRealm)
@@ -84,6 +110,54 @@ internal class ConfigurationEditorDraft(
         get() = if (validationRequested) configurationFieldErrors(overrides()) else emptyMap()
     val pending: Boolean get() = status == ConfigurationEditStatus.Saving
     val dirty: Boolean get() = currentValues() != baseline
+    val transportModified: Boolean get() = transport != baseline.transport
+    val modifiedCount: Int get() = modifiedFields().size + if (transportModified) 1 else 0
+
+    /** Fields whose current draft value differs from the latest authoritative baseline (transport is separate). */
+    fun modifiedFields(): Set<ConfigurationFieldKey> {
+        val current = currentValues()
+        return buildSet {
+            if (current.smsc != baseline.smsc) add(ConfigurationFieldKey.Smsc)
+            if (current.epdgFqdn != baseline.epdgFqdn) add(ConfigurationFieldKey.Epdg)
+            if (current.imsRealm != baseline.imsRealm) add(ConfigurationFieldKey.Realm)
+            if (current.dnsOverrides != baseline.dnsOverrides) add(ConfigurationFieldKey.Dns)
+            if (current.imsSipSecurity != baseline.imsSipSecurity) add(ConfigurationFieldKey.SipSecurity)
+            if (current.paniInitial != baseline.paniInitial) add(ConfigurationFieldKey.PaniInitial)
+            if (current.paniCountry != baseline.paniCountry) add(ConfigurationFieldKey.PaniCountry)
+            if (current.imsDigestRealm != baseline.imsDigestRealm) add(ConfigurationFieldKey.DigestRealm)
+        }
+    }
+
+    fun textFor(key: ConfigurationFieldKey): TextFieldState? = when (key) {
+        ConfigurationFieldKey.Smsc -> smsc
+        ConfigurationFieldKey.Epdg -> epdgFqdn
+        ConfigurationFieldKey.Realm -> imsRealm
+        ConfigurationFieldKey.Dns -> dns
+        ConfigurationFieldKey.PaniCountry -> paniCountry
+        ConfigurationFieldKey.DigestRealm -> imsDigestRealm
+        ConfigurationFieldKey.SipSecurity, ConfigurationFieldKey.PaniInitial -> null
+    }
+
+    /** Same codec validation as save, for one field's candidate value; never writes the draft. */
+    fun candidateError(key: ConfigurationFieldKey, value: String): String? {
+        val current = overrides()
+        val candidate = when (key) {
+            ConfigurationFieldKey.Smsc -> current.copy(smsc = value)
+            ConfigurationFieldKey.Epdg -> current.copy(epdgFqdn = value)
+            ConfigurationFieldKey.Realm -> current.copy(imsRealm = value)
+            ConfigurationFieldKey.Dns -> current.copy(dns = value)
+            ConfigurationFieldKey.SipSecurity -> current.copy(imsSipSecurity = value)
+            ConfigurationFieldKey.PaniInitial -> current.copy(paniInitial = value)
+            ConfigurationFieldKey.PaniCountry -> current.copy(paniCountry = value)
+            ConfigurationFieldKey.DigestRealm -> current.copy(imsDigestRealm = value)
+        }
+        return configurationFieldErrors(candidate)[key]
+    }
+
+    fun replaceField(key: ConfigurationFieldKey, value: String) {
+        if (pending) return
+        textFor(key)?.replaceText(value)
+    }
 
     init {
         retained?.let { replaceValues(it.current) }
@@ -119,7 +193,13 @@ internal class ConfigurationEditorDraft(
             return
         }
         if (!validate()) return
-        val submitted = currentValues().copy(paniCountry = com.vowifi.sw.manager.data.paniCountryValue(paniCountry.text.toString()))
+        val current = currentValues()
+        val normalizedDns = current.dnsOverrides.mapValues { com.vowifi.sw.manager.data.dnsServerValue(it.value) }
+        val submitted = current.copy(
+            paniCountry = com.vowifi.sw.manager.data.paniCountryValue(paniCountry.text.toString()),
+            dns = normalizedDns[current.transport.wireValue].orEmpty(),
+            dnsOverrides = normalizedDns,
+        )
         val submittedId = instanceId
         val beforeCompletion = completionSequence
         status = ConfigurationEditStatus.Saving
@@ -156,7 +236,8 @@ internal class ConfigurationEditorDraft(
     fun retained() = ConfigurationRetainedDraft(currentValues(), baseline, pending || status == ConfigurationEditStatus.Unconfirmed)
 
     private fun replaceValues(values: ConfigurationDraftValues) {
-        transport = values.transport
+        selectedTransport = values.transport
+        dnsOverrides = values.dnsOverrides
         smsc.replaceText(values.smsc)
         epdgFqdn.replaceText(values.epdgFqdn)
         imsRealm.replaceText(values.imsRealm)
@@ -177,6 +258,7 @@ internal class ConfigurationEditorDraft(
         paniInitial = paniInitial,
         paniCountry = paniCountry.text.toString(),
         imsDigestRealm = imsDigestRealm.text.toString(),
+        dnsOverrides = dnsOverrides,
     )
 
     private fun currentValues() = ConfigurationDraftValues(
@@ -189,6 +271,7 @@ internal class ConfigurationEditorDraft(
         paniInitial = paniInitial,
         paniCountry = paniCountry.text.toString(),
         imsDigestRealm = imsDigestRealm.text.toString(),
+        dnsOverrides = dnsOverrides.withDns(transport, dns.text.toString()),
     )
 }
 

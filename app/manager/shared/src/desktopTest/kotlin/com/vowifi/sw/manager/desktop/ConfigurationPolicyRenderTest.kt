@@ -1,12 +1,7 @@
 package com.vowifi.sw.manager.desktop
 
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.ui.ImageComposeScene
-import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.semantics.SemanticsNode
 import androidx.compose.ui.semantics.SemanticsProperties
@@ -14,16 +9,16 @@ import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.Density
-import androidx.compose.ui.unit.dp
 import com.vowifi.sw.manager.model.ConfigurationApplyAcceptance
 import com.vowifi.sw.manager.model.ConfigurationApplyOutcome
 import com.vowifi.sw.manager.model.ConfigurationLifecycle
 import com.vowifi.sw.manager.model.ConfigurationIdentitySource
 import com.vowifi.sw.manager.data.ConfigurationCodec
 import com.vowifi.sw.manager.model.ConfigurationUiState
-import com.vowifi.sw.manager.ui.ConfigurationEditor
 import com.vowifi.sw.manager.ui.ConfigurationEditorDraft
 import com.vowifi.sw.manager.ui.ConfigurationEditorModel
+import com.vowifi.sw.manager.ui.ConfigurationSimEditor
+import com.vowifi.sw.manager.ui.configurationSourceLabel
 import com.vowifi.sw.manager.ui.SoftVoWiFiTheme
 import com.vowifi.sw.manager.ui.configurationSourceSummary
 import com.vowifi.sw.manager.ui.hasIdentityRealmOverride
@@ -72,67 +67,58 @@ class ConfigurationPolicyRenderTest {
             val scene = ImageComposeScene(width = 375, height = 2800, density = Density(1f)) {
                 SoftVoWiFiTheme(forceDark = false) {
                     Scaffold {
-                        Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(12.dp)) {
-                            ConfigurationEditor(ConfigurationEditorModel(instance, ready.copy(instances = listOf(instance)), true, null),
-                                draft, expanded = true,
-                                onSubmit = { _, next, complete ->
-                                    submissions++
-                                    patch = ConfigurationCodec.encodeChanges(ConfigurationEditorDraft(backend).overrides(), next)
-                                    backend = backend.copy(imsPolicy = backend.imsPolicy.copy(
-                                        digestRealm = next.imsDigestRealm?.ifEmpty { "ims.spark.co.nz" }.orEmpty(),
-                                        digestRealmSource = if (next.imsDigestRealm.isNullOrEmpty()) "carrier" else "user"))
-                                    complete(ConfigurationApplyOutcome.Confirmed(backend))
-                                    ConfigurationApplyAcceptance.Accepted
-                                })
-                        }
+                        ConfigurationSimEditor(ConfigurationEditorModel(instance, ready.copy(instances = listOf(instance)), true, null),
+                            draft,
+                            onSubmit = { _, next, complete ->
+                                submissions++
+                                patch = ConfigurationCodec.encodeChanges(ConfigurationEditorDraft(backend).overrides(), next)
+                                backend = backend.copy(imsPolicy = backend.imsPolicy.copy(
+                                    digestRealm = next.imsDigestRealm?.ifEmpty { "ims.spark.co.nz" }.orEmpty(),
+                                    digestRealmSource = if (next.imsDigestRealm.isNullOrEmpty()) "carrier" else "user"))
+                                complete(ConfigurationApplyOutcome.Confirmed(backend))
+                                ConfigurationApplyAcceptance.Accepted
+                            })
                     }
                 }
             }
+            var frame = 0L
+            fun render() = repeat(8) { scene.render(++frame * 100_000_000L).close() }
+            fun texts() = nodes(scene).flatMap { it.config.getOrNull(SemanticsProperties.Text).orEmpty() }.map { it.text }
             try {
-                repeat(8) { scene.render((it + 1) * 100_000_000L).close() }
-                val basicTexts = nodes(scene).flatMap { it.config.getOrNull(SemanticsProperties.Text).orEmpty() }.map { it.text }
-                assertTrue("高级设置" in basicTexts)
-                assertTrue(basicTexts.any { it.contains("配置就绪不代表注册成功") })
-                assertFalse("DNS" in basicTexts)
-                assertFalse("IMS realm" in basicTexts)
-                assertFalse("Digest认证域（可选）" in basicTexts)
-                click(scene, "高级设置")
-                repeat(8) { scene.render((it + 10) * 100_000_000L).close() }
-                val texts = nodes(scene).flatMap { it.config.getOrNull(SemanticsProperties.Text).orEmpty() }.map { it.text }
-                assertTrue("$security\n来源：$source" in texts)
-                assertFalse("默认 TCP + IPsec" in texts)
-                val selectedLabel = if (source == "user") "TCP + IPsec（显式）" else "自动（运营商策略优先）"
+                render()
+                val texts = texts()
+                assertTrue("IMS 高级参数" in texts, "高级参数直接分组呈现，不再藏在折叠里")
+                val securityLabel = if (security == "swu_udp_aka") "SWu 内 UDP + AKA" else "TCP + IPsec"
+                assertTrue("当前生效：$securityLabel · ${configurationSourceLabel(source)}" in texts, "来源以中文写明：$texts")
+                assertFalse(texts.any { it.contains("来源：$source") }, "不再直接显示 wire 来源值")
+                val selectedLabel = if (source == "user") "TCP + IPsec" else "自动"
                 assertTrue(selectedLabel in texts, "Missing selected label: $selectedLabel")
                 assertEquals(if (source == "user") security else "", draft.overrides().imsSipSecurity)
-                assertTrue(texts.any { it.startsWith("留空优先继承匹配的运营商策略，未匹配时使用归属国家（Home MCC）") })
-                assertTrue("Digest认证域（可选）" in texts)
-                assertTrue("IMS realm" in texts)
-                assertTrue(texts.any { it.contains("仅用于 challenge / HA1 realm，不改变 IMPI、IMPU 或 REGISTER 地址") })
-                assertTrue("已解析 Digest 认证域" in texts)
-                assertTrue("ims.spark.co.nz\n来源：$digestSource" in texts)
+                assertTrue("国家参数" in texts && "IMS 域" in texts && "Digest 认证域" in texts)
+                val digestSummary = if (digestSource == "user") "ims.spark.co.nz"
+                    else "自动：ims.spark.co.nz（${configurationSourceLabel(digestSource)}）"
+                assertTrue(digestSummary in texts, "Digest 行直接给出当前值：$texts")
+                assertFalse(texts.any { it.startsWith("已解析") }, "已解析值并入对应行，不再单列一遍")
                 assertFalse(draft.dirty)
                 assertEquals(0, submissions)
                 assertFalse(texts.any { it == "保存配置" || it == "放弃修改" })
                 for ((index, value) in listOf("Digest.Example.test", "").withIndex()) {
-                    val input = nodes(scene).last { it.config.getOrNull(SemanticsActions.SetText) != null }
+                    click(scene, "Digest 认证域")
+                    render()
+                    assertTrue(texts().any { it.contains("仅用于 challenge / HA1 realm，不改变 IMPI、IMPU 或 REGISTER 地址") })
+                    val input = nodes(scene).single { it.config.getOrNull(SemanticsActions.SetText) != null }
                     assertTrue(requireNotNull(input.config[SemanticsActions.SetText].action).invoke(AnnotatedString(value)))
-                    repeat(8) { scene.render((it + 30 + index * 50) * 100_000_000L).close() }
-                    click(scene, "高级设置")
-                    repeat(8) { scene.render((it + 40 + index * 50) * 100_000_000L).close() }
+                    render()
+                    click(scene, "确定")
+                    render()
                     assertEquals(value, draft.imsDigestRealm.text.toString())
                     assertFalse(nodes(scene).any { it.config.getOrNull(SemanticsActions.SetText) != null })
                     assertTrue(nodes(scene).any { it.config.getOrNull(SemanticsProperties.Text)?.any { it.text == "放弃修改" } == true })
-                    click(scene, "高级设置")
-                    repeat(8) { scene.render((it + 50 + index * 50) * 100_000_000L).close() }
-                    assertEquals(value, draft.imsDigestRealm.text.toString())
-                    click(scene, "高级设置")
-                    repeat(8) { scene.render((it + 60 + index * 50) * 100_000_000L).close() }
                     click(scene, "保存配置")
+                    render()
                     assertEquals("""{"imsDigestRealm":"$value"}""", patch)
                     assertEquals(index + 1, submissions)
                     assertFalse(draft.dirty)
-                    click(scene, "高级设置")
-                    repeat(8) { scene.render((it + 70 + index * 50) * 100_000_000L).close() }
                 }
             } finally { scene.close() }
         }
@@ -152,24 +138,20 @@ class ConfigurationPolicyRenderTest {
         val scene = ImageComposeScene(width = 375, height = height, density = Density(1f, scale)) {
             SoftVoWiFiTheme(forceDark = scale == 2f) {
                 Scaffold {
-                Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(12.dp)) {
-                    ConfigurationEditor(ConfigurationEditorModel(instance, ready, true, null), draft, expanded = true,
+                    ConfigurationSimEditor(ConfigurationEditorModel(instance, ready, true, null), draft,
                         onSubmit = { _, _, _ -> submissions++; ConfigurationApplyAcceptance.Accepted })
-                }
                 }
             }
         }
         try {
             repeat(8) { scene.render((it + 1) * 100_000_000L).close() }
-            click(scene, "高级设置")
-            repeat(8) { scene.render((it + 10) * 100_000_000L).close() }
             val directory = Files.createDirectories(Path.of("/var/tmp/vowifi-ims-policy-ui"))
             scene.render(900_000_000L).use { image ->
                 requireNotNull(image.encodeToData()).use { data -> Files.write(directory.resolve("policy-${scale.toInt()}x.png"), data.bytes) }
             }
             val texts = nodes(scene).filter { it.config.getOrNull(SemanticsProperties.Text) != null }
             assertTrue(texts.any { it.config[SemanticsProperties.Text].any { text -> text.text == "安全边界警告" } })
-            val policyStart = texts.first { it.config[SemanticsProperties.Text].any { text -> text.text == "IMS SIP 安全策略" } }.boundsInRoot.top
+            val policyStart = texts.first { it.config[SemanticsProperties.Text].any { text -> text.text == "SIP 安全策略" } }.boundsInRoot.top
             for (node in texts.filter { it.boundsInRoot.top >= policyStart }) {
                 val layouts = mutableListOf<TextLayoutResult>()
                 node.config.getOrNull(SemanticsActions.GetTextLayoutResult)?.action?.invoke(layouts)
@@ -187,15 +169,12 @@ class ConfigurationPolicyRenderTest {
             assertEquals(0, submissions)
             val save = clickable(scene, "保存配置").boundsInRoot
             val discard = clickable(scene, "放弃修改").boundsInRoot
-            assertEquals(discard.top, save.top)
-            assertTrue(discard.right <= save.left)
-            assertEquals(discard.width, save.width, 1f)
+            assertActionPair(discard, save, sideBySide = if (scale == 1f) true else null)
             click(scene, "放弃修改")
             repeat(8) { scene.render((it + 10) * 100_000_000L).close() }
             val cancel = clickable(scene, "取消").boundsInRoot
             val confirm = clickable(scene, "放弃修改").boundsInRoot
-            assertEquals(cancel.top, confirm.top)
-            assertTrue(cancel.right <= confirm.left)
+            assertActionPair(cancel, confirm, sideBySide = if (scale == 1f) true else null)
             click(scene, "取消")
             assertEquals("swu_udp_aka", draft.imsSipSecurity)
             assertEquals("tcp_ipsec_3gpp", instance.imsPolicy.security)
@@ -208,6 +187,14 @@ class ConfigurationPolicyRenderTest {
             assertEquals("", draft.paniInitial)
             assertEquals(0, submissions)
         } finally { scene.close() }
+    }
+
+    /** Equal-width pair: side by side (secondary left) when labels fit, else stacked full width with primary first. */
+    private fun assertActionPair(secondary: Rect, primary: Rect, sideBySide: Boolean?) {
+        assertEquals(secondary.width, primary.width, 1f, "两个动作等宽")
+        val row = secondary.top == primary.top
+        if (sideBySide != null) assertEquals(sideBySide, row, "secondary=$secondary primary=$primary")
+        if (row) assertTrue(secondary.right <= primary.left) else assertTrue(primary.bottom <= secondary.top, "堆叠时主动作在上")
     }
 
     private fun nodes(scene: ImageComposeScene): List<SemanticsNode> {

@@ -113,6 +113,7 @@ internal fun operationalLogLevelLabel(level: OperationalLogLevel): String = when
 }
 
 internal fun operationalLogKindLabel(kind: OperationalLogKind): String = when (kind) {
+    OperationalLogKind.DIAGNOSTIC -> "诊断"
     OperationalLogKind.ENGINE -> "引擎"
     OperationalLogKind.TUNNEL -> "隧道"
     OperationalLogKind.IMS -> "IMS"

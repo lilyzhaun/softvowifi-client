@@ -15,16 +15,18 @@ class ConfigurationFixtureSubmissionTest {
         val source = FixtureConfigurationSource(ConfigurationFixtureMode.READY)
         val initial = assertIs<ConfigurationUiState.Ready>(source.state.value)
         val row = initial.instances.first()
-        val overrides = ConfigurationOverrides(row.transport, row.smsc, row.epdgFqdn, row.imsRealm, row.dns)
+        val overrides = ConfigurationOverrides(row.transport, row.smsc, row.epdgFqdn, row.imsRealm, row.dns,
+            dnsOverrides = row.dnsOverrides)
         var completions = 0
         assertEquals(ConfigurationApplyAcceptance.Accepted, source.submit(row.instanceId, overrides) {
             assertEquals(ConfigurationWriteResult.Unchanged, assertIs<ConfigurationApplyOutcome.Confirmed>(it).result)
             completions++
         })
-        source.submit(row.instanceId, overrides.copy(dns = "synthetic.invalid")) {
+        source.submit(row.instanceId, overrides.copy(dns = "198.51.100.9")) {
             val confirmed = assertIs<ConfigurationApplyOutcome.Confirmed>(it)
             assertEquals(ConfigurationWriteResult.Applied, confirmed.result)
-            assertEquals("synthetic.invalid", confirmed.instance.dns)
+            assertEquals("198.51.100.9:53", confirmed.instance.dns)
+            assertEquals(mapOf(row.transport.wireValue to "198.51.100.9:53"), confirmed.instance.dnsOverrides)
             completions++
         }
         val after = assertIs<ConfigurationUiState.Ready>(source.state.value)

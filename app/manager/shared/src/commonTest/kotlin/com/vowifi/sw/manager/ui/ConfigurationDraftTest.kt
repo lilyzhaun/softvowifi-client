@@ -25,19 +25,41 @@ class ConfigurationDraftTest {
             imsRealm = "old.realm.invalid",
             dns = "",
         )
-        val current = baseline.copy(epdgFqdn = "user.epdg.invalid", dns = "1.1.1.1")
+        val current = baseline.copy(epdgFqdn = "user.epdg.invalid", dns = "1.1.1.1", dnsOverrides = mapOf("auto" to "1.1.1.1"))
         val refreshed = baseline.copy(
             transport = ConfigurationTransport.WIFI,
             smsc = "+123",
             epdgFqdn = "server.epdg.invalid",
             imsRealm = "server.realm.invalid",
-            dns = "8.8.8.8",
+            dns = "8.8.8.8:53",
+            dnsOverrides = mapOf("wifi" to "8.8.8.8:53"),
         )
 
         assertEquals(
-            refreshed.copy(epdgFqdn = current.epdgFqdn, dns = current.dns),
+            refreshed.copy(epdgFqdn = current.epdgFqdn, dnsOverrides = mapOf("wifi" to "8.8.8.8:53", "auto" to "1.1.1.1")),
             synchronizedConfigurationDraft(current, baseline, refreshed),
         )
+    }
+
+    @Test
+    fun dnsFieldFollowsSelectedTransportAndKeepsEachInterfaceOverride() {
+        val draft = ConfigurationEditorDraft(instance("sim-1").copy(
+            transport = ConfigurationTransport.WIFI,
+            dns = "192.0.2.53:53",
+            dnsOverrides = mapOf("wifi" to "192.0.2.53:53"),
+        ))
+        draft.transport = ConfigurationTransport.Interface("tun0")
+        assertEquals("", draft.dns.text.toString())
+        assertEquals(emptySet(), draft.modifiedFields(), "switching transport alone must not mark DNS edited")
+        draft.dns.edit { replace(0, length, "198.51.100.53") }
+        draft.transport = ConfigurationTransport.WIFI
+        assertEquals("192.0.2.53:53", draft.dns.text.toString())
+        draft.transport = ConfigurationTransport.Interface("tun0")
+        assertEquals("198.51.100.53", draft.dns.text.toString())
+        val overrides = draft.overrides()
+        assertEquals("198.51.100.53", overrides.dns)
+        assertEquals(mapOf("wifi" to "192.0.2.53:53", "iface:tun0" to "198.51.100.53"), overrides.dnsOverrides)
+        assertEquals(setOf(ConfigurationFieldKey.Dns), draft.modifiedFields())
     }
 
     @Test

@@ -1,60 +1,81 @@
 package com.vowifi.sw.manager.ui
 
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.setValue
-import com.vowifi.sw.manager.model.ConfigurationInstance
 import com.vowifi.sw.manager.model.ConfigurationIdentitySource
-import com.vowifi.sw.manager.model.ConfigurationLifecycle
-import com.vowifi.sw.manager.model.ConfigurationTransport
-import com.vowifi.sw.manager.model.SubscriptionDiscovery
+import com.vowifi.sw.manager.model.ConfigurationInstance
 import top.yukonga.miuix.kmp.basic.BasicComponent
+import top.yukonga.miuix.kmp.basic.DropdownEntry
+import top.yukonga.miuix.kmp.basic.DropdownItem
 import top.yukonga.miuix.kmp.preference.OverlayDropdownPreference
 
+internal data class ConfigurationChoice(val value: String, val label: String, val summary: String? = null)
+
+internal val configurationSecurityChoices = listOf(
+    ConfigurationChoice("", "自动", "运营商策略优先"),
+    ConfigurationChoice("tcp_ipsec_3gpp", "TCP + IPsec", "显式指定"),
+    ConfigurationChoice("swu_udp_aka", "SWu 内 UDP + AKA", "仅限已认证的 SWu 隧道内部"),
+)
+
+internal val configurationPaniChoices = listOf(ConfigurationChoice("", "继承", "目录 / 默认")) +
+    listOf("absent", "wlan", "wlan-node", "wlan-country", "wlan-node-country").map { ConfigurationChoice(it, it) }
+
+/** IMS policy rows: each states the effective (authoritative) value and where it came from, in plain words. */
 @Composable
-internal fun ConfigurationAdvancedSettings(
+internal fun ConfigurationImsAdvancedRows(
     instance: ConfigurationInstance,
     draft: ConfigurationEditorDraft,
     enabled: Boolean,
+    onEdit: (ConfigurationFieldKey) -> Unit,
 ) {
-    var advanced by rememberSaveable(draft) { mutableStateOf(false) }
-    val subscription = instance.systemSubscription as? SubscriptionDiscovery.Matched
-    BasicComponent(
-        title = subscription?.carrierLabel?.takeIf { it.isNotBlank() }
-            ?: "运营商 ${instance.mcc} / ${instance.mnc}",
-        summary = if (instance.lifecycle == ConfigurationLifecycle.CONFIG_MISSING) "缺少配置"
-            else "配置可用；配置就绪不代表注册成功，请在首页查看注册状态。",
-    )
-    BasicComponent(title = "配置来源", summary = configurationSourceSummary(instance))
-    ConfigurationDisclosureHeader(
-        title = "高级设置",
-        summary = "网络、手动覆盖与已解析参数；通常无需修改",
-        expanded = advanced,
-        interaction = configurationDisclosureInteractionContract(advanced).copy(
-            cardClickable = false,
-            headerClickable = true,
-            headerUsesTopSquircleClip = false,
-        ),
-        onToggleExpand = { advanced = !advanced },
-    )
-    if (advanced) {
-        OverlayDropdownPreference(
-            items = ConfigurationTransport.entries.map(::transportLabel),
-            selectedIndex = ConfigurationTransport.entries.indexOf(draft.transport),
-            title = "底层网络",
-            enabled = enabled,
-            onSelectedIndexChange = { draft.transport = ConfigurationTransport.entries[it] },
-        )
-        if (hasIdentityRealmOverride(instance)) {
-            BasicComponent(title = "已有 IMS 域值", summary = "当前 Digest 认证域来自身份域，已有 IMS realm 值可能覆盖运营商认证域。请核对后在 IMS realm 字段手动清空并保存；不会自动修改旧值。")
-        }
-        ConfigurationFields(draft, enabled)
-        ConfigurationPolicyFields(draft, enabled)
-        ConfigurationFacts(instance)
+    val policy = instance.imsPolicy
+    val modified = draft.modifiedFields()
+    val securityModified = ConfigurationFieldKey.SipSecurity in modified
+    ConfigurationChoicePreference("SIP 安全策略", configurationSecurityChoices, draft.imsSipSecurity,
+        configurationEffectiveSummary(configurationSecurityLabel(policy.security), policy.securitySource, securityModified),
+        securityModified, enabled) { draft.imsSipSecurity = it }
+    if (draft.imsSipSecurity == "swu_udp_aka") {
+        BasicComponent(title = "安全边界警告", summary = "仅限已认证的 SWu 隧道内部；不建立额外的 UE–P-CSCF IPsec。不是自动回退。短信和语音尚未经 LIVE 实机验证。")
     }
+    val paniModified = ConfigurationFieldKey.PaniInitial in modified
+    ConfigurationChoicePreference("初始 PANI", configurationPaniChoices, draft.paniInitial,
+        configurationEffectiveSummary(policy.initial.ifEmpty { "旧引擎未报告" }, policy.initialSource, paniModified),
+        paniModified, enabled) { draft.paniInitial = it }
+    ConfigurationValueRow(instance, draft, ConfigurationFieldKey.PaniCountry, enabled, onEdit)
+    ConfigurationValueRow(instance, draft, ConfigurationFieldKey.DigestRealm, enabled, onEdit)
 }
+
+/** Short value on the trailing side; the longer meaning of each option lives in the menu item's summary. */
+@Composable
+private fun ConfigurationChoicePreference(
+    title: String,
+    choices: List<ConfigurationChoice>,
+    selected: String,
+    summary: String,
+    modified: Boolean,
+    enabled: Boolean,
+    onSelect: (String) -> Unit,
+) {
+    OverlayDropdownPreference(
+        entry = DropdownEntry(choices.map { choice ->
+            DropdownItem(text = choice.label, selected = choice.value == selected, summary = choice.summary,
+                onClick = { onSelect(choice.value) })
+        }),
+        title = title,
+        summary = summary,
+        summaryColor = configurationSummaryColor(modified, error = false),
+        enabled = enabled,
+    )
+}
+
+internal fun configurationSecurityLabel(value: String): String = when (value) {
+    "tcp_ipsec_3gpp" -> "TCP + IPsec"
+    "swu_udp_aka" -> "SWu 内 UDP + AKA"
+    "" -> "旧引擎未报告"
+    else -> value
+}
+
+internal fun configurationEffectiveSummary(value: String, source: String, modified: Boolean): String =
+    "当前生效：$value · ${configurationSourceLabel(source)}" + if (modified) "\n$CONFIGURATION_UNSAVED_MARK" else ""
 
 internal fun hasIdentityRealmOverride(instance: ConfigurationInstance): Boolean =
     instance.identitySource in setOf(ConfigurationIdentitySource.LEGACY, ConfigurationIdentitySource.OVERRIDE) &&

@@ -5,9 +5,10 @@ import com.vowifi.sw.manager.model.ConfigurationUiState
 internal class AndroidConfigurationProvisioner(
     private val identityReader: AndroidSubscriptionIdentityReader,
     private val commands: AndroidConfigurationCommands,
+    private val diagnostic: (DiagnosticEvent) -> Unit = { AndroidDiagnosticLog.emit(it) },
 ) {
     suspend fun refreshIdentity(iccid: String): ConfigurationUiState? {
-        val prepared = when (val candidate = prepareCandidate(identityReader.read(iccid))) {
+        val prepared = when (val candidate = prepare(identityReader.read(iccid))) {
             is PreparedCandidate.Ready -> candidate
             is PreparedCandidate.Failed -> return candidate.state
         }
@@ -22,7 +23,7 @@ internal class AndroidConfigurationProvisioner(
         if (!ConfigurationControlCommand.digitsOnly(iccid)) {
             return ProvisionAttempt.Failed(ConfigurationEvaluator.failure(CREATE_FAILED))
         }
-        val prepared = when (val candidate = prepareCandidate(identityReader.read(iccid))) {
+        val prepared = when (val candidate = prepare(identityReader.read(iccid))) {
             is PreparedCandidate.Ready -> candidate
             is PreparedCandidate.Failed -> return ProvisionAttempt.Failed(candidate.state)
         }
@@ -60,6 +61,15 @@ internal class AndroidConfigurationProvisioner(
         }
         return AutoProvisionBatch(created = created, existed = existed, failure = failure)
     }
+
+    private fun prepare(read: SubscriptionIdentityRead): PreparedCandidate = prepareCandidate(read).also { prepared ->
+        val failure = prepared as? PreparedCandidate.Failed
+        diagnostic(DiagnosticEvent(DiagnosticComponent.CONFIGURATION,
+            if (failure == null) DiagnosticLevel.INFO else DiagnosticLevel.WARN, DiagnosticName.OBSERVED,
+            DiagnosticStage.IDENTITY, if (failure == null) DiagnosticResult.SUCCESS else DiagnosticResult.FAILURE,
+            failure?.reason ?: DiagnosticReason.NONE,
+            slot = (read as? SubscriptionIdentityRead.Complete)?.identity?.slot?.takeIf { it in 0..1 }))
+    }
 }
 
 internal sealed interface ProvisionAttempt {
@@ -87,20 +97,23 @@ private fun prepareCandidate(read: SubscriptionIdentityRead): PreparedCandidate 
         )
         is CandidateAssembly.Unsupported -> PreparedCandidate.Failed(
             ConfigurationEvaluator.failure(UNSUPPORTED_CREATE),
+            DiagnosticReason.PROFILE_UNSUPPORTED,
         )
         is CandidateAssembly.Invalid -> PreparedCandidate.Failed(
             ConfigurationEvaluator.failure(CREATE_FAILED),
+            DiagnosticReason.INVALID_RESPONSE,
         )
     }
     is SubscriptionIdentityRead.PermissionDenied -> PreparedCandidate.Failed(
         ConfigurationEvaluator.permissionDenied(),
+        DiagnosticReason.PERMISSION_DENIED,
     )
     is SubscriptionIdentityRead.Unreadable -> PreparedCandidate.Failed(
         ConfigurationEvaluator.failure(IDENTITY_UNREADABLE),
+        DiagnosticReason.UNAVAILABLE,
     )
-    is SubscriptionIdentityRead.Unsupported,
-    is SubscriptionIdentityRead.NotActive,
-    -> PreparedCandidate.Failed(ConfigurationEvaluator.failure(UNSUPPORTED_CREATE))
+    is SubscriptionIdentityRead.Unsupported -> PreparedCandidate.Failed(ConfigurationEvaluator.failure(UNSUPPORTED_CREATE), DiagnosticReason.PROFILE_UNSUPPORTED)
+    is SubscriptionIdentityRead.NotActive -> PreparedCandidate.Failed(ConfigurationEvaluator.failure(UNSUPPORTED_CREATE), DiagnosticReason.NOT_ACTIVE)
 }
 
 private sealed interface PreparedCandidate {
@@ -111,7 +124,7 @@ private sealed interface PreparedCandidate {
     ) : PreparedCandidate {
         override fun toString(): String = "Ready"
     }
-    class Failed(val state: ConfigurationUiState) : PreparedCandidate {
+    class Failed(val state: ConfigurationUiState, val reason: DiagnosticReason) : PreparedCandidate {
         override fun toString(): String = "Failed"
     }
 }

@@ -71,6 +71,14 @@ tasks.withType<Test>().configureEach {
     maxParallelForks = 1
     jvmArgs("-XX:ActiveProcessorCount=1")
     systemProperty("java.io.tmpdir", temporaryDir.absolutePath)
-    systemProperty("message.schema.directory", rootProject.file("shared/schemas").absolutePath)
-    systemProperty("cellular.source.directory", project.file("src/main/java/com/vowifi/sw/network").absolutePath)
+    // Test resolves these paths from its project working directory; track the actual file bytes.
+    val messageSchemas = rootProject.file("shared/schemas")
+    val cellularSources = project.file("src/main/java/com/vowifi/sw/network")
+    workingDir(projectDir)
+    inputs.dir(messageSchemas).withPropertyName("messageSchemas")
+        .withPathSensitivity(PathSensitivity.RELATIVE)
+    inputs.dir(cellularSources).withPropertyName("cellularSources")
+        .withPathSensitivity(PathSensitivity.RELATIVE)
+    systemProperty("message.schema.directory", project.relativePath(messageSchemas))
+    systemProperty("cellular.source.directory", project.relativePath(cellularSources))
 }

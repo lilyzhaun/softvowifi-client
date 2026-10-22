@@ -17,6 +17,7 @@ import com.vowifi.sw.manager.data.RefreshResult
 import kotlinx.coroutines.flow.StateFlow
 import com.vowifi.sw.manager.model.SimControlUiState
 import com.vowifi.sw.manager.model.SimHandle
+import com.vowifi.sw.manager.ui.navigation.ConfigurationSimHandle
 import top.yukonga.miuix.kmp.basic.BasicComponent
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.icon.MiuixIcons
@@ -26,6 +27,7 @@ internal data class ConfigurationActions(
     val submit: ConfigurationSubmit,
     val provision: (SimHandle) -> Unit,
     val refresh: () -> Unit,
+    val openSim: (ConfigurationSimHandle) -> Unit = {},
 )
 
 @Composable
@@ -47,7 +49,6 @@ internal fun LazyListScope.configurationItems(
     state: ConfigurationUiState,
     presentation: ConfigurationPresentation,
     drafts: ConfigurationDraftStore,
-    expansionState: ConfigurationExpansionState,
     actions: ConfigurationActions,
     refreshEnabled: Boolean = configurationRefreshEnabled(state),
     refreshRotation: State<Float>? = null,
@@ -56,11 +57,13 @@ internal fun LazyListScope.configurationItems(
 ) {
     if (loading?.hidden == true) return
     item(key = "draft-session") {
-        val topBar = LocalSubpageTopBarAction.current
-        BasicComponent(title = "编辑配置", summary = "未保存修改仅在本次应用会话保留", endActions = {
-            if (topBar == null) ManagerIconAction(MiuixIcons.Refresh, "刷新配置", ManagerAction.Refresh, actions.refresh,
-                enabled = refreshEnabled, iconRotation = refreshRotation)
-        })
+        // Hosts without a subpage top bar keep the same refresh icon inline; the subpage itself shows nothing here.
+        if (LocalSubpageTopBarAction.current == null) {
+            BasicComponent(title = "SIM 与网络配置", endActions = {
+                ManagerIconAction(MiuixIcons.Refresh, "刷新配置", ManagerAction.Refresh, actions.refresh,
+                    enabled = refreshEnabled, iconRotation = refreshRotation)
+            })
+        }
     }
     presentation.disclosure?.let { disclosure ->
         item(key = "fixture-disclosure") { FixtureDisclosureBand(disclosure) }
@@ -94,17 +97,18 @@ internal fun LazyListScope.configurationItems(
     items(presentation.rows, key = { "configuration-${it.key}" }) { row ->
         val instance = row.instance
         if (row.kind == ConfigurationRowKind.CONFIGURED && instance != null && state is ConfigurationUiState.Ready) {
-            ConfigurationEditor(
-                model = ConfigurationEditorModel(instance, state, row.canApply, row.status),
-                draft = drafts.draftFor(instance),
-                expanded = expansionState.isExpanded(instance.instanceId),
-                onToggleExpand = { expansionState.toggle(instance.instanceId) },
-                onSubmit = actions.submit,
-            )
+            val handle = ConfigurationSimHandle.parse(row.key)
+            ConfigurationSimEntry(row, instance, drafts.draftFor(instance),
+                onOpen = handle?.let { { actions.openSim(it) } })
         } else {
             val pending = row.handle?.let { it in provisioning.pending } == true
             ConfigurationStatusCard(row, state, actions.provision, pending = pending,
                 completion = row.handle?.let { provisioning.completions[it] })
+        }
+    }
+    if (state is ConfigurationUiState.Ready && presentation.rows.any { it.kind == ConfigurationRowKind.CONFIGURED }) {
+        item(key = "configuration-registration-note") {
+            ConfigurationFootnote("配置就绪不代表注册成功；注册状态请在首页查看。")
         }
     }
 }

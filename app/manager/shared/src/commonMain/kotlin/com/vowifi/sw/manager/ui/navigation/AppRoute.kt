@@ -55,6 +55,13 @@ sealed interface AppRoute : NavKey {
     @SerialName("SettingsConfiguration")
     data object SettingsConfiguration : Subpage
 
+    /** One configured SIM's editor; the handle is the process-local opaque instance id (`sim-N`), never an identity. */
+    @Serializable
+    @SerialName("SettingsConfigurationSim")
+    data class SettingsConfigurationSim(val sim: ConfigurationSimHandle) : Subpage {
+        override fun toString(): String = "SettingsConfigurationSim"
+    }
+
     @Serializable
     @SerialName("SettingsDiagnostics")
     data object SettingsDiagnostics : Subpage
@@ -103,6 +110,20 @@ value class CallHistoryHandle private constructor(val value: String) {
     }
 }
 
+@Serializable
+@JvmInline
+value class ConfigurationSimHandle private constructor(val value: String) {
+    init { require(value.matches(OPAQUE_INSTANCE)) }
+
+    override fun toString(): String = "ConfigurationSimHandle"
+
+    companion object {
+        private val OPAQUE_INSTANCE = Regex("[A-Za-z0-9_-]{1,40}")
+
+        fun parse(value: String): ConfigurationSimHandle? = value.takeIf(OPAQUE_INSTANCE::matches)?.let(::ConfigurationSimHandle)
+    }
+}
+
 val AppRoute.Root.destination: AppDestination
     get() = when (this) {
         AppRoute.Home -> AppDestination.HOME
@@ -125,6 +146,7 @@ internal val AppRoute.Subpage.root: AppRoute.Root
         AppRoute.Dialpad, is AppRoute.CallHistoryDetail -> AppRoute.Calls
         AppRoute.SettingsAppearance,
         AppRoute.SettingsConfiguration,
+        is AppRoute.SettingsConfigurationSim,
         AppRoute.SettingsDiagnostics,
         AppRoute.SettingsLogs,
         AppRoute.SettingsCallNotifications,

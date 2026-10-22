@@ -11,12 +11,13 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 
 class ConfigurationDeltaTest {
-    private val baseline = ConfigurationOverrides(ConfigurationTransport.WIFI, "", "", "", "8.8.8.8:53")
+    private val baseline = ConfigurationOverrides(ConfigurationTransport.WIFI, "", "", "", "8.8.8.8:53",
+        dnsOverrides = mapOf("wifi" to "8.8.8.8:53"))
 
     @Test
     fun transportOnlyEditDoesNotClearUneditedDerivedFields() {
         val patch = Json.parseToJsonElement(ConfigurationCodec.encodeChanges(
-            baseline, baseline.copy(transport = ConfigurationTransport.AUTO),
+            baseline, baseline.copy(transport = ConfigurationTransport.AUTO, dns = ""),
         )).jsonObject
         assertEquals(setOf("transport"), patch.keys)
         assertEquals(JsonPrimitive("auto"), patch["transport"])

@@ -1,12 +1,14 @@
 package com.vowifi.sw.manager.model
 
 enum class OperationalLogKind {
+    DIAGNOSTIC,
     ENGINE,
     TUNNEL,
     IMS,
 }
 
 enum class OperationalLogOrigin {
+    DIAGNOSTIC,
     ENGINE,
     STARTUP,
 }

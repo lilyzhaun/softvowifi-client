@@ -7,6 +7,7 @@ import com.vowifi.sw.manager.model.ConfigurationApplyOutcome
 import com.vowifi.sw.manager.model.ConfigurationInstanceId
 import com.vowifi.sw.manager.model.ConfigurationLifecycle
 import com.vowifi.sw.manager.model.ConfigurationOverrides
+import com.vowifi.sw.manager.model.ConfigurationNetworkOutlets
 import com.vowifi.sw.manager.model.ConfigurationProvisionCompletion
 import com.vowifi.sw.manager.model.ConfigurationProvisionOutcome
 import com.vowifi.sw.manager.model.ConfigurationProvisionState
@@ -32,7 +33,8 @@ internal class AndroidConfigurationSource(
     context: Context,
     private val handles: OpaqueIccidHandleStore,
     private val inventory: SubscriptionInventory,
-    dnsLookup: NetworkDnsLookup = AndroidNetworkDnsSource(context),
+    private val readNetworkOutlets: suspend () -> ConfigurationNetworkOutlets = ::readAndroidNetworkOutlets,
+    readAutomaticSmsc: suspend (String) -> String? = { null },
     private val onCreated: () -> Unit = {},
 ) : ConfigurationSource {
     private val appContext = context.applicationContext
@@ -46,6 +48,8 @@ internal class AndroidConfigurationSource(
     private val mutableProvisioning = MutableStateFlow(ConfigurationProvisionState())
     override val provisioning: StateFlow<ConfigurationProvisionState> = mutableProvisioning.asStateFlow()
     private val commands = AndroidConfigurationCommands()
+    private var networkOutlets = ConfigurationNetworkOutlets()
+    private var networkOutletsRead = false
     private val ownerHmac = try {
         AndroidSimOwnerHmac()
     } catch (_: java.security.GeneralSecurityException) {
@@ -62,12 +66,13 @@ internal class AndroidConfigurationSource(
         AndroidSubscriptionDiscovery(appContext),
         handles,
         ownerFor = { ownerHmac?.ownerIdFor(it) },
+        networkOutlets = { networkOutlets },
+        readAutomaticSmsc = readAutomaticSmsc,
     )
     private val provisioner = AndroidConfigurationProvisioner(
         AndroidSubscriptionIdentityReader(appContext),
         commands,
     )
-    private val dns = AndroidConfigurationDns(dnsLookup, catalog, commands)
     private val tracker = AutoProvisionTracker()
     private val mutableState = MutableStateFlow<ConfigurationUiState>(ConfigurationUiState.Loading)
     override val state: StateFlow<ConfigurationUiState> = mutableState.asStateFlow()
@@ -168,18 +173,23 @@ internal class AndroidConfigurationSource(
         var producer: Job? = null
         val accepted = synchronized(lock) {
             if (closed) return@synchronized CompletableDeferred(RefreshResult.Unsupported)
+            val needsOutlets = !networkOutletsRead || retry == AutoProvisionRetry.ForceRetry
             refreshInFlight?.let {
-                return@synchronized if (it.identities == identities) it.completion else CompletableDeferred(RefreshResult.Busy)
+                return@synchronized if (it.identities == identities && (!needsOutlets || it.readsNetworkOutlets)) {
+                    it.completion
+                } else CompletableDeferred(RefreshResult.Busy)
             }
             if (!operationGate.tryEnter()) return@synchronized CompletableDeferred(RefreshResult.Busy)
             val completion = CompletableDeferred<RefreshResult>()
-            refreshInFlight = ConfigurationRefreshFlight(identities, completion)
+            refreshInFlight = ConfigurationRefreshFlight(identities, completion, readsNetworkOutlets = needsOutlets)
             var result: RefreshResult? = null
             producer = scope.launch(start = CoroutineStart.LAZY) {
                 val refreshed = refreshLocked(retry, identities)
                 currentCoroutineContext().ensureActive()
                 synchronized(lock) { if (!closed) mutableState.value = refreshed.state }
-                result = refreshed.result
+                result = if (refreshed.result == RefreshResult.Completed && networkOutlets.issue != null) {
+                    RefreshResult.Failed(checkNotNull(networkOutlets.issue))
+                } else refreshed.result
             }.also { job ->
                 job.invokeOnCompletion { error ->
                     synchronized(lock) {
@@ -205,6 +215,13 @@ internal class AndroidConfigurationSource(
     }
 
     private suspend fun refreshLocked(retry: AutoProvisionRetry, refreshIdentities: Boolean = false): ConfigurationRefreshRead {
+        // Subscription registration can request Default before init's ForceRetry
+        // joins that flight. Whichever read wins must initialize the directory.
+        if (!networkOutletsRead || retry == AutoProvisionRetry.ForceRetry) {
+            val fresh = readNetworkOutlets()
+            networkOutlets = if (fresh.issue != null && networkOutlets.supported) networkOutlets.copy(issue = fresh.issue) else fresh
+            networkOutletsRead = true
+        }
         var listing = catalog.load()
         var identityReadbackResult: RefreshResult? = null
         if (closed || !listingAllowsAuto(listing.state)) return ConfigurationRefreshRead(listing.state)
@@ -236,24 +253,9 @@ internal class AndroidConfigurationSource(
                     ?.let { identityReadbackResult = it }
             }
         }
-        val prepared = dns.prepareAuto(active, listing.existingKeys, listing.state)
-            ?: return ConfigurationRefreshRead(dns.unavailable(listing.state), RefreshResult.Failed(DNS_UNAVAILABLE))
-        when (val existingRepair = prepared.existingRepair) {
-            is DnsRepairResult.Failed ->
-                return ConfigurationRefreshRead(ConfigurationEvaluator.preserveAfterAutoFailure(listing.state, existingRepair.state),
-                    RefreshResult.Failed(messageOf(existingRepair.state)))
-            DnsRepairResult.Applied,
-            DnsRepairResult.NoWork,
-            -> Unit
-        }
         val selected = tracker.select(active, listing.existingKeys, retry)
         if (selected.isEmpty()) {
-            val refreshed = if (prepared.existingRepair is DnsRepairResult.Applied) {
-                catalog.load().state
-            } else {
-                listing.state
-            }
-            return ConfigurationRefreshRead(refreshed, identityReadbackResult ?: configurationRefreshResult(refreshed))
+            return ConfigurationRefreshRead(listing.state, identityReadbackResult ?: configurationRefreshResult(listing.state))
         }
         when (val state = listing.state) {
             is ConfigurationUiState.Ready ->
@@ -276,10 +278,24 @@ internal class AndroidConfigurationSource(
         val batch = provisioner.attemptSelected(selected.map { it.key }) { closed }
         if (closed) return ConfigurationRefreshRead(listing.state)
         var failed: ConfigurationUiState? = null
-        val refreshed = dns.afterAutoBatch(active, prepared, batch, listing.state, onCreated,
-            onFailure = { if (failed == null) failed = it })
+        val refreshed = afterAutoBatch(batch, listing.state, onFailure = { if (failed == null) failed = it })
         return ConfigurationRefreshRead(refreshed, failed?.let { RefreshResult.Failed(messageOf(it)) }
             ?: identityReadbackResult ?: configurationRefreshResult(refreshed))
+    }
+
+    // DNS stays as saved: an empty override follows the selected network's live DNS in the engine.
+    private suspend fun afterAutoBatch(
+        batch: AutoProvisionBatch,
+        listing: ConfigurationUiState,
+        onFailure: (ConfigurationUiState) -> Unit,
+    ): ConfigurationUiState {
+        batch.failure?.let(onFailure)
+        if (batch.created) {
+            runCatching { onCreated() }
+            return ConfigurationEvaluator.readyAfterAutoCreate(catalog.load().state)
+        }
+        val base = if (batch.existed) catalog.load().state else listing
+        return batch.failure?.let { ConfigurationEvaluator.preserveAfterAutoFailure(base, it) } ?: base
     }
 
     private suspend fun applyLocked(
@@ -306,7 +322,7 @@ internal class AndroidConfigurationSource(
             ConfigurationCodec.encodeChanges(
                 ConfigurationOverrides(previous.transport, previous.smsc, previous.epdgFqdn, previous.imsRealm, previous.dns,
                     previous.imsPolicy.securityOverride, previous.imsPolicy.initialOverride, previous.imsPolicy.countryOverride,
-                    previous.imsPolicy.digestRealmOverride),
+                    previous.imsPolicy.digestRealmOverride, previous.dnsOverrides),
                 overrides,
             )
         } catch (error: ConfigurationFormatException) {
@@ -353,13 +369,6 @@ internal class AndroidConfigurationSource(
             return ConfigurationProvisionOutcome.Failed
         }
         val exists = iccid in catalog.existingKeys()
-        val existingRow = DnsWorkPlanner.rows(current, catalog::iccidFor).firstOrNull { it.key == iccid }
-        val needsDns = !exists || existingRow?.dns?.isBlank() == true
-        val endpoint = if (needsDns) {
-            dnsLookupOrUnavailable(current) ?: return ConfigurationProvisionOutcome.Failed
-        } else {
-            null
-        }
         when (val result = inventory.listActive()) {
             is SubscriptionInventoryResult.Active ->
                 tracker.select(result.subscriptions, catalog.existingKeys(), AutoProvisionRetry.Manual(iccid))
@@ -368,9 +377,7 @@ internal class AndroidConfigurationSource(
             -> Unit
         }
         if (exists) {
-            var repair: DnsRepairResult = DnsRepairResult.NoWork
-            val readback = dns.finishManualExisting(current, iccid, endpoint, onRepair = { repair = it })
-            return publishProvisionReadback(handle, readback, ConfigurationProvisionOutcome.Unchanged, repair, endpoint?.render())
+            return publishProvisionReadback(handle, catalog.load().state, ConfigurationProvisionOutcome.Unchanged)
         }
         if (current is ConfigurationUiState.Ready) {
             synchronized(lock) {
@@ -386,15 +393,11 @@ internal class AndroidConfigurationSource(
         return when (attempt) {
             ProvisionAttempt.Created -> {
                 runCatching { onCreated() }
-                var repair: DnsRepairResult = DnsRepairResult.NoWork
-                val readback = dns.finishManualCreated(iccid, endpoint, onRepair = { repair = it })
-                publishProvisionReadback(handle, readback, ConfigurationProvisionOutcome.Created, repair, endpoint?.render())
+                val readback = ConfigurationEvaluator.readyAfterCreate(catalog.load().state)
+                publishProvisionReadback(handle, readback, ConfigurationProvisionOutcome.Created)
             }
-            ProvisionAttempt.AlreadyExists -> {
-                var repair: DnsRepairResult = DnsRepairResult.NoWork
-                val readback = dns.finishManualCreated(iccid, endpoint, created = false, onRepair = { repair = it })
-                publishProvisionReadback(handle, readback, ConfigurationProvisionOutcome.Unchanged, repair, endpoint?.render())
-            }
+            ProvisionAttempt.AlreadyExists ->
+                publishProvisionReadback(handle, catalog.load().state, ConfigurationProvisionOutcome.Unchanged)
             is ProvisionAttempt.Failed -> {
                 failProvision(current, attempt.state)
                 if (attempt.unconfirmed) ConfigurationProvisionOutcome.Unconfirmed else ConfigurationProvisionOutcome.Failed
@@ -406,23 +409,15 @@ internal class AndroidConfigurationSource(
         handle: SimHandle,
         readback: ConfigurationUiState,
         outcome: ConfigurationProvisionOutcome,
-        repair: DnsRepairResult,
-        expectedDns: String?,
     ): ConfigurationProvisionOutcome {
         currentCoroutineContext().ensureActive()
         synchronized(lock) {
             if (closed) return ConfigurationProvisionOutcome.Cancelled
             mutableState.value = readback
         }
-        if (repair is DnsRepairResult.Failed) {
-            return if (repair.unconfirmed) ConfigurationProvisionOutcome.Unconfirmed else ConfigurationProvisionOutcome.Failed
-        }
         val confirmed = (readback as? ConfigurationUiState.Ready)?.instances
-            ?.firstOrNull { it.instanceId.value == handle.value && catalog.iccidFor(it.instanceId) == handles.keyFor(handle) }
-            ?: return ConfigurationProvisionOutcome.Unconfirmed
-        if (repair is DnsRepairResult.Applied && confirmed.dns != expectedDns) return ConfigurationProvisionOutcome.Unconfirmed
-        return if (outcome == ConfigurationProvisionOutcome.Unchanged && repair is DnsRepairResult.Applied)
-            ConfigurationProvisionOutcome.Updated else outcome
+            ?.any { it.instanceId.value == handle.value && catalog.iccidFor(it.instanceId) == handles.keyFor(handle) } == true
+        return if (confirmed) outcome else ConfigurationProvisionOutcome.Unconfirmed
     }
 
     private fun completeProvision(handle: SimHandle, outcome: ConfigurationProvisionOutcome) {
@@ -431,14 +426,6 @@ internal class AndroidConfigurationSource(
             pending = current.pending - handle,
             completions = current.completions + (handle to ConfigurationProvisionCompletion(++provisionSequence, outcome)),
         )
-    }
-
-    private fun dnsLookupOrUnavailable(current: ConfigurationUiState): DnsEndpoint? {
-        val endpoint = dns.resolve()
-        if (endpoint == null) {
-            failProvision(current, ConfigurationEvaluator.failure(DNS_UNAVAILABLE))
-        }
-        return endpoint
     }
 
     private fun failProvision(current: ConfigurationUiState, failure: ConfigurationUiState) = synchronized(lock) {
@@ -469,11 +456,14 @@ internal class AndroidConfigurationSource(
         const val CREATING = "正在创建配置"
         const val AUTO_CREATING = "正在自动创建配置"
         const val CREATE_FAILED = "无法创建配置"
-        const val DNS_UNAVAILABLE = "底层网络 DNS 不可用"
     }
 }
 
-private data class ConfigurationRefreshFlight(val identities: Boolean, val completion: CompletableDeferred<RefreshResult>)
+private data class ConfigurationRefreshFlight(
+    val identities: Boolean,
+    val completion: CompletableDeferred<RefreshResult>,
+    val readsNetworkOutlets: Boolean,
+)
 private data class ConfigurationRefreshRead(
     val state: ConfigurationUiState,
     val result: RefreshResult = configurationRefreshResult(state),

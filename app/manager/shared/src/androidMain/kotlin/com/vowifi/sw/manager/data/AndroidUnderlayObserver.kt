@@ -30,6 +30,7 @@ class AndroidUnderlayObserver(
     context: Context,
     private val publish: (String) -> Boolean = ::publishUnderlay,
     private val now: () -> Long = SystemClock::elapsedRealtime,
+    private val diagnostic: (DiagnosticEvent) -> Unit = { AndroidDiagnosticLog.emit(it) },
 ) {
     private val appContext = context.applicationContext
     private val manager = appContext.getSystemService(ConnectivityManager::class.java)
@@ -42,6 +43,7 @@ class AndroidUnderlayObserver(
     private var thread: HandlerThread? = null
     private var scope: CoroutineScope? = null
     @Volatile private var updates: Channel<String>? = null
+    private var lastDiscovery = emptyList<DiagnosticEvent>()
     private val callback = object : ConnectivityManager.NetworkCallback() {
         override fun onAvailable(network: Network) { entries.getOrPut(network) { Entry() } }
         override fun onCapabilitiesChanged(network: Network, caps: NetworkCapabilities) {
@@ -91,12 +93,20 @@ class AndroidUnderlayObserver(
         val updates = Channel<String>(Channel.CONFLATED)
         this.updates = updates
         scope = CoroutineScope(SupervisorJob() + Dispatchers.IO).also { scope ->
-            scope.launch { for (state in updates) runInterruptible { publish(state) } }
+            scope.launch {
+                for (state in updates) {
+                    val sent = runInterruptible { publish(state) }
+                    diagnostic(DiagnosticEvent(DiagnosticComponent.UNDERLAY,
+                        if (sent) DiagnosticLevel.INFO else DiagnosticLevel.WARN, DiagnosticName.OBSERVED,
+                        DiagnosticStage.PUBLISH, if (sent) DiagnosticResult.SUCCESS else DiagnosticResult.FAILURE,
+                        if (sent) DiagnosticReason.NONE else DiagnosticReason.PUBLISH_FAILED))
+                }
+            }
         }
         try {
             val request = NetworkRequest.Builder()
                 .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
-                .addCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
+                .removeCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
                 .build()
             manager.registerNetworkCallback(request, callback, handler)
             manager.registerDefaultNetworkCallback(defaultCallback, handler)
@@ -107,6 +117,8 @@ class AndroidUnderlayObserver(
             // against those initial callback messages.
             handler.post(heartbeat)
         } catch (_: SecurityException) {
+            diagnostic(DiagnosticEvent(DiagnosticComponent.UNDERLAY, DiagnosticLevel.WARN, DiagnosticName.REJECTED,
+                DiagnosticStage.LISTENER, DiagnosticResult.FAILURE, DiagnosticReason.PERMISSION_DENIED))
             stop()
         }
     }
@@ -134,39 +146,71 @@ class AndroidUnderlayObserver(
         // boundary also invalidates the last publication within 15 seconds.
         entries.clear()
         defaultHandle = 0
+        lastDiscovery = emptyList()
     }
 
     private fun emit() { updates?.trySend(snapshot()) }
 
     private fun snapshot(): String {
         val networks = JSONArray()
+        val rejected = linkedMapOf<DiagnosticReason, Int>()
+        fun reject(reason: DiagnosticReason) { rejected[reason] = ((rejected[reason] ?: 0) + 1).coerceAtMost(1_000_000_000) }
         for ((network, entry) in entries) {
-            val caps = entry.capabilities ?: continue
-            val links = entry.links ?: continue
-            if (entry.blocked || !caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) ||
-                !caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN) || caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN)
-            ) continue
+            val caps = entry.capabilities
+            if (caps == null) { reject(DiagnosticReason.CAPABILITIES_MISSING); continue }
+            val links = entry.links
+            if (links == null) { reject(DiagnosticReason.LINK_PROPERTIES_MISSING); continue }
+            if (entry.blocked || !caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)) {
+                reject(if (entry.blocked) DiagnosticReason.NETWORK_BLOCKED else DiagnosticReason.NO_INTERNET)
+                continue
+            }
             val wifi = caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)
             val cellular = caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR)
-            if (wifi == cellular) continue
-            val iface = links.iface?.takeIf { it.matches(Regex("[A-Za-z0-9_.-]{1,15}")) } ?: continue
+            val transport = when {
+                caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN) -> "vpn"
+                wifi && !cellular -> "wifi"
+                cellular && !wifi -> "cellular"
+                else -> "other"
+            }
+            val iface = links.iface?.takeIf { it.matches(Regex("[A-Za-z0-9_.-]{1,15}")) }
+            if (iface == null) { reject(DiagnosticReason.INVALID_INTERFACE); continue }
             val addresses = links.addresses
             val dns = links.dns
             if (addresses.isEmpty() || dns.isEmpty() || addresses.size > 16 || dns.size > 8 ||
                 addresses.none { local -> dns.any { server -> (':' in local) == (':' in server) } }
-            ) continue
-            val slots = if (cellular) caps.subscriptionIds.map(SubscriptionManager::getSlotIndex).filter { it in 0..1 }.distinct().sorted() else emptyList()
-            if (networks.length() >= 16) break
+            ) {
+                reject(when {
+                    addresses.isEmpty() -> DiagnosticReason.ADDRESS_UNAVAILABLE
+                    dns.isEmpty() -> DiagnosticReason.DNS_UNAVAILABLE
+                    addresses.size > 16 || dns.size > 8 -> DiagnosticReason.LIMIT_REACHED
+                    else -> DiagnosticReason.FAMILY_MISMATCH
+                })
+                continue
+            }
+            val slots = if (transport == "cellular") caps.subscriptionIds.map(SubscriptionManager::getSlotIndex).filter { it in 0..1 }.distinct().sorted() else emptyList()
+            if (networks.length() >= 16) { reject(DiagnosticReason.LIMIT_REACHED); break }
             networks.put(JSONObject()
                 .put("handle", network.networkHandle)
                 .put("interface", iface)
-                .put("transport", if (wifi) "wifi" else "cellular")
+                .put("transport", transport)
                 .put("slots", JSONArray(slots))
                 .put("validated", caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED))
                 .put("addresses", JSONArray(addresses))
                 .put("dns", JSONArray(dns)))
         }
-        return JSONObject().put("version", 1).put("observedMs", now())
+        val observed = rejected.map { (reason, count) ->
+            DiagnosticEvent(DiagnosticComponent.UNDERLAY, DiagnosticLevel.WARN, DiagnosticName.REJECTED,
+                DiagnosticStage.DISCOVER, DiagnosticResult.UNAVAILABLE, reason, count = count)
+        } + DiagnosticEvent(DiagnosticComponent.UNDERLAY, DiagnosticLevel.INFO, DiagnosticName.OBSERVED,
+            DiagnosticStage.DISCOVER, DiagnosticResult.OBSERVED,
+            if (entries.isEmpty()) DiagnosticReason.EMPTY else DiagnosticReason.NONE,
+            count = entries.size.coerceAtMost(1_000_000_000), accepted = networks.length())
+        // Heartbeats change observedMs, not the fixed public discovery facts.
+        if (observed != lastDiscovery) {
+            observed.forEach(diagnostic)
+            lastDiscovery = observed
+        }
+        return JSONObject().put("version", 2).put("observedMs", now())
             .put("airplaneMode", Settings.Global.getInt(appContext.contentResolver, Settings.Global.AIRPLANE_MODE_ON, 0) == 1)
             .put("accessGeneration", accessGeneration)
             .put("defaultHandle", defaultHandle).put("networks", networks).toString()

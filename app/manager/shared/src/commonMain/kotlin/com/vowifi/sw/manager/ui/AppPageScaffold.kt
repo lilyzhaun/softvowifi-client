@@ -69,6 +69,8 @@ internal fun AppPageScaffold(
     emptyAlpha: State<Float>? = null,
     actions: @Composable RowScope.() -> Unit = {},
     refreshRotation: State<Float>? = null,
+    // Height of a page-owned overlay pinned above the bottom inset (e.g. an unsaved-changes bar).
+    bottomOverlayInset: Dp = 0.dp,
     content: LazyListScope.() -> Unit,
 ) {
     appPageContract()
@@ -131,7 +133,8 @@ internal fun AppPageScaffold(
                         start = innerPadding.calculateStartPadding(layoutDirection) + horizontalInset,
                         top = innerPadding.calculateTopPadding() + subpageTopContentInset + contentTopInset,
                         end = innerPadding.calculateEndPadding(layoutDirection) + horizontalInset,
-                        bottom = innerPadding.calculateBottomPadding() + subpageBottomContentInset + rootBottomInset.value + 12.dp,
+                        bottom = innerPadding.calculateBottomPadding() + subpageBottomContentInset + rootBottomInset.value + 12.dp +
+                            bottomOverlayInset,
                     ))
                 val latestContent = rememberUpdatedState(content)
                 val latestNestedScroll = rememberUpdatedState(nestedScrollModifier)

@@ -44,8 +44,8 @@ class ConfigurationCarrierPolicyTest {
         assertEquals("{}", ConfigurationCodec.encodeChanges(before, draft.overrides()))
         draft.dns.edit { replace(0, length, "1.1.1.1") }
         draft.submit { _, next, complete ->
-            assertEquals("""{"dns":"1.1.1.1"}""", ConfigurationCodec.encodeChanges(before, next))
-            complete(ConfigurationApplyOutcome.Confirmed(original.copy(dns = next.dns)))
+            assertEquals("""{"dnsOverrides":{"wifi":"1.1.1.1:53"}}""", ConfigurationCodec.encodeChanges(before, next))
+            complete(ConfigurationApplyOutcome.Confirmed(original.copy(dns = "1.1.1.1:53")))
             ConfigurationApplyAcceptance.Accepted
         }
         assertEquals(ConfigurationEditStatus.Saved, draft.status)

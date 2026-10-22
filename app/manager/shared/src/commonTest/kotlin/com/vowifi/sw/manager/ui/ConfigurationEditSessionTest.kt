@@ -8,10 +8,10 @@ class ConfigurationEditSessionTest {
     @Test fun backendUnchangedNeedsMatchingAuthoritativeReadback() {
         for (matches in listOf(false, true)) {
             val draft = ConfigurationEditorDraft(instance())
-            draft.dns.edit { append("verbatim.invalid ") }
+            draft.epdgFqdn.edit { append("verbatim.invalid ") }
             draft.submit { _, _, complete ->
                 complete(ConfigurationApplyOutcome.Confirmed(
-                    instance().copy(dns = if (matches) "verbatim.invalid " else "verbatim.invalid"),
+                    instance().copy(epdgFqdn = if (matches) "verbatim.invalid " else "verbatim.invalid"),
                     ConfigurationWriteResult.Unchanged,
                 ))
                 ConfigurationApplyAcceptance.Accepted
@@ -34,10 +34,10 @@ class ConfigurationEditSessionTest {
     @Test fun sameOwnerRebindsNewHandleButReusedHandleNeverBindsOtherOwner() {
         val memory = ConfigurationDraftMemory()
         val first = ConfigurationDraftStore(memory)
-        first.draftFor(instance()).dns.edit { append("user.invalid") }
+        first.draftFor(instance()).dns.edit { append("192.0.2.10:53") }
         first.retain()
         val next = ConfigurationDraftStore(memory)
-        assertEquals("user.invalid", next.draftFor(instance("sim-2")).dns.text.toString())
+        assertEquals("192.0.2.10:53", next.draftFor(instance("sim-2")).dns.text.toString())
         assertEquals("", next.draftFor(instance().copy(draftOwnerId = otherOwner)).dns.text.toString())
     }
 
@@ -45,7 +45,7 @@ class ConfigurationEditSessionTest {
         val memory = ConfigurationDraftMemory()
         val first = ConfigurationDraftStore(memory)
         val row = instance().copy(draftOwnerId = null)
-        first.draftFor(row).dns.edit { append("user.invalid") }
+        first.draftFor(row).dns.edit { append("192.0.2.10:53") }
         assertSame(first.draftFor(row), first.draftFor(row))
         first.retain()
         assertEquals("", ConfigurationDraftStore(memory).draftFor(row).dns.text.toString())
@@ -58,12 +58,12 @@ class ConfigurationEditSessionTest {
         val apply: ConfigurationSubmit = { _, _, _ -> calls++; ConfigurationApplyAcceptance.Accepted }
         draft.submit(apply)
         assertEquals(ConfigurationEditStatus.Unchanged, draft.status)
-        draft.dns.edit { append("user.invalid") }
-        draft.syncFrom(instance().copy(dns = "new.invalid", smsc = "+123"))
-        assertEquals("user.invalid", draft.dns.text.toString())
+        draft.dns.edit { append("192.0.2.10:53") }
+        draft.syncFrom(instance().copy(dns = "192.0.2.20:53", smsc = "+123"))
+        assertEquals("192.0.2.10:53", draft.dns.text.toString())
         assertEquals("+123", draft.smsc.text.toString())
         draft.discard()
-        assertEquals("new.invalid", draft.dns.text.toString())
+        assertEquals("192.0.2.20:53", draft.dns.text.toString())
         assertFalse(draft.dirty)
         assertEquals(0, calls)
     }
@@ -78,7 +78,7 @@ class ConfigurationEditSessionTest {
 
     @Test fun busyRejectDoesNotFreezeAndAcceptedDuplicateIsBlocked() {
         val draft = ConfigurationEditorDraft(instance())
-        draft.dns.edit { append("user.invalid") }
+        draft.dns.edit { append("192.0.2.10:53") }
         draft.submit { _, _, _ -> ConfigurationApplyAcceptance.Busy }
         assertEquals(ConfigurationEditStatus.BusyRejected, draft.status)
         assertFalse(draft.pending)
@@ -89,21 +89,21 @@ class ConfigurationEditSessionTest {
         draft.discard()
         assertTrue(draft.pending)
         assertEquals(1, calls)
-        assertEquals("user.invalid", draft.dns.text.toString())
+        assertEquals("192.0.2.10:53", draft.dns.text.toString())
     }
 
     @Test fun confirmedReadbackAloneClearsDraftAndFailuresKeepIt() {
         for (result in listOf(ConfigurationApplyOutcome.Failed, ConfigurationApplyOutcome.Unconfirmed)) {
             val draft = ConfigurationEditorDraft(instance())
-            draft.dns.edit { append("user.invalid") }
+            draft.dns.edit { append("192.0.2.10:53") }
             draft.submit { _, _, complete -> complete(result); ConfigurationApplyAcceptance.Accepted }
             assertTrue(draft.dirty)
             assertFalse(draft.pending)
         }
         val draft = ConfigurationEditorDraft(instance())
-        draft.dns.edit { append("user.invalid") }
+        draft.dns.edit { append("192.0.2.10:53") }
         draft.submit { _, _, complete ->
-            complete(ConfigurationApplyOutcome.Confirmed(instance().copy(dns = "user.invalid")))
+            complete(ConfigurationApplyOutcome.Confirmed(instance().copy(dns = "192.0.2.10:53")))
             ConfigurationApplyAcceptance.Accepted
         }
         assertFalse(draft.dirty)
@@ -114,14 +114,14 @@ class ConfigurationEditSessionTest {
         val memory = ConfigurationDraftMemory()
         val store = ConfigurationDraftStore(memory)
         val draft = store.draftFor(instance())
-        draft.dns.edit { append("user.invalid") }
+        draft.dns.edit { append("192.0.2.10:53") }
         var completion: (ConfigurationApplyOutcome) -> Unit = {}
         draft.submit { _, _, complete -> completion = complete; ConfigurationApplyAcceptance.Accepted }
         store.retain()
         val restored = ConfigurationDraftStore(memory).draftFor(instance("sim-9"))
         assertEquals(ConfigurationEditStatus.Unconfirmed, restored.status)
         assertFalse(restored.pending)
-        completion(ConfigurationApplyOutcome.Confirmed(instance().copy(draftOwnerId = otherOwner, dns = "user.invalid")))
+        completion(ConfigurationApplyOutcome.Confirmed(instance().copy(draftOwnerId = otherOwner, dns = "192.0.2.10:53")))
         assertEquals(ConfigurationEditStatus.Unconfirmed, draft.status)
         assertTrue(restored.dirty)
     }

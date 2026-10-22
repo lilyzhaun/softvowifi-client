@@ -5,6 +5,7 @@ import com.vowifi.sw.manager.model.ConfigurationInstance
 import com.vowifi.sw.manager.model.ConfigurationInstanceId
 import com.vowifi.sw.manager.model.ConfigurationSnapshot
 import com.vowifi.sw.manager.model.ConfigurationUiState
+import com.vowifi.sw.manager.model.ConfigurationNetworkOutlets
 import com.vowifi.sw.manager.model.SubscriptionDiscovery
 
 object ConfigurationEvaluator {
@@ -46,6 +47,7 @@ object ConfigurationEvaluator {
         applyingInstanceId: ConfigurationInstanceId? = null,
         message: String? = null,
         isFixture: Boolean = false,
+        networkOutlets: ConfigurationNetworkOutlets = ConfigurationNetworkOutlets(),
     ): ConfigurationUiState {
         if (instances.isEmpty()) return ConfigurationUiState.Empty
         if (instances.any(::leaksIdentity)) return failure(IDENTITY)
@@ -54,6 +56,7 @@ object ConfigurationEvaluator {
             applyingInstanceId = applyingInstanceId,
             message = message?.let { boundedOrNull(it) },
             isFixture = isFixture,
+            networkOutlets = networkOutlets,
         )
     }
 
@@ -74,6 +77,7 @@ object ConfigurationEvaluator {
             instances = listing.instances,
             message = autoFailureMessage(failure),
             isFixture = listing.isFixture,
+            networkOutlets = listing.networkOutlets,
         )
         ConfigurationUiState.Empty -> emptyAutoFailure(failure)
         ConfigurationUiState.Loading,
@@ -95,6 +99,7 @@ object ConfigurationEvaluator {
                 instances = refreshed.instances,
                 message = message,
                 isFixture = refreshed.isFixture,
+                networkOutlets = refreshed.networkOutlets,
             )
             ConfigurationUiState.Loading,
             ConfigurationUiState.Empty,
@@ -124,6 +129,7 @@ object ConfigurationEvaluator {
         systemSubscription = systemSubscription,
         imsPolicy = snapshot.imsPolicy,
         identitySource = snapshot.identitySource,
+        dnsOverrides = snapshot.dnsOverrides,
     )
 }
 

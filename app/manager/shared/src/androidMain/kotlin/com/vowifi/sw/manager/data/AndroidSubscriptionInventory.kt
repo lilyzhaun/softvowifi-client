@@ -5,8 +5,9 @@ import android.telephony.SubscriptionInfo
 import android.telephony.SubscriptionManager
 import com.vowifi.sw.manager.model.SimActiveJoinInput
 
-internal class AndroidSubscriptionInventory(
+internal class AndroidSubscriptionInventory @JvmOverloads constructor(
     context: Context,
+    private val diagnostic: (DiagnosticEvent) -> Unit = { AndroidDiagnosticLog.emit(it) },
 ) : SubscriptionInventory {
     private val context = context.applicationContext
     private val lock = Any()
@@ -15,6 +16,7 @@ internal class AndroidSubscriptionInventory(
     private var registerInFlight = false
     private val listener = object : SubscriptionManager.OnSubscriptionsChangedListener() {
         override fun onSubscriptionsChanged() {
+            observe(DiagnosticStage.LISTENER, DiagnosticResult.OBSERVED)
             val snapshot = synchronized(lock) { watchers.toList() }
             snapshot.forEach { watcher ->
                 ignoreWatchFailure { watcher.onChanged() }
@@ -23,14 +25,24 @@ internal class AndroidSubscriptionInventory(
     }
 
     override fun listActive(): SubscriptionInventoryResult = try {
-        val manager = manager() ?: return SubscriptionInventoryResult.Failure(UNREADABLE)
+        val manager = manager() ?: run {
+            observe(DiagnosticStage.ENUMERATE, DiagnosticResult.UNAVAILABLE, DiagnosticReason.UNAVAILABLE)
+            return SubscriptionInventoryResult.Failure(UNREADABLE)
+        }
         val active = manager.activeSubscriptionInfoList.orEmpty()
-        SubscriptionInventoryResult.Active(active.mapNotNull(::toJoinInput))
+        val accepted = active.mapNotNull(::toJoinInput)
+        observe(DiagnosticStage.ENUMERATE, DiagnosticResult.OBSERVED,
+            if (active.isEmpty()) DiagnosticReason.EMPTY else DiagnosticReason.NONE,
+            count = active.size, accepted = accepted.size)
+        SubscriptionInventoryResult.Active(accepted)
     } catch (_: SecurityException) {
+        observe(DiagnosticStage.ENUMERATE, DiagnosticResult.FAILURE, DiagnosticReason.PERMISSION_DENIED)
         SubscriptionInventoryResult.PermissionDenied(PERMISSION)
     } catch (_: IllegalStateException) {
+        observe(DiagnosticStage.ENUMERATE, DiagnosticResult.FAILURE, DiagnosticReason.UNAVAILABLE)
         SubscriptionInventoryResult.Failure(UNREADABLE)
     } catch (_: RuntimeException) {
+        observe(DiagnosticStage.ENUMERATE, DiagnosticResult.FAILURE, DiagnosticReason.UNAVAILABLE)
         SubscriptionInventoryResult.Failure(UNREADABLE)
     }
 
@@ -78,15 +90,25 @@ internal class AndroidSubscriptionInventory(
                     false
                 }
             }
-            if (unregister) ignoreWatchFailure { removePlatformListener() }
+            if (unregister) {
+                val stopped = watchAttempt { removePlatformListener() }
+                observe(DiagnosticStage.LISTENER, if (stopped is WatchAttempt.Ok) DiagnosticResult.STOPPED else DiagnosticResult.FAILURE,
+                    when (stopped) { WatchAttempt.Ok -> DiagnosticReason.NONE; WatchAttempt.Denied -> DiagnosticReason.PERMISSION_DENIED; WatchAttempt.Failed -> DiagnosticReason.LISTENER_FAILED })
+            }
         }
     }
 
     private fun addPlatformListener(): Boolean {
-        val manager = manager() ?: return false
-        return watchAttempt {
+        val manager = manager() ?: run {
+            observe(DiagnosticStage.LISTENER, DiagnosticResult.UNAVAILABLE, DiagnosticReason.UNAVAILABLE)
+            return false
+        }
+        val result = watchAttempt {
             manager.addOnSubscriptionsChangedListener(context.mainExecutor, listener)
-        } is WatchAttempt.Ok
+        }
+        observe(DiagnosticStage.LISTENER, if (result is WatchAttempt.Ok) DiagnosticResult.SUCCESS else DiagnosticResult.FAILURE,
+            when (result) { WatchAttempt.Ok -> DiagnosticReason.NONE; WatchAttempt.Denied -> DiagnosticReason.PERMISSION_DENIED; WatchAttempt.Failed -> DiagnosticReason.LISTENER_FAILED })
+        return result is WatchAttempt.Ok
     }
 
     private fun removePlatformListener() {
@@ -97,7 +119,19 @@ internal class AndroidSubscriptionInventory(
         context.getSystemService(SubscriptionManager::class.java)
 
     private fun toJoinInput(info: SubscriptionInfo): SimActiveJoinInput? {
-        val key = IccidNormalizer.normalize(info.iccId) ?: return null
+        val key = IccidNormalizer.normalize(info.iccId) ?: run {
+            // Existing SubscriptionInfo snapshot only; no additional telephony/SIM request.
+            val raw = info.iccId
+            val shape = raw.orEmpty().trimEnd('F', 'f')
+            val reason = when {
+                shape.isEmpty() -> DiagnosticReason.EMPTY
+                shape.any { it !in '0'..'9' } -> DiagnosticReason.UNSUPPORTED_CHARACTERS
+                else -> DiagnosticReason.INVALID_LENGTH
+            }
+            observe(DiagnosticStage.NORMALIZE, DiagnosticResult.FAILURE, reason, slot = info.simSlotIndex)
+            return null
+        }
+        if (info.simSlotIndex !in 0..1) observe(DiagnosticStage.IDENTITY, DiagnosticResult.UNAVAILABLE, DiagnosticReason.INVALID_SLOT)
         return SimActiveJoinInput(
             key = key,
             slotIndex = info.simSlotIndex,
@@ -114,6 +148,14 @@ internal class AndroidSubscriptionInventory(
     }
 
     private class Watcher(val onChanged: () -> Unit)
+
+    private fun observe(stage: DiagnosticStage, result: DiagnosticResult, reason: DiagnosticReason = DiagnosticReason.NONE,
+        slot: Int? = null, count: Int? = null, accepted: Int? = null) {
+        diagnostic(DiagnosticEvent(DiagnosticComponent.SUBSCRIPTIONS,
+            if (result == DiagnosticResult.FAILURE) DiagnosticLevel.WARN else DiagnosticLevel.INFO,
+            if (stage == DiagnosticStage.NORMALIZE) DiagnosticName.REJECTED else DiagnosticName.OBSERVED,
+            stage, result, reason, slot?.takeIf { it in 0..1 }, count?.coerceAtMost(1_000_000_000), accepted?.coerceAtMost(1_000_000_000)))
+    }
 }
 
 private fun fourDigitTail(iccId: String): String? {

@@ -3,12 +3,17 @@ package com.vowifi.sw.manager.data
 import com.vowifi.sw.manager.model.ConfigurationInstanceId
 import com.vowifi.sw.manager.model.ConfigurationSnapshot
 import com.vowifi.sw.manager.model.ConfigurationUiState
+import com.vowifi.sw.manager.model.ConfigurationNetworkOutlets
+import com.vowifi.sw.manager.model.ConfigurationLifecycle
+import com.vowifi.sw.manager.model.SubscriptionDiscovery
 
 internal class AndroidConfigurationCatalog(
     private val commands: AndroidConfigurationCommands,
     private val discovery: AndroidSubscriptionDiscovery,
     private val handles: OpaqueIccidHandleStore,
     private val ownerFor: (String) -> SimOwnerId? = { null },
+    private val networkOutlets: () -> ConfigurationNetworkOutlets = { ConfigurationNetworkOutlets() },
+    private val readAutomaticSmsc: suspend (String) -> String? = { null },
 ) {
     private val lock = Any()
     private val iccidByHandle = linkedMapOf<String, String>()
@@ -59,11 +64,13 @@ internal class AndroidConfigurationCatalog(
         val discoveries = discovery.discover(listed.map { it.iccid })
         val instanceIds = replaceHandles(listed)
         val instances = snapshots.mapIndexed { index, snapshot ->
+            val automaticSmsc = if (snapshot.smsc.isEmpty() && snapshot.lifecycle == ConfigurationLifecycle.RUNNING &&
+                discoveries[index] is SubscriptionDiscovery.Matched) readAutomaticSmsc(listed[index].iccid).orEmpty() else ""
             ConfigurationEvaluator.instance(instanceIds[index], snapshot, discoveries[index])
-                .copy(draftOwnerId = ownerFor(listed[index].iccid))
+                .copy(draftOwnerId = ownerFor(listed[index].iccid), resolvedSmsc = automaticSmsc)
         }
         return ConfigurationCatalogSnapshot(
-            state = ConfigurationEvaluator.ready(instances),
+            state = ConfigurationEvaluator.ready(instances, networkOutlets = networkOutlets()),
             existingKeys = listed.map { it.iccid }.toSet(),
         )
     }

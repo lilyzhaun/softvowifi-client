@@ -34,25 +34,21 @@ import org.robolectric.shadows.ShadowSubscriptionManager.SubscriptionInfoBuilder
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [33], shadows = [ConfigurationProvisionCommandShadow::class], instrumentedPackages = ["com.vowifi.sw.manager.data"])
 class S3ConfigurationProvisionStateHostTest {
-    @Test fun successfulDnsApplyAndReadbackAreRequiredForTheCreatedCompletion() = runBlocking {
+    @Test fun createdCompletionLeavesDnsBlankForTheLiveNetworkWithoutApplying() = runBlocking {
         ConfigurationProvisionHostFixture().use { fixture ->
             fixture.ready()
-            ConfigurationProvisionCommandShadow.dns = ""
-            val dns = fixture.holdDns()
             try {
                 fixture.source.provision(fixture.target)
                 fixture.createHold.awaitEntered()
-                fixture.createHold.release()
-                dns.awaitEntered()
                 assertEquals(setOf(fixture.target), fixture.source.provisioning.value.pending)
-                assertTrue(fixture.source.provisioning.value.completions.isEmpty())
-                dns.release()
+                fixture.createHold.release()
                 assertEquals(ConfigurationProvisionOutcome.Created, fixture.finished(fixture.target).completions.getValue(fixture.target).outcome)
                 val ready = fixture.source.state.value as ConfigurationUiState.Ready
-                assertEquals(DnsEndpoint.v4("192.0.2.53").render(), ready.instances.single().dns)
+                assertEquals("", ready.instances.single().dns)
+                assertTrue(ready.instances.single().dnsOverrides.isEmpty())
                 assertEquals(1, ConfigurationProvisionCommandShadow.creates.get())
-                assertEquals(1, ConfigurationProvisionCommandShadow.applies.get())
-            } finally { fixture.createHold.release(); dns.release() }
+                assertEquals("新建配置不得写入 DNS 覆盖", 0, ConfigurationProvisionCommandShadow.applies.get())
+            } finally { fixture.createHold.release() }
         }
     }
 
@@ -95,30 +91,6 @@ class S3ConfigurationProvisionStateHostTest {
                 assertEquals(ConfigurationProvisionOutcome.Created, fixture.finished(fixture.target).completions.getValue(fixture.target).outcome)
                 assertEquals(1, ConfigurationProvisionCommandShadow.creates.get())
             } finally { fixture.createHold.release(); readback.release() }
-        }
-    }
-
-    @Test fun necessaryDnsIoAlsoOwnsPendingAndDnsFailureIsNotCreatedFromReady() = runBlocking {
-        ConfigurationProvisionHostFixture().use { fixture ->
-            fixture.ready()
-            ConfigurationProvisionCommandShadow.dns = ""
-            ConfigurationProvisionCommandShadow.dnsFailure = true
-            val dns = fixture.holdDns()
-            try {
-                fixture.source.provision(fixture.target)
-                fixture.createHold.awaitEntered()
-                fixture.createHold.release()
-                dns.awaitEntered()
-                assertEquals(setOf(fixture.target), fixture.source.provisioning.value.pending)
-                assertTrue(fixture.source.provisioning.value.completions.isEmpty())
-                dns.release()
-                val completed = fixture.finished(fixture.target)
-                assertTrue(completed.pending.isEmpty())
-                assertEquals(ConfigurationProvisionOutcome.Failed, completed.completions.getValue(fixture.target).outcome)
-                assertTrue(fixture.source.state.value is ConfigurationUiState.Ready)
-                assertEquals(1, ConfigurationProvisionCommandShadow.creates.get())
-                assertEquals(1, ConfigurationProvisionCommandShadow.applies.get())
-            } finally { fixture.createHold.release(); dns.release() }
         }
     }
 
@@ -266,7 +238,8 @@ internal class ConfigurationProvisionHostFixture(includeOther: Boolean = false, 
             override fun listActive(): SubscriptionInventoryResult = if (suppressAutomatic.get())
                 SubscriptionInventoryResult.Failure("无法读取活动订阅") else real.listActive()
         }
-        source = AndroidConfigurationSource(context, handles, inventory, NetworkDnsLookup { DnsEndpoint.v4("192.0.2.53") })
+        source = AndroidConfigurationSource(context, handles, inventory,
+            readNetworkOutlets = { com.vowifi.sw.manager.model.ConfigurationNetworkOutlets(supported = true) })
     }
     suspend fun ready() {
         withTimeout(3000) { source.state.first { it != ConfigurationUiState.Loading } }
@@ -282,11 +255,10 @@ internal class ConfigurationProvisionHostFixture(includeOther: Boolean = false, 
     }
     fun holdCreate() = S3IoHold().also { holds += it; ConfigurationProvisionCommandShadow.createHold.set(it) }
     fun holdReadback() = S3IoHold().also { holds += it; ConfigurationProvisionCommandShadow.readbackHold.set(it) }
-    fun holdDns() = S3IoHold().also { holds += it; ConfigurationProvisionCommandShadow.dnsHold.set(it) }
     override fun close() { holds.forEach { it.release() }; source.close() }
 }
 
-// 系统命令边界提供受控回执；source / identityReader / provisioner / catalog / DNS 均为生产实现。
+// 系统命令边界提供受控回执；source / identityReader / provisioner / catalog 均为生产实现。
 @Implements(value = AndroidSuCommand::class, isInAndroidSdk = false)
 internal class ConfigurationProvisionCommandShadow {
     @Implementation fun run(command: String): AndroidSuResult {
@@ -297,19 +269,13 @@ internal class ConfigurationProvisionCommandShadow {
                 put("ok", true); put("iccid", key); put("state", "stopped")
             }) } }.toString())
         }
-        val reference: AndroidSuResult = DnsRepairCommandShadow().run(command)
-        val shown = Json.parseToJsonElement(reference.output).jsonObject.toMutableMap()
-        shown["dns"] = JsonPrimitive(dns)
-        return reference.copy(output = JsonObject(shown).toString())
+        return TwoCardConfigurationCommandShadow().run(command)
     }
     @Implementation fun run(command: String, stdinText: String, timeoutSeconds: Long): AndroidSuResult {
         assertTrue(stdinText.isNotBlank())
         if (command == ConfigurationControlCommand.applyLine(S3_CONFIG_TARGET)) {
             assertEquals(ConfigurationControlCommand.APPLY_TIMEOUT_SECONDS, timeoutSeconds)
             applies.incrementAndGet()
-            dnsHold.getAndSet(null)?.block()
-            if (dnsFailure) return AndroidSuResult(false, 1, "{\"ok\":false,\"code\":\"APPLY_FAILED\",\"message\":\"config apply failed\"}", false)
-            dns = Json.parseToJsonElement(stdinText).jsonObject.getValue("dns").jsonPrimitive.content
             return success("{\"ok\":true}")
         }
         val key = when (command) {
@@ -331,15 +297,12 @@ internal class ConfigurationProvisionCommandShadow {
         val applies = AtomicInteger()
         val createHold = AtomicReference<S3IoHold?>()
         val readbackHold = AtomicReference<S3IoHold?>()
-        val dnsHold = AtomicReference<S3IoHold?>()
-        @Volatile var dns = "198.51.100.8:53"
         @Volatile var hideTarget = false
-        @Volatile var dnsFailure = false
         @Volatile var createResult = AndroidSuResult(false, 0, "{\"ok\":true,\"code\":\"CREATED\",\"message\":\"config created\"}", false)
         fun reset() {
             created.clear(); creates.set(0); applies.set(0)
-            createHold.set(null); readbackHold.set(null); dnsHold.set(null)
-            dns = "198.51.100.8:53"; hideTarget = false; dnsFailure = false
+            createHold.set(null); readbackHold.set(null)
+            hideTarget = false
             createResult = AndroidSuResult(false, 0, "{\"ok\":true,\"code\":\"CREATED\",\"message\":\"config created\"}", false)
         }
     }

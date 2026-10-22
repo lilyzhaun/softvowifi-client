@@ -20,6 +20,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.saveable.rememberSaveable
 import com.vowifi.sw.manager.SoftVoWiFiApp
 import com.vowifi.sw.manager.SoftVoWiFiSources
 import com.vowifi.sw.manager.data.AndroidEngineControlSource
@@ -42,6 +43,8 @@ import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.runInterruptible
+import com.vowifi.sw.manager.data.AndroidDiagnosticExport
 import androidx.compose.runtime.collectAsState
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
@@ -100,14 +103,14 @@ class MainActivity : ComponentActivity() {
             val engineClientPool = processRuntime.pool
             val engineSource = remember { AndroidEngineControlSource(engineClientPool) }
             val simConfigurationSources = remember {
-                AndroidSimConfigurationSources(applicationContext, engineSource)
+                AndroidSimConfigurationSources(applicationContext, engineSource, engineClientPool)
             }
             val messageSource = processRuntime.messages
             val callSource = processRuntime.calls
             val callLine by callSource.lifecycle.lineLabel.collectAsState()
             val micDenied by callSource.lifecycle.microphoneDenied.collectAsState()
             val diagnosticsSource = remember { AndroidEnvironmentDiagnosticsSource() }
-            val operationalLogSource = remember { AndroidOperationalLogSource() }
+            val operationalLogSource = remember { AndroidOperationalLogSource(this@MainActivity) }
             val appearanceSource = remember { AndroidAppearanceSettingsSource(applicationContext) }
             val blurSupported = remember { androidBlurSupported(runtimeBlurSupported()) }
             val appVersion = remember {
@@ -141,7 +144,8 @@ class MainActivity : ComponentActivity() {
                     engineSource.close()
                 }
             }
-            var exportBusy by remember { mutableStateOf(false) }
+            var pendingDiagnosticWindow by rememberSaveable { mutableStateOf<Pair<Long,Long>?>(null) }
+            var exportBusy by remember { mutableStateOf(pendingDiagnosticWindow!=null) }
             var pendingExport by remember { mutableStateOf<String?>(null) }
             var exportCompletion by remember { mutableStateOf<LogExportCompletion?>(null) }
             val scope = rememberCoroutineScope()
@@ -149,17 +153,23 @@ class MainActivity : ComponentActivity() {
                 ActivityResultContracts.CreateDocument("text/plain"),
             ) { uri ->
                 val text = pendingExport
+                val diagnosticWindow=pendingDiagnosticWindow
                 pendingExport = null
+                pendingDiagnosticWindow=null
                 if (uri == null) {
                     exportBusy = false
                     exportCompletion = LogExportCompletion((exportCompletion?.sequence ?: 0L) + 1L, LogExportOutcome.Cancelled)
                     return@rememberLauncherForActivityResult
                 }
                 scope.launch {
-                    val wrote = withContext(Dispatchers.IO) { writeUtf8Export(uri, text) }
-                    exportBusy = false
-                    exportCompletion = LogExportCompletion((exportCompletion?.sequence ?: 0L) + 1L,
-                        if (wrote) LogExportOutcome.Written else LogExportOutcome.Failed)
+                    try {
+                        val wrote = runInterruptible(Dispatchers.IO) {
+                            if(diagnosticWindow!=null) writeDiagnosticExport(uri,diagnosticWindow.first,diagnosticWindow.second)
+                            else writeUtf8Export(uri,text)
+                        }
+                        exportCompletion = LogExportCompletion((exportCompletion?.sequence ?: 0L) + 1L,
+                            if (wrote) LogExportOutcome.Written else LogExportOutcome.Failed)
+                    } finally { exportBusy=false }
                 }
             }
             SoftVoWiFiApp(
@@ -186,9 +196,12 @@ class MainActivity : ComponentActivity() {
                 },
                 onExportLogs = { formatted ->
                     if (exportBusy) return@SoftVoWiFiApp
-                    pendingExport = formatted
+                    if(operationalLogSource.fullDiagnosticExport) {
+                        val end=System.currentTimeMillis()
+                        pendingDiagnosticWindow=operationalLogSource.exportWindow().start(end) to end
+                    } else pendingExport = formatted
                     exportBusy = true
-                    exportLauncher.launch(EXPORT_FILE_NAME)
+                    exportLauncher.launch(if(operationalLogSource.fullDiagnosticExport) "vowifi-diagnostics-redacted.jsonl" else EXPORT_FILE_NAME)
                 },
                 appearanceSource = appearanceSource,
                 blurSupported = blurSupported,
@@ -304,6 +317,21 @@ class MainActivity : ComponentActivity() {
             true
         } catch (_: Exception) {
             false
+        }
+    }
+
+    private fun writeDiagnosticExport(uri: Uri, from: Long, to: Long): Boolean {
+        var written=false
+        try {
+            val output=contentResolver.openOutputStream(uri) ?: return false
+            output.use { AndroidDiagnosticExport.write(this,from,to,it) }
+            written=true
+            return true
+        } catch (_:java.io.IOException) { return false }
+        catch (_:SecurityException) { return false }
+        catch (_:IllegalStateException) { return false }
+        finally {
+            if(!written) try {android.provider.DocumentsContract.deleteDocument(contentResolver,uri)} catch (_:Exception) { /* Provider may not support removing its newly created partial document. */ }
         }
     }
 

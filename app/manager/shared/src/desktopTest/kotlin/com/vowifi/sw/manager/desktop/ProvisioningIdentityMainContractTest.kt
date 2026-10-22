@@ -85,7 +85,13 @@ class ProvisioningIdentityMainContractTest {
         assertFalse(reader.contains("operatorName"))
         assertFalse(reader.contains("it.iccId.orEmpty() == iccid"))
         assertTrue(discovery.contains("IccidNormalizer.normalize(configIccid)"))
-        assertTrue(discovery.contains("AndroidSubscriptionInventory(context).listActive()"))
+        val inventoryCreation = "private val inventory = AndroidSubscriptionInventory(context.applicationContext)"
+        assertTrue(discovery.contains(inventoryCreation))
+        assertTrue(discovery.indexOf(inventoryCreation) < discovery.indexOf("fun discover("),
+            "The listener-bearing reader must be created with the source owner, before IO refreshes")
+        assertTrue(discovery.contains("(inventory.listActive() as? SubscriptionInventoryResult.Active)"))
+        assertFalse(discovery.contains("AndroidSubscriptionInventory(context).listActive()"),
+            "Read-only IO refreshes must not recreate an Android listener without a Looper")
         assertTrue(discovery.contains("candidate.key == expected"))
         assertTrue(discovery.indexOf("IccidNormalizer.normalize(configIccid)") < discovery.indexOf("candidate.key == expected"))
         assertFalse(discovery.contains("candidate.iccId.orEmpty() == configIccid"))

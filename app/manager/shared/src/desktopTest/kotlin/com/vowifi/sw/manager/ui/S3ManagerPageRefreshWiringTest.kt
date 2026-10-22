@@ -49,7 +49,7 @@ class S3ManagerPageRefreshWiringTest {
             page.provisioning.value = ConfigurationProvisionState()
             page.frames(12)
             val draft = page.drafts.draftFor(page.instance)
-            draft.dns.edit { append("user.invalid") }
+            draft.dns.edit { append("192.0.2.10:53") }
             draft.submit { _, _, _ -> ConfigurationApplyAcceptance.Accepted }
             assertTrue(draft.pending)
             page.frames(3)

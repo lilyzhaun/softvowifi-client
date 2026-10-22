@@ -7,7 +7,9 @@ import com.vowifi.sw.manager.model.ConfigurationTransport
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertTrue
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -222,14 +224,14 @@ class ConfigurationCodecTest {
 
         val body = Json.parseToJsonElement(encoded).jsonObject
         assertEquals(
-            setOf("transport", "smsc", "epdgFqdn", "imsRealm", "dns"),
+            setOf("transport", "smsc", "epdgFqdn", "imsRealm", "dnsOverrides"),
             body.keys,
         )
         assertEquals("sim1", body.getValue("transport").jsonPrimitive.content)
         assertEquals(FAKE_SMSC, body.getValue("smsc").jsonPrimitive.content)
         assertEquals(FAKE_EPDG, body.getValue("epdgFqdn").jsonPrimitive.content)
         assertEquals(FAKE_REALM, body.getValue("imsRealm").jsonPrimitive.content)
-        assertEquals(FAKE_DNS, body.getValue("dns").jsonPrimitive.content)
+        assertEquals(mapOf("sim1" to JsonPrimitive(FAKE_DNS)), body.getValue("dnsOverrides").jsonObject.toMap())
     }
 
     @Test
@@ -246,13 +248,14 @@ class ConfigurationCodecTest {
 
         val body = Json.parseToJsonElement(encoded).jsonObject
         assertEquals(
-            setOf("transport", "smsc", "epdgFqdn", "imsRealm", "dns"),
+            setOf("transport", "smsc", "epdgFqdn", "imsRealm", "dnsOverrides"),
             body.keys,
         )
         assertEquals("wifi", body.getValue("transport").jsonPrimitive.content)
-        listOf("smsc", "epdgFqdn", "imsRealm", "dns").forEach { key ->
+        listOf("smsc", "epdgFqdn", "imsRealm").forEach { key ->
             assertEquals("", body.getValue(key).jsonPrimitive.content)
         }
+        assertTrue(body.getValue("dnsOverrides").jsonObject.isEmpty())
     }
 
     @Test
@@ -270,7 +273,7 @@ class ConfigurationCodecTest {
             ).jsonObject
             assertEquals(wire, body.getValue("transport").jsonPrimitive.content)
             assertEquals(
-                setOf("transport", "smsc", "epdgFqdn", "imsRealm", "dns"),
+                setOf("transport", "smsc", "epdgFqdn", "imsRealm", "dnsOverrides"),
                 body.keys,
             )
         }

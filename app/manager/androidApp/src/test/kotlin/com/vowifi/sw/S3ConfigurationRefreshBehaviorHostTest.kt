@@ -8,6 +8,7 @@ import com.vowifi.sw.manager.data.*
 import com.vowifi.sw.manager.data.AndroidSuResult
 import com.vowifi.sw.manager.model.ConfigurationInstanceId
 import com.vowifi.sw.manager.model.ConfigurationUiState
+import com.vowifi.sw.manager.model.ConfigurationNetworkOutlets
 import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.atomic.AtomicReference
 import kotlinx.coroutines.CoroutineScope
@@ -79,12 +80,17 @@ class S3ConfigurationRefreshBehaviorHostTest {
 
 internal const val S3_CONFIG_TARGET = "0000000000000000001"
 
-// 复用 AndroidDnsRepairTest 的命令输出；catalog/identity reader/DNS/source 都是实际生产类。
-internal class S3ConfigurationIoFixture : AutoCloseable {
+// 复用 TwoCardConfigurationCommandShadow 的命令输出；catalog/identity reader/source 都是实际生产类。
+internal class S3ConfigurationIoFixture(
+    notifyOnWatch: Boolean = false,
+    smscRead: suspend (String) -> String? = { null },
+    outletsRead: suspend () -> ConfigurationNetworkOutlets = { ConfigurationNetworkOutlets(supported = true) },
+) : AutoCloseable {
     val source: AndroidConfigurationSource
     private val handles = OpaqueIccidHandleStore()
     val targetId = ConfigurationInstanceId(handles.handleFor(S3_CONFIG_TARGET).value)
     @Volatile var inventoryFailure: SubscriptionInventoryResult? = null
+    private lateinit var subscriptionChanged: () -> Unit
     private val holds = mutableListOf<S3IoHold>()
     init {
         S3ConfigurationCommandShadow.commands.clear()
@@ -93,7 +99,6 @@ internal class S3ConfigurationIoFixture : AutoCloseable {
         S3ConfigurationCommandShadow.smsc = "+15550000001"
         S3ConfigurationCommandShadow.identityResult = AndroidSuResult(false, 0,
             "{\"ok\":true,\"code\":\"APPLIED\",\"message\":\"config applied\"}", false)
-        DnsRepairCommandShadow.targetDns = "198.51.100.8:53" // 避免本测试混入 DNS 写动作。
         val context = RuntimeEnvironment.getApplication()
         shadowOf(context.packageManager).setSystemFeature(PackageManager.FEATURE_TELEPHONY, true)
         shadowOf(context.packageManager).setSystemFeature(PackageManager.FEATURE_TELEPHONY_SUBSCRIPTION, true)
@@ -105,9 +110,15 @@ internal class S3ConfigurationIoFixture : AutoCloseable {
         val inventory = AndroidSubscriptionInventory(context)
         val controlledInventory = object : SubscriptionInventory by inventory {
             override fun listActive() = inventoryFailure ?: inventory.listActive()
+            override fun startWatching(onChanged: () -> Unit): SubscriptionWatch {
+                subscriptionChanged = onChanged
+                return inventory.startWatching(onChanged).also { if (notifyOnWatch) onChanged() }
+            }
         }
         source = AndroidConfigurationSource(context, handles, controlledInventory,
-            NetworkDnsLookup { DnsEndpoint.v4("192.0.2.53") }, onCreated = { error("不应创建候选") })
+            readNetworkOutlets = outletsRead,
+            readAutomaticSmsc = smscRead,
+            onCreated = { error("不应创建候选") })
     }
     suspend fun ready(): ConfigurationUiState.Ready = withTimeout(3000) {
         val state = source.state.first { it is ConfigurationUiState.Ready } as ConfigurationUiState.Ready
@@ -129,6 +140,7 @@ internal class S3ConfigurationIoFixture : AutoCloseable {
         awaitS3ConfigurationProducer(scope, completion)
     }
     fun holdList() = S3IoHold().also { holds += it; S3ConfigurationCommandShadow.nextList.set(it) }
+    fun notifySubscriptionsChanged() = subscriptionChanged()
     fun holdIdentity() = S3IoHold().also { holds += it; S3ConfigurationCommandShadow.nextIdentity.set(it) }
     override fun close() { holds.forEach { it.release() }; source.close() }
 }
@@ -144,7 +156,7 @@ internal class S3ConfigurationCommandShadow {
     @Implementation fun run(command: String): AndroidSuResult {
         commands += command
         if (command == ConfigurationControlCommand.listLine()) nextList.getAndSet(null)?.block()
-        val result: AndroidSuResult = DnsRepairCommandShadow().run(command)
+        val result: AndroidSuResult = TwoCardConfigurationCommandShadow().run(command)
         return if (command == ConfigurationControlCommand.showLine(S3_CONFIG_TARGET))
             result.copy(output = result.output.replace("+15550000001", smsc)) else result
     }

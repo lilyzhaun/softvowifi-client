@@ -5,10 +5,8 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.State
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.saveable.LocalSaveableStateRegistry
 import androidx.compose.runtime.saveable.SaveableStateRegistry
-import androidx.compose.foundation.layout.Column
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.semantics.*
@@ -145,7 +143,7 @@ class S7EnvironmentRestorationRenderTest {
     }
 
     /** E4同进程真实Compose保存重建；不冒充Activity/进程死亡，不把草稿/配置写入registry。 */
-    @Test fun configurationDisclosureAndAdvancedSettingsRestoreOnlyUiExpansionWithoutSavingDraft() = onMotionTestThread {
+    @Test fun configurationSimPageRestoresOnlyUiStateWithoutSavingDraftOrConfiguration() = onMotionTestThread {
         val dispatcher = StandardTestDispatcher()
         runTest(dispatcher, timeout = 20.seconds) {
             val fixture = FixtureConfigurationSource("ready"); var submits = 0; var callbacks = 0
@@ -157,74 +155,51 @@ class S7EnvironmentRestorationRenderTest {
             }
             val original = assertIs<ConfigurationUiState.Ready>(source.state.value)
             assertEquals(2, original.instances.size)
-            val ids = original.instances.map { it.instanceId }; val safeKeys = ids.map { it.value }.toSet()
+            val safeKeys = original.instances.map { it.instanceId.value }.toSet()
             val draft = ConfigurationEditorDraft(original.instances.first()); val originalDraft = draft
+            val edited = "+100200300"
+            draft.smsc.edit { replace(0, length, edited) }
             fun fields() = listOf(draft.transport.name, draft.smsc.text.toString(), draft.epdgFqdn.text.toString(),
                 draft.imsRealm.text.toString(), draft.dns.text.toString())
             val originalFields = fields(); val completion = draft.completionSequence
-            lateinit var expansion: ConfigurationExpansionState
+            val configurationValues = (originalFields + original.instances.flatMap { listOf(it.epdgFqdn, it.imsRealm, it.dns,
+                it.resolvedEpdgFqdn, it.resolvedImsRealm) }).filter(String::isNotEmpty).toSet()
             fun uiOnly(value: Any?): Boolean = when (value) {
-                null, is Boolean, is Int -> true // library scroll/dropdown offsets are UI state, not configuration fields.
+                // Library scroll/top-bar/dropdown numbers are UI state, not configuration fields.
+                null, is Boolean, is Int, is Float, is Double -> true
                 is State<*> -> uiOnly(value.value)
-                is String -> value in safeKeys
+                // Safe instance keys and the page's own fixed lazy-list item keys only.
+                is String -> value in safeKeys || value.startsWith("configuration-sim-")
                 is List<*> -> value.all { uiOnly(it) }
                 is Map<*, *> -> value.all { (k, v) -> k is String && k in safeKeys && v is Boolean }
                 else -> false
             }
             fun registry(restored: Map<String, List<Any?>>? = null) = SaveableStateRegistry(restored, ::uiOnly)
-            // 相同调用点，只由生产holder/header和高级组件拥有各自真实展开状态。
             fun scene(registry: SaveableStateRegistry) = MotionTestEnvironment(testScheduler, 440, 1800, dispatcher = dispatcher) {
                 s4SmsHost { CompositionLocalProvider(LocalSaveableStateRegistry provides registry, LocalDensity provides Density(1f, 1f)) {
                     val configuration by source.state.collectAsState()
-                    val instances = (configuration as ConfigurationUiState.Ready).instances
-                    val state = rememberConfigurationExpansionState()
-                    SideEffect { expansion = state }
-                    Column {
-                        instances.forEachIndexed { i, instance ->
-                            val expanded = state.isExpanded(instance.instanceId)
-                            ConfigurationDisclosureHeader("合成配置 ${i + 1}", "独立展开", expanded,
-                                configurationDisclosureInteractionContract(expanded).copy(headerClickable = true,
-                                    cardClickable = false, headerUsesTopSquircleClip = false),
-                                { state.toggle(instance.instanceId) })
-                            ConfigurationDisclosureContent(expanded) { PhoneText("合成配置内容 ${i + 1}") }
-                        }
-                        // 独立持续组合，保证parent恢复失败不掩盖Advanced自身的恢复失败。
-                        ConfigurationAdvancedSettings(instances.first(), draft, enabled = true)
-                    }
+                    val ready = configuration as ConfigurationUiState.Ready
+                    ConfigurationSimEditor(ConfigurationEditorModel(ready.instances.first(), ready, true, null), draft, source::submit)
                 } }
-            }
-            fun smscField(e: MotionTestEnvironment): Boolean {
-                val label = s4Nodes(e).firstOrNull { node ->
-                    node.config.getOrNull(SemanticsProperties.Text)?.any { it.text == "SMSC" } == true
-                } ?: return false
-                val fields = s4Nodes(e).filter { it.config.contains(SemanticsActions.SetText) }
-                return generateSequence(label) { it.parent }.any { ancestor ->
-                    fields.count { field -> generateSequence(field) { it.parent }.any { it.id == ancestor.id } } == 1
-                }
             }
             var current: MotionTestEnvironment? = null
             try {
                 val savedRegistry = registry(); val first = scene(savedRegistry).also { current = it }; s4Frames(first, 40)
-                assertFalse(expansion.isExpanded(ids[0])); assertFalse(expansion.isExpanded(ids[1]))
-                assertFalse(s4HasText(first, "底层网络")); assertFalse(smscField(first))
-                assertTrue(assertNotNull(s4Action(first, "合成配置 1").config[SemanticsActions.OnClick].action).invoke())
-                s4Frames(first, 40); assertTrue(expansion.isExpanded(ids[0])); assertFalse(expansion.isExpanded(ids[1]))
-                assertTrue(assertNotNull(s4Action(first, "高级设置").config[SemanticsActions.OnClick].action).invoke())
-                s4Frames(first, 40); assertTrue(s4HasText(first, "底层网络")); assertTrue(smscField(first), "真实高级SMSC TextField已展开")
+                assertTrue(s4HasText(first, "底层网络")); assertTrue(s4HasText(first, "1 项修改未保存"), "前提：真实草稿已呈现在保存栏")
                 assertTrue(fields() == originalFields); assertSame(original, source.state.value)
                 val savedMap = savedRegistry.performSave()
-                assertTrue(savedMap.values.flatten().all(::uiOnly), "只能保存UI布尔/合成展开key，不得保存完整配置或draft")
-                assertTrue(savedMap.keys.none { it in originalFields.filter(String::isNotEmpty) }, "registry key不得含配置值")
-                val previousExpansion = expansion; first.close(); current = null
+                assertTrue(savedMap.values.flatten().all(::uiOnly), "只能保存UI数值/安全key，不得保存完整配置或draft")
+                assertTrue(savedMap.keys.none { key -> configurationValues.any { key.contains(it) } }, "registry key不得含配置值")
+                first.close(); current = null
                 val restored = scene(registry(savedMap)).also { current = it }; s4Frames(restored, 40)
-                assertNotSame(first.scene, restored.scene); assertNotSame(previousExpansion, expansion)
+                assertNotSame(first.scene, restored.scene)
                 val failures = mutableListOf<String>()
-                if (!expansion.isExpanded(ids[0])) failures += "E4 restored first disclosure missing"
-                if (expansion.isExpanded(ids[1])) failures += "E4 restored second disclosure must stay collapsed"
-                if (!s4HasText(restored, "底层网络")) failures += "E4 restored advanced settings missing"
-                if (!smscField(restored)) failures += "E4 restored advanced SMSC field missing"
+                if (!s4HasText(restored, "底层网络")) failures += "E4 restored SIM page missing"
+                if (!s4HasText(restored, "1 项修改未保存")) failures += "E4 restored unsaved bar missing for the same in-memory draft"
+                if (!s4Nodes(restored).any { it.config.getOrNull(SemanticsProperties.Text)?.any { t -> t.text.startsWith(edited) } == true })
+                    failures += "E4 restored SMSC row lost the in-memory draft value"
                 assertSame(originalDraft, draft); assertSame(original, source.state.value)
-                assertTrue(fields() == originalFields, "五字段仅内存草稿不能因保存重建被修改")
+                assertTrue(fields() == originalFields, "仅内存草稿不能因保存重建被修改")
                 assertEquals(completion, draft.completionSequence); assertFalse(draft.pending)
                 assertEquals(0, submits); assertEquals(0, callbacks)
                 assertTrue(failures.isEmpty(), failures.joinToString("\n"))

@@ -249,6 +249,9 @@ fun SoftVoWiFiApp(
         onOpenHomeNotice = { subpage ->
             navigate(AppNavigator.open(navigationState, subpage))
         },
+        onOpenSubpage = { subpage ->
+            navigate(AppNavigator.open(navigationState, subpage))
+        },
         blurSupported = blurSupported,
         appearanceActions = com.vowifi.sw.manager.ui.AppearanceSettingsActions(
             onFloatingNavigationChange = appearanceSource::setFloatingNavigation,
