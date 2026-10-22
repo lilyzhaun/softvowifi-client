@@ -193,7 +193,7 @@ class S3ApplicationResultFeedbackRenderTest {
                 it.config.getOrNull(SemanticsProperties.Text)?.any { text -> text.text == "导出日志" } == true
         }
         fun logBounds(): Rect = nodes().single {
-            it.config.getOrNull(SemanticsProperties.Text)?.any { text -> text.text == "2026-08-17 12:34:58.000" } == true
+            it.config.getOrNull(SemanticsProperties.Text)?.any { text -> text.text == "2026-08-17 12:34:58" } == true
         }.boundsInRoot
         fun export() {
             val state = sources.logs.state.value as? OperationalLogUiState.Ready

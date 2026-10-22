@@ -2,10 +2,10 @@ package com.vowifi.sw.manager.ui
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -14,22 +14,20 @@ import androidx.compose.runtime.setValue
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.vowifi.sw.manager.model.OperationalLogEntry
 import com.vowifi.sw.manager.model.OperationalLogKind
 import com.vowifi.sw.manager.model.OperationalLogLevel
 import com.vowifi.sw.manager.model.OperationalLogMessage
+import com.vowifi.sw.manager.model.OperationalLogOrigin
 import com.vowifi.sw.manager.model.operationalLogSafeSummary
-import top.yukonga.miuix.kmp.basic.BasicComponent
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.CardDefaults
-import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.Text
-import top.yukonga.miuix.kmp.icon.MiuixIcons
-import top.yukonga.miuix.kmp.icon.extended.Info
 
 @Composable
 fun LogEntryRow(entry: OperationalLogEntry, modifier: Modifier = Modifier) {
@@ -46,27 +44,20 @@ fun LogEntryRow(entry: OperationalLogEntry, modifier: Modifier = Modifier) {
             .clickable(enabled = actionable, interactionSource = interaction,
                 indication = rememberManagerPressIndication(ManagerPressStyle.Card, actionable), onClickLabel = "查看日志详情",
                 onClick = rememberManagerActionHandler(feedback) { detail = true }),
-        insideMargin = PaddingValues(vertical = 4.dp),
+        insideMargin = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
     ) {
         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            BasicComponent(
-                title = operationalLogEntryTitle(entry),
-                summary = operationalLogEntrySummary(entry),
-                startAction = {
-                    Icon(
-                        imageVector = MiuixIcons.Info,
-                        contentDescription = operationalLogLevelLabel(entry.level),
-                        tint = operationalLogLevelAccent(entry.level, colors),
-                        modifier = Modifier.size(20.dp),
-                    )
-                },
-                endActions = {
-                    SemanticStatusBadge(logEntrySemanticBadgeSpec(entry))
-                },
-            )
+            Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(operationalLogEntryTitle(entry), modifier = Modifier.weight(1f),
+                    color = colors.textPrimary, fontSize = 16.sp, lineHeight = 22.sp, fontWeight = FontWeight.Medium)
+                if (entry.level != OperationalLogLevel.INFO) SemanticStatusBadge(logEntrySemanticBadgeSpec(entry))
+            }
+            Text(operationalLogEntryContext(entry), color = colors.textSecondary, fontSize = 12.sp, lineHeight = 17.sp)
+            Text(operationalLogEntrySummary(entry), color = colors.textSecondary, fontSize = 12.sp, lineHeight = 17.sp)
+            if (operationalLogEntryMessage(entry).removeSuffix("。") != operationalLogEntryTitle(entry)) {
             Text(
                 operationalLogEntryMessage(entry),
-                modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 12.dp),
+                modifier = Modifier.padding(top = 4.dp),
                 color = colors.textSecondary,
                 fontSize = 14.sp,
                 lineHeight = 20.sp,
@@ -74,17 +65,32 @@ fun LogEntryRow(entry: OperationalLogEntry, modifier: Modifier = Modifier) {
                 overflow = TextOverflow.Ellipsis,
                 softWrap = true,
             )
+            }
         }
     }
 }
 
-internal fun operationalLogEntryTitle(entry: OperationalLogEntry): String = when (entry.message) {
+internal fun operationalLogEntryTitle(entry: OperationalLogEntry): String = entry.headline ?: when (entry.message) {
     OperationalLogMessage.EVENT -> "${operationalLogKindLabel(entry.kind)}事件"
     OperationalLogMessage.UNAVAILABLE -> "未分类事件"
     else -> operationalLogMessageLabel(entry.message)
 }
 
-internal fun operationalLogEntrySummary(entry: OperationalLogEntry): String = entry.timestamp
+internal fun operationalLogEntrySummary(entry: OperationalLogEntry): String =
+    entry.timestamp.take(19) + entry.timeZoneLabel?.let { " $it" }.orEmpty()
+
+internal fun operationalLogEntryContext(entry: OperationalLogEntry): String {
+    val source = when (entry.origin) {
+        OperationalLogOrigin.DIAGNOSTIC -> "应用运行"
+        OperationalLogOrigin.OBSERVER -> "系统 IMS"
+        OperationalLogOrigin.STARTUP -> "进程输出"
+        OperationalLogOrigin.ENGINE -> "软件引擎"
+    }
+    val line = entry.displayLabel.takeUnless { it in setOf("全局诊断", "Root 诊断") || it.isBlank() }
+    return listOfNotNull(source, line).joinToString(" · ")
+}
+
+internal fun isKeyLogEntry(entry: OperationalLogEntry): Boolean = !entry.technical || entry.level != OperationalLogLevel.INFO
 
 internal fun operationalLogEntryMessage(entry: OperationalLogEntry): String = operationalLogSafeSummary(entry)
 
@@ -132,10 +138,4 @@ internal fun operationalLogMessageLabel(message: OperationalLogMessage): String 
     OperationalLogMessage.OPERATION_FAILED -> "操作未完成"
     OperationalLogMessage.EVENT -> "运行事件"
     OperationalLogMessage.UNAVAILABLE -> "未分类事件"
-}
-
-private fun operationalLogLevelAccent(level: OperationalLogLevel, colors: SoftVoWiFiColors): Color = when (operationalLogTone(level)) {
-    OperationalLogTone.INFORMATION -> colors.neutralStatus
-    OperationalLogTone.WARNING -> colors.warning
-    OperationalLogTone.ERROR -> colors.error
 }

@@ -4,6 +4,7 @@ import com.vowifi.sw.manager.model.OperationalLogEntry
 import com.vowifi.sw.manager.model.OperationalLogKind
 import com.vowifi.sw.manager.model.OperationalLogLevel
 import com.vowifi.sw.manager.model.OperationalLogMessage
+import com.vowifi.sw.manager.model.OperationalLogOrigin
 import com.vowifi.sw.manager.model.operationalLogSafeSummary
 
 object OperationalLogExporter {
@@ -19,8 +20,10 @@ object OperationalLogExporter {
         listOf(
             entry.timestamp.takeIf(timestamp::matches) ?: "时间不可用",
             levelText(entry.level),
-            kindText(entry.kind),
-            if (entry.kind == OperationalLogKind.DIAGNOSTIC) {
+            if (entry.origin == OperationalLogOrigin.OBSERVER) "系统 IMS" else kindText(entry.kind),
+            if (entry.origin == OperationalLogOrigin.OBSERVER) {
+                entry.displayLabel.takeIf { it == "SIM 1" || it == "SIM 2" } ?: "槽位未知"
+            } else if (entry.kind == OperationalLogKind.DIAGNOSTIC) {
                 entry.displayLabel.takeIf { it == "SIM 1" || it == "SIM 2" } ?: "全局诊断"
             } else OperationalLogRedactor.displayLabel(entry.displayLabel),
             messageText(entry.message),

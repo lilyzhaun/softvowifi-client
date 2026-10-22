@@ -13,6 +13,7 @@ data class RegistrationEvent(
     val reasonCode: Int? = null,
     val extraCode: Int? = null,
     val extraMessage: String? = null,
+    val slot: Int? = null,
 ) {
     val normalizedState: RegistrationState
         get() = RegistrationState.entries.firstOrNull { it.name == state } ?: RegistrationState.UNKNOWN

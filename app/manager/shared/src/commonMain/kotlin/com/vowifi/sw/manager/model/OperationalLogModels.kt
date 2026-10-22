@@ -11,7 +11,10 @@ enum class OperationalLogOrigin {
     DIAGNOSTIC,
     ENGINE,
     STARTUP,
+    OBSERVER,
 }
+
+const val SYSTEM_REGISTRATION_LOG_ID = "system-registration"
 
 enum class OperationalLogLevel {
     INFO,
@@ -44,6 +47,9 @@ data class OperationalLogEntry(
     val safeDetail: String = safeSummary,
     val detailTruncated: Boolean = false,
     val origin: OperationalLogOrigin = OperationalLogOrigin.ENGINE,
+    val headline: String? = null,
+    val technical: Boolean = false,
+    val timeZoneLabel: String? = null,
 )
 
 internal fun operationalLogSafeSummary(entry: OperationalLogEntry): String = entry.safeSummary

@@ -1,7 +1,9 @@
 package com.vowifi.sw.manager.data
 
 internal object DiagnosticLabels {
-    fun summary(event: DiagnosticEvent): String = buildString {
+    fun summary(event: DiagnosticEvent): String = DiagnosticPresentation.summary(event)
+
+    fun technicalSummary(event: DiagnosticEvent): String = buildString {
         append(when (event.component) {
             DiagnosticComponent.APP -> "管理 App"
             DiagnosticComponent.SUBSCRIPTIONS -> "SIM 订阅"
@@ -50,7 +52,11 @@ internal object DiagnosticLabels {
         })
         if (event.reason != DiagnosticReason.NONE) {
             append("，")
-            append(when (event.reason) {
+            append(reason(event.reason))
+        }
+    }
+
+    fun reason(reason: DiagnosticReason): String = when (reason) {
                 DiagnosticReason.NONE -> ""
                 DiagnosticReason.UNKNOWN -> "原因未知"
                 DiagnosticReason.UNAVAILABLE -> "数据不可用"
@@ -64,7 +70,7 @@ internal object DiagnosticLabels {
                 DiagnosticReason.LOCK_BUSY -> "已有诊断写入者"
                 DiagnosticReason.UNSAFE_PATH -> "诊断路径不安全"
                 DiagnosticReason.STORAGE_LIMIT -> "诊断存储超出预算或存在未纳管文件"
-                DiagnosticReason.ROTATION_FAILED -> "日志轮转失败"
+                DiagnosticReason.ROTATION_FAILED -> "日志文件重置失败"
                 DiagnosticReason.USER_STOP -> "用户停止"
                 DiagnosticReason.NETWORK_PROPERTIES_CHANGED -> "网络物理属性变化"
                 DiagnosticReason.ACCESS_CONTEXT_CHANGED -> "接入上下文变化"
@@ -101,7 +107,5 @@ internal object DiagnosticLabels {
                 DiagnosticReason.CONNECTION_REFUSED -> "连接被拒绝"
                 DiagnosticReason.BIND_FAILED -> "套接字绑定失败"
                 DiagnosticReason.CAPACITY_EXHAUSTED -> "受管日志组额度耗尽"
-            })
-        }
     }
 }

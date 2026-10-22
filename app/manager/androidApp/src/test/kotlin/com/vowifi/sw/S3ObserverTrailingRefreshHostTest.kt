@@ -48,7 +48,7 @@ class S3ObserverTrailingRefreshHostTest {
 internal class S3ObserverIoFixture : AutoCloseable {
     val first = S3IoHold()
     val second = S3IoHold()
-    private val output = File(RuntimeEnvironment.getApplication().filesDir, "ims-registration.jsonl")
+    private val output = File(RuntimeEnvironment.getApplication().filesDir, "logs/ims-registration.jsonl").apply { parentFile!!.mkdirs() }
     val source: AndroidObserverLogSource
     private val observer: FileObserver
     init {

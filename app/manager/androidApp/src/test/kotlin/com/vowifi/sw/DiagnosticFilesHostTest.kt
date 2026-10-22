@@ -11,21 +11,22 @@ import org.junit.rules.TemporaryFolder
 
 class DiagnosticFilesHostTest {
     @get:Rule val temporary = TemporaryFolder()
-    private fun directory() = temporary.root.toPath().resolve("diagnostics-v1")
+    private fun directory() = temporary.root.toPath().resolve("logs")
 
-    @Test fun repeatedRotationAndRestartHaveHardByteAndFileBounds() {
+    @Test fun repeatedResetAndRestartKeepOnlyBoundedCurrentLog() {
         val dir = directory()
         repeat(5) {
             DiagnosticFiles(dir, maxBytes = 4096).use { store ->
                 repeat(50) { assertTrue(store.append(("x".repeat(1000) + "\n").toByteArray())) }
             }
             val files = Files.list(dir).use { it.toList() }
-            assertEquals(4, files.size) // three payload files plus zero-byte lock
+            assertEquals(1, files.size)
             assertTrue(files.all { Files.size(it) <= 4096 })
-            assertTrue(files.sumOf { Files.size(it) } <= 3 * 4096)
+            assertTrue(files.sumOf { Files.size(it) } <= 4096)
+            assertTrue(Files.isRegularFile(temporary.root.toPath().resolve("state/logs/writer.lock")))
             assertEquals("rw-------", java.nio.file.attribute.PosixFilePermissions.toString(
                 Files.getPosixFilePermissions(dir.resolve("app.jsonl"))))
-            println("diagnostic_rotation files=${files.size} payload_bytes=${files.sumOf { Files.size(it) }} cap=${3 * 4096}")
+            println("diagnostic_current files=${files.size} payload_bytes=${files.sumOf { Files.size(it) }} cap=4096")
         }
     }
 
@@ -72,9 +73,9 @@ class DiagnosticFilesHostTest {
         assertEquals("not a directory", Files.readString(dir))
     }
 
-    @Test fun windowReadsRotationsButIsExplicitlyTruncatedAtFiftyRecords() {
+    @Test fun currentWindowIsExplicitlyTruncatedAtFiftyRecords() {
         val dir = directory()
-        DiagnosticFiles(dir, maxBytes = 2048).use { store ->
+        DiagnosticFiles(dir, maxBytes = 8192).use { store ->
             repeat(100) { assertTrue(store.append(("record-$it".padEnd(50, 'x') + "\n").toByteArray())) }
         }
         val window = DiagnosticFiles.readWindow(dir)
@@ -89,8 +90,8 @@ class DiagnosticFilesHostTest {
         val outside = temporary.newFolder("outside-dir").toPath()
         val link = temporary.root.toPath().resolve("link")
         Files.createSymbolicLink(link, outside)
-        DiagnosticFiles(link.resolve("diagnostics-v1")).use { assertFalse(it.append("bad\n".toByteArray())) }
-        assertFalse(Files.exists(outside.resolve("diagnostics-v1")))
+        DiagnosticFiles(link.resolve("logs")).use { assertFalse(it.append("bad\n".toByteArray())) }
+        assertFalse(Files.exists(outside.resolve("logs")))
         val dir = directory()
         Files.createDirectory(dir)
         Files.writeString(dir.resolve("legacy.log"), "preserve")
@@ -113,15 +114,15 @@ class DiagnosticFilesHostTest {
         assertEquals(1, attempts)
     }
 
-    @Test fun productionDefaultsRemainThreeMebibytesAfterEightMebibytesOfWrites() {
+    @Test fun productionKeepsOneMebibyteAfterEightMebibytesOfWrites() {
         val dir = directory()
         val bytes = ("x".repeat(2047) + "\n").toByteArray()
         DiagnosticFiles(dir).use { store -> repeat(4096) { assertTrue(store.append(bytes)) } }
         val files = Files.list(dir).use { it.toList() }
-        assertEquals(4, files.size)
+        assertEquals(1, files.size)
         assertTrue(files.all { Files.size(it) <= 1024 * 1024 })
-        assertEquals(3L * 1024 * 1024, files.sumOf { Files.size(it) })
-        println("diagnostic_production_budget files=${files.size} payload_bytes=${files.sumOf { Files.size(it) }} cap=3145728")
+        assertEquals(1024L * 1024, files.sumOf { Files.size(it) })
+        println("diagnostic_production_budget files=${files.size} payload_bytes=${files.sumOf { Files.size(it) }} cap=1048576")
     }
 
     @Test fun restartPreservesTornEvidenceAndSeparatesTheNextRun() {
@@ -133,7 +134,7 @@ class DiagnosticFilesHostTest {
         Files.writeString(dir.resolve("app.jsonl"), "x".repeat(2048))
         DiagnosticFiles(dir, maxBytes = 2048).use { assertTrue(it.append("next\n".toByteArray())) }
         assertEquals("next\n", Files.readString(dir.resolve("app.jsonl")))
-        assertEquals(2048, Files.size(dir.resolve("app.jsonl.1")))
+        assertFalse(Files.exists(dir.resolve("app.jsonl.1")))
     }
 
     @Test fun trustedAppStorageAliasIsResolvedButManagedDirectorySymlinkIsStillRejected() {
@@ -142,14 +143,14 @@ class DiagnosticFilesHostTest {
         Files.createSymbolicLink(frameworkAlias, actualBase)
         val diagnosticDirectory = DiagnosticFiles.directoryInAppStorage(frameworkAlias)
         DiagnosticFiles(diagnosticDirectory).use { assertTrue(it.append("observed\n".toByteArray())) }
-        assertEquals("observed\n", Files.readString(actualBase.resolve("diagnostics-v1/app.jsonl")))
+        assertEquals("observed\n", Files.readString(actualBase.resolve("logs/app.jsonl")))
         assertEquals(listOf("observed"), DiagnosticFiles.readWindow {
             DiagnosticFiles.directoryInAppStorage(frameworkAlias)
         }.lines)
 
         val otherBase = temporary.newFolder("other-app-private").toPath()
         val outside = temporary.newFolder("not-managed").toPath()
-        Files.createSymbolicLink(otherBase.resolve("diagnostics-v1"), outside)
+        Files.createSymbolicLink(otherBase.resolve("logs"), outside)
         DiagnosticFiles(DiagnosticFiles.directoryInAppStorage(otherBase)).use {
             assertFalse(it.append("must-not-follow\n".toByteArray()))
         }
@@ -167,5 +168,21 @@ class DiagnosticFilesHostTest {
         assertTrue(window.lines.isEmpty())
         assertEquals(com.vowifi.sw.manager.data.DiagnosticReason.UNAVAILABLE,
             DiagnosticFiles.readWindow { null }.issue)
+    }
+
+    @Test fun upgradeDeletesOnlyOldLogsAndLeavesNewLogsAndBusinessFilesOnRepeatedStartup() {
+        val root = temporary.root.toPath()
+        val old = Files.createDirectory(root.resolve("diagnostics-v1"))
+        for (name in listOf("app.jsonl", "app.jsonl.1", "app.jsonl.2", "writer.lock")) Files.writeString(old.resolve(name), "old")
+        val export = Files.createDirectory(root.resolve("diagnostic-export-v1"))
+        Files.writeString(export.resolve("export.jsonl"), "old export")
+        Files.writeString(root.resolve("ims-registration.jsonl"), "old observer")
+        Files.writeString(root.resolve("business.db"), "keep business")
+        DiagnosticFiles(directory()).use { assertTrue(it.append("current\n".toByteArray())) }
+        repeat(2) { DiagnosticFiles.clearLegacyInAppStorage(root) }
+        assertFalse(Files.exists(old)); assertFalse(Files.exists(export))
+        assertFalse(Files.exists(root.resolve("ims-registration.jsonl")))
+        assertEquals("keep business", Files.readString(root.resolve("business.db")))
+        assertEquals("current\n", Files.readString(directory().resolve("app.jsonl")))
     }
 }

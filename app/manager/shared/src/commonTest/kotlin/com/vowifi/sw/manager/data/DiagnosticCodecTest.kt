@@ -23,7 +23,8 @@ class DiagnosticCodecTest {
         assertTrue(bytes.size <= 2048)
         assertEquals(event, DiagnosticCodec.parse(bytes.decodeToString().trimEnd()))
         assertTrue(bytes.decodeToString().contains("unsupported_characters"))
-        assertEquals("SIM 订阅 · 身份规范化：失败，身份包含不支持的字符", DiagnosticLabels.summary(event.event))
+        assertEquals("身份包含不支持的字符。", DiagnosticLabels.summary(event.event))
+        assertEquals("SIM 订阅 · 身份规范化：失败，身份包含不支持的字符", DiagnosticLabels.technicalSummary(event.event))
     }
 
     @Test fun unknownVersionFieldsEnumsAndIdentityLikeValuesNeverReachProjection() {

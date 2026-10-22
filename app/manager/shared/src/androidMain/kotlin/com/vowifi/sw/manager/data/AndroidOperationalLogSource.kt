@@ -8,6 +8,7 @@ import com.vowifi.sw.manager.model.OperationalLogList
 import com.vowifi.sw.manager.model.OperationalLogLoadInfo
 import com.vowifi.sw.manager.model.OperationalLogTail
 import com.vowifi.sw.manager.model.OperationalLogUiState
+import com.vowifi.sw.manager.model.SYSTEM_REGISTRATION_LOG_ID
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
@@ -30,6 +31,7 @@ class AndroidOperationalLogSource internal constructor(
     private val nowMillis: () -> Long = { System.nanoTime() / 1_000_000 },
     private val local: LocalDiagnosticLogReader? = null,
     private val rootDiagnostics: RootDiagnosticLogReader? = null,
+    private val registration: RegistrationOperationalLogReader? = null,
 ) : OperationalLogSource {
     override val fullDiagnosticExport: Boolean get() = local != null
     private val window = MutableStateFlow(DiagnosticExportWindow.HOUR)
@@ -37,8 +39,9 @@ class AndroidOperationalLogSource internal constructor(
     override fun exportWindow() = window.value
     override fun setExportWindow(window: DiagnosticExportWindow) { this.window.value=window }
     constructor() : this(CancelLogShellRun(), CoroutineScope(SupervisorJob() + Dispatchers.IO))
-    constructor(context: Context) : this(CancelLogShellRun(), CoroutineScope(SupervisorJob() + Dispatchers.IO),
-        local = LocalDiagnosticLogReader(context.applicationContext), rootDiagnostics = RootDiagnosticLogReader(context.applicationContext))
+    constructor(context: Context, observer: ObserverLogSource? = null) : this(CancelLogShellRun(), CoroutineScope(SupervisorJob() + Dispatchers.IO),
+        local = LocalDiagnosticLogReader(context.applicationContext), rootDiagnostics = RootDiagnosticLogReader(context.applicationContext),
+        registration = observer?.let(::RegistrationOperationalLogReader))
 
     private val reader = OperationalLogReader(command)
     private val groups = OperationalLogGroupReader(reader)
@@ -157,7 +160,7 @@ class AndroidOperationalLogSource internal constructor(
         val result = try {
             reader.catalog().also { moduleIssue = null }
         } catch (error: LogReadFailure) {
-            if (local == null) throw error
+            if (local == null && registration == null) throw error
             moduleIssue = "模块日志读取失败：${error.safeMessage}"
             LogCatalogResult(OperationalLogList(0, emptyList()), false)
         }
@@ -167,7 +170,8 @@ class AndroidOperationalLogSource internal constructor(
                 return@synchronized false
             }
             val files = (if (local == null) emptyList() else listOf(LocalDiagnosticLogReader.FILE)) +
-                (if(rootDiagnostics==null) emptyList() else listOf(RootDiagnosticLogReader.ALL_FILE,RootDiagnosticLogReader.FILE)) + result.catalog.files
+                (if(rootDiagnostics==null) emptyList() else listOf(RootDiagnosticLogReader.ALL_FILE,RootDiagnosticLogReader.FILE)) +
+                (if (registration == null) emptyList() else listOf(RegistrationOperationalLogReader.FILE)) + result.catalog.files
             val choice = groups.selection(files, catalog.files.firstOrNull { it.id == selected }, selected)
             catalog = result.catalog.copy(files = files)
             legacy = result.legacy
@@ -191,7 +195,8 @@ class AndroidOperationalLogSource internal constructor(
             Triple(selected ?: return, legacy, catalog.files)
         }
         val result = try {
-            if (local != null && identity.first == LocalDiagnosticLogReader.ID) {
+            if (registration != null && identity.first == SYSTEM_REGISTRATION_LOG_ID) registration.read()
+            else if (local != null && identity.first == LocalDiagnosticLogReader.ID) {
                 val read = local.read()
                 read.copy(issue = listOfNotNull(moduleIssue, read.issue).takeIf { it.isNotEmpty() }?.joinToString("；"))
             } else if(rootDiagnostics!=null && identity.first==RootDiagnosticLogReader.ID) runInterruptible { rootDiagnostics.read() }

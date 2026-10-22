@@ -125,13 +125,13 @@ public final class ObserverService extends Service {
                 Log.w(TAG, "observer_unavailable_ims_service");
                 return;
             }
-            File output = new File(getFilesDir(), "ims-registration.jsonl");
+            File output = new File(getFilesDir(), "logs/ims-registration.jsonl");
             for (SubscriptionInfo info : active) {
                 try {
                     int subId = info.getSubscriptionId();
                     ImsMmTelManager manager = ims.getImsMmTelManager(subId);
                     RegistrationObserver observer = new RegistrationObserver(
-                            subId, manager, executor, output);
+                            subId, info.getSimSlotIndex(), manager, executor, output);
                     if (observer.start()) {
                         observers.put(subId, observer);
                     }

@@ -13,6 +13,7 @@ import com.vowifi.sw.manager.model.OperationalLogFile
 import com.vowifi.sw.manager.model.OperationalLogFilter
 import com.vowifi.sw.manager.model.OperationalLogKind
 import com.vowifi.sw.manager.model.OperationalLogLevel
+import com.vowifi.sw.manager.model.SYSTEM_REGISTRATION_LOG_ID
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.Text
@@ -60,14 +61,14 @@ internal fun LogFilterRow(
         insideMargin = PaddingValues(vertical = 4.dp),
     ) {
         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            if (presentation.files.any { it.groupKey == null && it.id !in setOf("app-diagnostics-v1","root-diagnostics-v1","all-diagnostics-v1") }) Text(
-                "当前模块未提供安全分组，仅按文件读取；尚不支持合并同线路日志。",
+            if (presentation.files.any { it.groupKey == null && it.id !in setOf("app-diagnostics-v1","root-diagnostics-v1","all-diagnostics-v1", SYSTEM_REGISTRATION_LOG_ID) }) Text(
+                "当前模块仅支持按文件查看日志。",
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
             )
             OverlayDropdownPreference(
                 items = fileItems,
                 selectedIndex = if (hasSelectedFile) selectedFileIndex else 0,
-                title = "日志文件",
+                title = "日志来源",
                 startAction = {
                     Icon(
                         imageVector = MiuixIcons.Info,
@@ -126,9 +127,10 @@ internal fun operationalLogLevelOptions(): List<Pair<OperationalLogLevel?, Strin
 )
 
 internal fun operationalLogFileLabel(file: OperationalLogFile): String {
-    if (file.id == "app-diagnostics-v1" && file.name == "app.jsonl") return "App 全局诊断"
-    if (file.id == "root-diagnostics-v1" && file.name == "diagnostic.jsonl") return "Root 全链路诊断"
-    if (file.id == "all-diagnostics-v1" && file.name == "combined.jsonl") return "App＋Root 统一诊断"
+    if (file.id == "app-diagnostics-v1" && file.name == "app.jsonl") return "应用运行"
+    if (file.id == "root-diagnostics-v1" && file.name == "diagnostic.jsonl") return "连接过程"
+    if (file.id == "all-diagnostics-v1" && file.name == "combined.jsonl") return "应用与连接"
+    if (file.id == SYSTEM_REGISTRATION_LOG_ID && file.name == "ims-registration.jsonl") return "系统 IMS 注册"
     val suffix = file.suffix.filter(Char::isLetterOrDigit).takeLast(4)
     return if (suffix.isEmpty()) "运行日志 ••••" else "运行日志 •••• $suffix"
 }

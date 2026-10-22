@@ -22,7 +22,7 @@ class AndroidObserverLogSource(
     context: Context,
     private val parser: RegistrationLogParser = RegistrationLogParser(),
 ) : ObserverLogSource {
-    private val output = File(context.filesDir, "ims-registration.jsonl")
+    private val output = File(context.filesDir, "logs/ims-registration.jsonl")
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val requests = Channel<Unit>(Channel.CONFLATED)
     private val lock = Any()
@@ -31,11 +31,20 @@ class AndroidObserverLogSource(
     private val mutableState = MutableStateFlow<RegistrationUiState>(RegistrationUiState.Loading)
     override val state: StateFlow<RegistrationUiState> = mutableState.asStateFlow()
     private val observer = object : FileObserver(
-        context.filesDir,
-        FileObserver.CLOSE_WRITE or FileObserver.MOVED_TO or FileObserver.DELETE,
+        listOf(context.filesDir, output.parentFile!!),
+        FileObserver.CLOSE_WRITE or FileObserver.MOVED_TO or FileObserver.DELETE or FileObserver.CREATE,
     ) {
         override fun onEvent(event: Int, path: String?) {
-            if (path == output.name) refresh()
+            if (path == "logs") {
+                synchronized(lock) {
+                    if (!closed) {
+                        // Re-arm the same observer when logs/ is first created or replaced.
+                        stopWatching()
+                        startWatching()
+                        requests.trySend(Unit)
+                    }
+                }
+            } else if (path == output.name) refresh()
         }
     }
 

@@ -115,6 +115,7 @@ internal fun SettingsLogsScreen(
     onRefresh: (suspend () -> RefreshResult)? = null,
     exportCompletion: LogExportCompletion? = null,
 ) {
+    var showTechnical by remember { mutableStateOf(false) }
     var exportFailed by remember { mutableStateOf(exportCompletion?.outcome == LogExportOutcome.Failed) }
     LaunchedEffect(exportBusy, exportCompletion) {
         exportFailed = !exportBusy && exportCompletion?.outcome == LogExportOutcome.Failed
@@ -145,7 +146,7 @@ internal fun SettingsLogsScreen(
         else -> null
     }
     key(selectionScope) {
-        AppPageScaffold(title = "运行日志", showTopBar = false, scrollResetCondition = filter, refreshController = refresh,
+        AppPageScaffold(title = "运行日志", showTopBar = false, scrollResetCondition = filter to showTechnical, refreshController = refresh,
             refreshRotation = rotation, refreshIndicator = indicator, contentAlpha = loading.alpha, emptyAlpha = empty) {
             managerRefreshResultItem(refresh, "logs-refresh-result")
             if (exportFailed) item(key = "logs-export-failure") {
@@ -153,7 +154,7 @@ internal fun SettingsLogsScreen(
             }
             if (!loading.hidden) operationalLogItems(state = if (loading.showLoading) OperationalLogUiState.Loading else state,
                 actions = actions, exportBusy = exportBusy, onRetry = if (onRefresh != null) ({ refresh.request() }) else null,
-                retryEnabled = refresh.enabled)
+                retryEnabled = refresh.enabled, showTechnical = showTechnical, onShowTechnical = { showTechnical = it })
             if (inlineRefresh && onRefresh != null) {
                 item(key = "logs-refresh-action") {
                     ManagerIconAction(MiuixIcons.Refresh, "刷新运行日志", ManagerAction.Refresh, { refresh.request() },

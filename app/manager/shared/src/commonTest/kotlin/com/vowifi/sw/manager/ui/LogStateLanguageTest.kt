@@ -215,7 +215,8 @@ class LogStateLanguageTest {
             safeSummary = "unclassified event",
         )
 
-        assertEquals("2026-08-29 18:30:00.123", operationalLogEntrySummary(knownEntry))
+        assertEquals("2026-08-29 18:30:00", operationalLogEntrySummary(knownEntry))
+        assertEquals("软件引擎 · 实例 •••• 1234", operationalLogEntryContext(knownEntry))
         assertEquals("引擎已启动", operationalLogEntryTitle(knownEntry))
         assertEquals("engine started", operationalLogEntryMessage(knownEntry))
 

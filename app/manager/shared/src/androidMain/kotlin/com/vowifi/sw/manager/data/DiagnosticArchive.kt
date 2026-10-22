@@ -59,18 +59,17 @@ internal class DiagnosticArchive(
                 checkAncestors(dir)
                 if(Files.exists(dir,NOFOLLOW_LINKS)) {
                     if(!Files.isDirectory(dir,NOFOLLOW_LINKS))throw IOException("unsafe diagnostic directory")
-                    val names=setOf("app.jsonl","app.jsonl.1","app.jsonl.2","writer.lock")
+                    val names=setOf("app.jsonl","ims-registration.jsonl")
                     Files.newDirectoryStream(dir).use { entries ->
                         var count=0
                         for(path in entries) {
-                            if(++count>4 || path.fileName.toString() !in names)throw IOException("unsafe diagnostic directory")
-                            if(path.fileName.toString()=="writer.lock" && (!Files.isRegularFile(path,NOFOLLOW_LINKS) || Files.size(path)!=0L))throw IOException("unsafe diagnostic lock")
+                            if(++count>2 || path.fileName.toString() !in names || !Files.isRegularFile(path,NOFOLLOW_LINKS) || Files.size(path)>1024*1024)throw IOException("unsafe diagnostic directory")
                         }
                     }
-                    val generations=listOf("app.jsonl.2","app.jsonl.1","app.jsonl")
+                    val generations=listOf("app.jsonl")
                     fun identities()=generations.map { name ->
                         val path=dir.resolve(name)
-                        if(!Files.exists(path,NOFOLLOW_LINKS))null else Files.readAttributes(path,BasicFileAttributes::class.java,NOFOLLOW_LINKS).let {it.fileKey() to it.size()}
+                        if(!Files.exists(path,NOFOLLOW_LINKS))null else Files.readAttributes(path,BasicFileAttributes::class.java,NOFOLLOW_LINKS).let {Triple(it.fileKey(), it.size(), it.lastModifiedTime())}
                     }
                     val before=identities()
                     for(name in generations) {

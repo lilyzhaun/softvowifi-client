@@ -13,6 +13,7 @@ import com.vowifi.sw.manager.data.DiagnosticExportWindow
 import com.vowifi.sw.manager.model.OperationalLogEntry
 import com.vowifi.sw.manager.model.OperationalLogFilter
 import com.vowifi.sw.manager.model.OperationalLogUiState
+import com.vowifi.sw.manager.model.SYSTEM_REGISTRATION_LOG_ID
 import top.yukonga.miuix.kmp.basic.Text
 
 internal fun LazyListScope.operationalLogItems(
@@ -21,6 +22,8 @@ internal fun LazyListScope.operationalLogItems(
     exportBusy: Boolean,
     onRetry: (() -> Unit)? = null,
     retryEnabled: Boolean = true,
+    showTechnical: Boolean = false,
+    onShowTechnical: ((Boolean) -> Unit)? = null,
 ) {
     item(key = "operational-logs-state") {
         val spec = when (state) {
@@ -38,6 +41,8 @@ internal fun LazyListScope.operationalLogItems(
             exportBusy = exportBusy,
             onRetry = onRetry,
             retryEnabled = retryEnabled,
+            showTechnical = showTechnical,
+            onShowTechnical = onShowTechnical,
         )
         is OperationalLogUiState.Warning -> operationalLogDataItems(
             state = state,
@@ -45,6 +50,8 @@ internal fun LazyListScope.operationalLogItems(
             exportBusy = exportBusy,
             onRetry = onRetry,
             retryEnabled = retryEnabled,
+            showTechnical = showTechnical,
+            onShowTechnical = onShowTechnical,
         )
         else -> Unit
     }
@@ -56,6 +63,8 @@ private fun LazyListScope.operationalLogDataItems(
     exportBusy: Boolean,
     onRetry: (() -> Unit)?,
     retryEnabled: Boolean,
+    showTechnical: Boolean,
+    onShowTechnical: ((Boolean) -> Unit)?,
 ) {
     val files = when (state) {
         is OperationalLogUiState.Ready -> state.files
@@ -88,7 +97,8 @@ private fun LazyListScope.operationalLogDataItems(
         else -> emptyList()
     }
     val matching = filteredEntries.toSet()
-    val displayed = sourceEntries.withIndex().filter { it.value in matching }.asReversed()
+    val displayed = sourceEntries.withIndex().filter { it.value in matching && (showTechnical || isKeyLogEntry(it.value)) }.asReversed()
+    val technicalCount = filteredEntries.count { !isKeyLogEntry(it) }
     val fileSelection = LogFileSelection(actions.setInstance, actions.selectFile)
     val gap = logsChromeContract().cardGapDp.dp
     val sections = operationalLogDataSectionOrder(state is OperationalLogUiState.Warning)
@@ -123,13 +133,19 @@ private fun LazyListScope.operationalLogDataItems(
             OperationalLogDataSection.EVENTS -> {
                 item(key = "operational-log-read-status") {
                      val labels = listOfNotNull(
-                         if(selectedFileId=="root-diagnostics-v1" || selectedFileId=="all-diagnostics-v1") "仅受管结构化事件；旧文本请选原日志源。旧启动可能缺DNS读写阶段；未观察到不视为成功。" else null,
-                        if (loadInfo.legacy) "旧模块兼容模式：文件序号可能随目录变化，未启用缓存" else null,
-                         if (loadInfo.issue != null) "上次快照 · 本次读取失败，不能作为当前结果" else if (loadInfo.cached) "缓存快照 · 刷新可重新读取" else null,
+                          if (selectedFileId == SYSTEM_REGISTRATION_LOG_ID) "显示最近最多50条系统电话服务记录，与软件引擎的注册记录相互独立。" else null,
+                         if (loadInfo.legacy) "正在按旧模块提供的文件读取日志。" else null,
+                          if (loadInfo.issue != null) "此次刷新未完成，当前仍是上次读取的记录。" else if (loadInfo.cached) "显示上次读取的记录，刷新可更新。" else null,
                         if (loadInfo.reading) "正在读取所选日志" else null,
                         loadInfo.issue,
                     )
                     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                          if (sourceEntries.any { it.technical } && onShowTechnical != null) {
+                              Text(if (showTechnical) "显示当前窗口的全部步骤" else "关键记录 · 已收起 $technicalCount 条技术步骤",
+                                  color = LocalSoftVoWiFiColors.current.textSecondary, fontSize = 14.sp, lineHeight = 20.sp)
+                              ManagerTextAction(if (showTechnical) "返回关键记录" else "查看全部步骤", ManagerAction.ContextAction,
+                                  { onShowTechnical(!showTechnical) }, modifier = Modifier.padding(bottom = gap))
+                          }
                          labels.forEach { label -> Text(label, modifier = Modifier.padding(bottom = gap),
                              color = LocalSoftVoWiFiColors.current.textSecondary, fontSize = 14.sp, lineHeight = 20.sp) }
                          if (loadInfo.issue != null && onRetry != null) {
@@ -137,10 +153,10 @@ private fun LazyListScope.operationalLogDataItems(
                          }
                     }
                 }
-                if (filteredEntries.isEmpty() && !loadInfo.reading && loadInfo.issue == null) {
+                if (displayed.isEmpty() && !loadInfo.reading && loadInfo.issue == null) {
                     item(key = "operational-logs-filtered-empty") {
                         StatePanel(
-                            spec = operationalLogFilteredEmptySpec(),
+                            spec = if (technicalCount > 0 && !showTechnical) operationalLogKeyEmptySpec() else operationalLogFilteredEmptySpec(),
                             modifier = Modifier.padding(bottom = gap),
                         )
                     }
@@ -165,7 +181,7 @@ private fun LazyListScope.operationalLogDataItems(
                                 selectedIndex=actions.exportWindow.ordinal,enabled=!exportBusy,onSelectedIndexChange={index->
                                     DiagnosticExportWindow.entries.getOrNull(index)?.let(actions.setExportWindow)
                                 })
-                            Text("导出所选时间内App及Root受管结构化事件，包含当前和两代轮转，不受页面筛选或50行窗口限制。旧文本不包含在内；缺证写入导出回执。",color=colors.textSecondary,fontSize=14.sp,lineHeight=20.sp)
+                            Text("导出所选时间内已保留的应用与连接记录，包含技术步骤，不受页面筛选或最近记录窗口限制。系统 IMS 注册记录请切换到对应来源后导出。",color=colors.textSecondary,fontSize=14.sp,lineHeight=20.sp)
                         }
                         LogExportButton(
                             presentation = logExportPresentation(actions.fullDiagnosticExport || filteredEntries.isNotEmpty(), exportBusy),
@@ -255,3 +271,9 @@ internal fun operationalLogWarningSpec(state: OperationalLogUiState.Warning): St
 
 internal fun operationalLogFilteredEmptySpec(): StatePanelSpec =
     operationalLogFilteredEmptyStatus().toStatePanelSpec()
+
+internal fun operationalLogKeyEmptySpec(): StatePanelSpec = managerStatus(
+    kind = ManagerStatusKind.Empty,
+    title = "最近没有关键事件",
+    summary = "当前窗口只有技术步骤，可点击“查看全部步骤”了解详细过程。",
+).toStatePanelSpec()

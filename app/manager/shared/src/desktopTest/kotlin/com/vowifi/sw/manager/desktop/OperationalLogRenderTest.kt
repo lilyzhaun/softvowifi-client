@@ -40,13 +40,14 @@ class OperationalLogRenderTest {
             frame(scene)
             val timestamps = nodes(scene).flatMap { it.config.getOrNull(SemanticsProperties.Text).orEmpty() }
                 .map { it.text }.filter { it.startsWith("2026-") }
-            assertTrue(timestamps.first().endsWith("00:29.000"), "first visible entry must be newest: $timestamps")
+            assertTrue(timestamps.first().endsWith("00:29"), "first visible entry must be newest: $timestamps")
+            assertTrue(source.entries.last().timestamp.endsWith("00:29.000"), "model keeps millisecond precision for details")
             screenshot(scene, "newest")
             clickRow(scene)
             frame(scene)
-            assertTrue(hasText(scene, "日志详情"))
+            assertTrue(hasText(scene, "技术详情"))
             screenshot(scene, "detail")
-            click(scene, "复制可展示内容")
+            click(scene, "复制详情")
             frame(scene)
             val copied = (requireNotNull(clipboard.entry).nativeClipEntry as Transferable).getTransferData(DataFlavor.stringFlavor)
             assertEquals(source.entries.last().safeDetail, copied)
@@ -55,7 +56,7 @@ class OperationalLogRenderTest {
             assertTextVisible(scene, "显示内容已截断", 900f)
             click(scene, "关闭")
             frame(scene)
-            assertFalse(hasText(scene, "日志详情"))
+            assertFalse(hasText(scene, "技术详情"))
             assertEquals(source.first, source.ready().selectedFileId)
         } finally { scene.close() }
     }
@@ -65,7 +66,7 @@ class OperationalLogRenderTest {
         val scene = scene(source, TestClipboard())
         try {
             frame(scene)
-            click(scene, "日志文件")
+            click(scene, "日志来源")
             frame(scene)
             // U4统一日志入口名称；旧模块无groupKey仍保持独立文件选择与真实读取守护。
             click(scene, "运行日志 •••• 0002")
@@ -76,7 +77,7 @@ class OperationalLogRenderTest {
             screenshot(scene, "loading")
             source.finish(cached = true)
             frame(scene)
-            assertTrue(hasText(scene, "缓存快照 · 刷新可重新读取"))
+            assertTrue(hasText(scene, "显示上次读取的记录，刷新可更新。"))
             screenshot(scene, "cache")
             click(scene, "级别")
             frame(scene)
@@ -96,19 +97,19 @@ class OperationalLogRenderTest {
             frame(scene)
             clickRow(scene)
             frame(scene)
-            assertTrue(hasText(scene, "日志详情"))
-            assertActionBounds(scene, "复制可展示内容", 720f)
+            assertTrue(hasText(scene, "技术详情"))
+            assertActionBounds(scene, "复制详情", 720f)
             assertActionBounds(scene, "关闭", 720f)
             screenshot(scene, "detail-dark-large")
             scrollDetailToEnd(scene)
             assertTextVisible(scene, "显示内容已截断", 720f)
             screenshot(scene, "detail-dark-large-bottom")
-            assertActionBounds(scene, "复制可展示内容", 720f)
+            assertActionBounds(scene, "复制详情", 720f)
             assertActionBounds(scene, "关闭", 720f)
-            click(scene, "复制可展示内容")
+            click(scene, "复制详情")
             click(scene, "关闭")
             frame(scene)
-            assertFalse(hasText(scene, "日志详情"))
+            assertFalse(hasText(scene, "技术详情"))
         } finally { scene.close() }
     }
 

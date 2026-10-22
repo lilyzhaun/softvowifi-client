@@ -13,7 +13,9 @@ internal fun ResetManagerScrollOnConditionChange(state: LazyListState, condition
     LaunchedEffect(state, condition) {
         if (previous.value != condition) {
             previous.value = condition
-            state.scrollToItem(0)
+            // A condition can change with the list content during apply. Request the next
+            // measure instead of synchronously re-entering a pending subcomposition.
+            state.requestScrollToItem(0)
         }
     }
 }

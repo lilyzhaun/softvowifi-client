@@ -8,15 +8,15 @@ import java.nio.channels.FileLock
 import java.nio.channels.OverlappingFileLockException
 import java.nio.file.AccessDeniedException
 import java.nio.file.Files
+import java.nio.file.FileAlreadyExistsException
 import java.nio.file.LinkOption.NOFOLLOW_LINKS
 import java.nio.file.Path
-import java.nio.file.StandardCopyOption.REPLACE_EXISTING
 import java.nio.file.StandardOpenOption.CREATE
 import java.nio.file.StandardOpenOption.READ
 import java.nio.file.StandardOpenOption.WRITE
 import java.nio.file.attribute.PosixFilePermissions
 
-/** Only the IO consumer owns this store. New namespace; never adopts or cleans legacy logs. */
+/** Only the IO consumer owns the bounded current App log. */
 internal class DiagnosticFiles(
     private val directory: Path,
     private val maxBytes: Int = 1024 * 1024,
@@ -35,11 +35,13 @@ internal class DiagnosticFiles(
         try {
             if (!safeAncestors(directory.parent)) fail(DiagnosticReason.UNSAFE_PATH)
             else {
-                if (!Files.exists(directory, NOFOLLOW_LINKS)) Files.createDirectory(directory,
-                    PosixFilePermissions.asFileAttribute(PosixFilePermissions.fromString("rwx------")))
+                createDirectory(directory)
                 if (!safeDirectory()) fail(DiagnosticReason.UNSAFE_PATH)
                 else {
-                    val lockFile = directory.resolve("writer.lock")
+                    val state = directory.parent.resolve("state")
+                    createDirectory(state)
+                    createDirectory(state.resolve("logs"))
+                    val lockFile = state.resolve("logs/writer.lock")
                     if (Files.exists(lockFile, NOFOLLOW_LINKS) &&
                         (!Files.isRegularFile(lockFile, NOFOLLOW_LINKS) || Files.size(lockFile) != 0L)) {
                         fail(DiagnosticReason.UNSAFE_PATH)
@@ -64,13 +66,10 @@ internal class DiagnosticFiles(
             if (size + bytes.size + (if (needsSeparator) 1 else 0) > maxBytes) {
                 if (!validateFiles()) return false
                 try {
-                    channel?.close(); channel = null
-                    val previous = directory.resolve("app.jsonl.1")
-                    if (Files.exists(previous, NOFOLLOW_LINKS)) {
-                        Files.move(previous, directory.resolve("app.jsonl.2"), REPLACE_EXISTING)
-                    }
-                    Files.move(directory.resolve("app.jsonl"), previous, REPLACE_EXISTING)
-                    openCurrent()
+                    channel!!.truncate(0)
+                    channel!!.position(0)
+                    size = 0
+                    needsSeparator = false
                 } catch (_: IOException) { fail(DiagnosticReason.ROTATION_FAILED); return false }
             }
             // Preserve an interrupted record, but do not concatenate the next process's first event.
@@ -88,15 +87,15 @@ internal class DiagnosticFiles(
 
     private fun validateFiles(): Boolean {
         if (!safeDirectory()) { fail(DiagnosticReason.UNSAFE_PATH); return false }
-        // At most five entries inspected at admission/rotation, never an unbounded directory scan.
+        // The observer shares logs/, but owns its separate bounded current file.
         Files.newDirectoryStream(directory).use { entries ->
             var count = 0
             for (path in entries) {
-                if (++count > 4 || path.fileName.toString() !in names) {
+                if (++count > 2 || path.fileName.toString() !in names) {
                     fail(DiagnosticReason.STORAGE_LIMIT); return false
                 }
                 if (!Files.isRegularFile(path, NOFOLLOW_LINKS)) { fail(DiagnosticReason.UNSAFE_PATH); return false }
-                if (Files.size(path) > if (path.fileName.toString() == "writer.lock") 0 else maxBytes) {
+                if (Files.size(path) > if (path.fileName.toString() == "ims-registration.jsonl") 1024 * 1024 else maxBytes) {
                     fail(DiagnosticReason.STORAGE_LIMIT); return false
                 }
             }
@@ -132,9 +131,33 @@ internal class DiagnosticFiles(
 
     companion object {
         // Resolve only the framework-provided private root, never the managed directory or files.
-        fun directoryInAppStorage(filesDir: Path): Path = filesDir.toRealPath().resolve("diagnostics-v1")
+        fun directoryInAppStorage(filesDir: Path): Path = filesDir.toRealPath().resolve("logs")
 
-        private val names = setOf("app.jsonl", "app.jsonl.1", "app.jsonl.2", "writer.lock")
+        private val names = setOf("app.jsonl", "ims-registration.jsonl")
+        private fun createDirectory(path: Path) {
+            if (!safeAncestors(path)) throw IOException("unsafe diagnostic directory")
+            try {
+                Files.createDirectory(path, PosixFilePermissions.asFileAttribute(PosixFilePermissions.fromString("rwx------")))
+            } catch (_: FileAlreadyExistsException) {
+                if (!Files.isDirectory(path, NOFOLLOW_LINKS)) throw IOException("unsafe diagnostic directory")
+            }
+        }
+
+        // Upgrade runs in the replacement App process, after Android has stopped the old writers.
+        fun clearLegacyInAppStorage(filesDir: Path) {
+            val root = filesDir.toRealPath()
+            for ((name, children) in mapOf(
+                "diagnostics-v1" to listOf("app.jsonl", "app.jsonl.1", "app.jsonl.2", "writer.lock"),
+                "diagnostic-export-v1" to listOf("export.jsonl", "writer.lock"),
+            )) {
+                val old = root.resolve(name)
+                if (Files.isDirectory(old, NOFOLLOW_LINKS)) {
+                    for (child in children) Files.deleteIfExists(old.resolve(child))
+                }
+                Files.deleteIfExists(old)
+            }
+            Files.deleteIfExists(root.resolve("ims-registration.jsonl"))
+        }
         private fun safeAncestors(path: Path?): Boolean {
             var current = path?.toAbsolutePath()?.normalize()
             var count = 0
@@ -155,7 +178,7 @@ internal class DiagnosticFiles(
             try {
                 val resolved = directory() ?: return DiagnosticWindow(emptyList(), false, DiagnosticReason.UNAVAILABLE)
                 if (!safeAncestors(resolved)) return DiagnosticWindow(emptyList(), false, DiagnosticReason.UNSAFE_PATH)
-                for (name in listOf("app.jsonl", "app.jsonl.1", "app.jsonl.2")) {
+                for (name in listOf("app.jsonl")) {
                     val path = resolved.resolve(name)
                     if (!Files.exists(path, NOFOLLOW_LINKS)) continue
                     if (!Files.isRegularFile(path, NOFOLLOW_LINKS)) {

@@ -62,7 +62,7 @@ class UnifiedOperationalLogRenderTest {
                 LogFilterActions({}, {}, {})) }
         }.use { e ->
             repeat(4) { e.advanceFrameBy(16) }
-            val trigger = s4Actions(e, "日志文件").single { !it.config.contains(SemanticsProperties.Disabled) }
+            val trigger = s4Actions(e, "日志来源").single { !it.config.contains(SemanticsProperties.Disabled) }
             assertTrue(trigger.boundsInRoot.width > 0 && trigger.boundsInRoot.height >= 48f, "前提：真实选择入口可见可点")
             e.press(trigger.boundsInRoot.center); e.advanceFrameBy(8); e.release(trigger.boundsInRoot.center)
             repeat(16) { e.advanceFrameBy(16) }

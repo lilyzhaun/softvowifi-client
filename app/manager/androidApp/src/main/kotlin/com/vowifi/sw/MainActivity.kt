@@ -110,7 +110,7 @@ class MainActivity : ComponentActivity() {
             val callLine by callSource.lifecycle.lineLabel.collectAsState()
             val micDenied by callSource.lifecycle.microphoneDenied.collectAsState()
             val diagnosticsSource = remember { AndroidEnvironmentDiagnosticsSource() }
-            val operationalLogSource = remember { AndroidOperationalLogSource(this@MainActivity) }
+            val operationalLogSource = remember { AndroidOperationalLogSource(this@MainActivity, observerSource) }
             val appearanceSource = remember { AndroidAppearanceSettingsSource(applicationContext) }
             val blurSupported = remember { androidBlurSupported(runtimeBlurSupported()) }
             val appVersion = remember {
@@ -196,12 +196,15 @@ class MainActivity : ComponentActivity() {
                 },
                 onExportLogs = { formatted ->
                     if (exportBusy) return@SoftVoWiFiApp
-                    if(operationalLogSource.fullDiagnosticExport) {
+                    // The caller captures the export mode with the displayed source. A later
+                    // source selection must not turn a system-registration export into diagnostics.
+                    val diagnosticExport = formatted.isEmpty()
+                    if(diagnosticExport) {
                         val end=System.currentTimeMillis()
                         pendingDiagnosticWindow=operationalLogSource.exportWindow().start(end) to end
                     } else pendingExport = formatted
                     exportBusy = true
-                    exportLauncher.launch(if(operationalLogSource.fullDiagnosticExport) "vowifi-diagnostics-redacted.jsonl" else EXPORT_FILE_NAME)
+                    exportLauncher.launch(if(diagnosticExport) "vowifi-diagnostics-redacted.jsonl" else EXPORT_FILE_NAME)
                 },
                 appearanceSource = appearanceSource,
                 blurSupported = blurSupported,

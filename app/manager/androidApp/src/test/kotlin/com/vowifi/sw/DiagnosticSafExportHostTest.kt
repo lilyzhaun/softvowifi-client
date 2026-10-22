@@ -30,7 +30,7 @@ class DiagnosticSafExportHostTest {
             assertTrue(closed);assertTrue(text.contains("\"diagnostic_archive\":1"));assertTrue(text.contains("\"root_complete\":false"))
             assertTrue(text.contains("\"capture_completeness_proven\":false"))
             assertFalse(text.contains("SoftVoWiFi 运行日志"))
-            assertFalse(activity.filesDir.resolve("diagnostic-export-v1/export.jsonl").exists())
+            assertFalse(activity.cacheDir.resolve("exports/export.jsonl").exists())
         }
     }
 }

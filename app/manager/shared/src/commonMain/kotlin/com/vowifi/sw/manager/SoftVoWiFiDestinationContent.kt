@@ -3,6 +3,8 @@ package com.vowifi.sw.manager
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import com.vowifi.sw.manager.data.OperationalLogExporter
+import com.vowifi.sw.manager.model.OperationalLogUiState
+import com.vowifi.sw.manager.model.SYSTEM_REGISTRATION_LOG_ID
 import com.vowifi.sw.manager.model.CallHistoryState
 import com.vowifi.sw.manager.ui.CallsDialpadScreen
 import com.vowifi.sw.manager.model.CallUiState
@@ -208,24 +210,32 @@ internal fun SoftVoWiFiDestinationContent(
             ),
         )
         AppRoute.SettingsDiagnostics -> SettingsDiagnosticsScreen(state.diagnostics, onRefresh = sources.diagnostics::refreshAndAwait)
-        AppRoute.SettingsLogs -> SettingsLogsScreen(
+        AppRoute.SettingsLogs -> {
+            val selectedLog = when (val logs = state.logs) {
+                is OperationalLogUiState.Ready -> logs.selectedFileId
+                is OperationalLogUiState.Warning -> logs.selectedFileId
+                else -> ""
+            }
+            val fullExport = sources.logs.fullDiagnosticExport && selectedLog != SYSTEM_REGISTRATION_LOG_ID
+            SettingsLogsScreen(
             state = state.logs,
             actions = SettingsLogsActions(
                 selectFile = sources.logs::selectFile,
                 setKind = sources.logs::setKindFilter,
                 setLevel = sources.logs::setLevelFilter,
                 setInstance = sources.logs::setInstanceFilter,
-                fullDiagnosticExport = sources.logs.fullDiagnosticExport,
+                fullDiagnosticExport = fullExport,
                 exportWindow = sources.logs.diagnosticExportWindow?.collectAsState()?.value ?: sources.logs.exportWindow(),
                 setExportWindow = sources.logs::setExportWindow,
                 onExport = { entries ->
-                    if (!actions.exportBusy) actions.exportLogs(if(sources.logs.fullDiagnosticExport) "" else OperationalLogExporter.utf8(entries))
+                    if (!actions.exportBusy) actions.exportLogs(if(fullExport) "" else OperationalLogExporter.utf8(entries))
                 },
             ),
             exportBusy = actions.exportBusy,
             onRefresh = sources.logs::refreshAndAwait,
             exportCompletion = actions.exportCompletion,
         )
+        }
         AppRoute.SettingsCallNotifications -> SettingsCallNotificationsScreen(sources.callNotificationSettings)
         AppRoute.SettingsAbout -> SettingsAboutScreen(actions.appVersion)
         AppRoute.Dialpad -> {

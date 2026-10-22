@@ -48,7 +48,7 @@ internal class LocalDiagnosticLogReader(private val context: Context) {
         val event = record.event
         val summary = DiagnosticLabels.summary(event)
         val detail = buildString {
-            append(summary); append("；事件 ${event.name.name.lowercase()}；UTC；启动 ${record.run}")
+            append(DiagnosticLabels.technicalSummary(event)); append("；事件 ${event.name.name.lowercase()}；UTC；启动 ${record.run}")
             append("；阶段 ${event.stage.name.lowercase()}；结果 ${event.result.name.lowercase()}；原因 ${event.reason.name.lowercase()}")
             append("；进程 ${record.pid}；单调毫秒 ${record.mono}")
             event.attempt?.let { append("；尝试 $it") }
@@ -66,6 +66,7 @@ internal class LocalDiagnosticLogReader(private val context: Context) {
             event.slot?.let { "SIM ${it + 1}" } ?: if (root) "Root 诊断" else "全局诊断", OperationalLogMessage.EVENT,
             OperationalLogRedactor.boundedSafeSummary(summary),
             OperationalLogRedactor.normalizedSafeText(detail), origin = if (root) OperationalLogOrigin.ENGINE else OperationalLogOrigin.DIAGNOSTIC,
+            headline = DiagnosticPresentation.title(event), technical = !DiagnosticPresentation.isKey(event), timeZoneLabel = "UTC",
         )
     }
 

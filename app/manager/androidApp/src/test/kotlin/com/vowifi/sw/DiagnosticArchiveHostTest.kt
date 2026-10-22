@@ -4,7 +4,6 @@ package com.vowifi.sw
 import com.vowifi.sw.manager.data.*
 import java.io.ByteArrayOutputStream
 import java.io.OutputStream
-import java.nio.file.StandardCopyOption.REPLACE_EXISTING
 import java.nio.file.Files
 import org.junit.Assert.*
 import org.junit.Test
@@ -13,10 +12,10 @@ class DiagnosticArchiveHostTest {
     private fun record(time: Long = 1000) = DiagnosticRecord(DiagnosticEvent(DiagnosticComponent.APP,DiagnosticLevel.INFO,
         DiagnosticName.OBSERVED,DiagnosticStage.PROCESS,DiagnosticResult.OBSERVED),"f47ac10b-58cc-4372-a567-0e02b2c3d479",123,time,10)
 
-    @Test fun exportVisitsAllGenerationsBeyondThePageWindow() {
+    @Test fun exportVisitsCurrentFileBeyondThePageWindow() {
         val dir=Files.createTempDirectory("diagnostic-full-")
         try {
-            for (name in listOf("app.jsonl.2","app.jsonl.1","app.jsonl")) Files.write(dir.resolve(name), (1..120).flatMap { record().bytes().asIterable() }.toByteArray())
+            Files.write(dir.resolve("app.jsonl"), (1..360).flatMap { record().bytes().asIterable() }.toByteArray())
             val output=ByteArrayOutputStream()
             DiagnosticArchive({dir}) {_,_,_->RootDiagnosticReceipt(true,0,0,0)}.write(0,2000,output)
             assertEquals("page's 50-line window is not a full export",360,output.toString("UTF-8").lineSequence().count { it.contains("\"source\":\"app\"") })
@@ -62,10 +61,10 @@ class DiagnosticArchiveHostTest {
         } finally {dir.toFile().deleteRecursively()}
     }
 
-    @Test fun rotationDuringReadCannotProduceACompleteReceipt() {
+    @Test fun resetDuringReadCannotProduceACompleteReceipt() {
         val dir=Files.createTempDirectory("diagnostic-rotation-")
         try {
-            for(name in listOf("app.jsonl.2","app.jsonl.1","app.jsonl"))Files.write(dir.resolve(name),record().bytes())
+            Files.write(dir.resolve("app.jsonl"),record().bytes())
             val bytes=ByteArrayOutputStream();var rotated=false
             val output=object:OutputStream(){
                 override fun write(value:Int){bytes.write(value)}
@@ -73,9 +72,7 @@ class DiagnosticArchiveHostTest {
                     bytes.write(data,offset,length)
                     if(!rotated && data.copyOfRange(offset,offset+length).decodeToString().contains("\"source\":\"app\"")) {
                         rotated=true
-                        Files.move(dir.resolve("app.jsonl.1"),dir.resolve("app.jsonl.2"),REPLACE_EXISTING)
-                        Files.move(dir.resolve("app.jsonl"),dir.resolve("app.jsonl.1"),REPLACE_EXISTING)
-                        Files.write(dir.resolve("app.jsonl"),record().bytes())
+                        Files.write(dir.resolve("app.jsonl"),record(999).bytes())
                     }
                 }
             }

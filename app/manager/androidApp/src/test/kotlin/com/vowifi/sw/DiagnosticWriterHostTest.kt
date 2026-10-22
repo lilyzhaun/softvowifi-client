@@ -27,7 +27,7 @@ class DiagnosticWriterHostTest {
         val release = CountDownLatch(1)
         val executor = Executors.newSingleThreadExecutor()
         val writerThreads = mutableSetOf<Long>()
-        val writer = AsyncDiagnosticWriter({ temporary.root.toPath().resolve("diagnostics-v1") }, 123, ::now,
+        val writer = AsyncDiagnosticWriter({ temporary.root.toPath().resolve("logs") }, 123, ::now,
             open = { path -> DiagnosticFiles(path, writeBytes = { channel, bytes ->
                 writerThreads += Thread.currentThread().id
                 entered.countDown()
@@ -49,7 +49,7 @@ class DiagnosticWriterHostTest {
 
     @Test fun diskFullDisablesFurtherWritesAndCountsLossWithoutRecursiveLogging() = runBlocking {
         var writes = 0
-        val directory = temporary.root.toPath().resolve("diagnostics-v1")
+        val directory = temporary.root.toPath().resolve("logs")
         val writer = AsyncDiagnosticWriter({ directory }, 123, ::now, open = { path ->
             DiagnosticFiles(path, writeBytes = { _, _ -> writes++; throw IOException("synthetic ENOSPC") })
         })

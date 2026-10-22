@@ -34,17 +34,18 @@ internal fun LogDetailDialog(entry: OperationalLogEntry, onDismiss: () -> Unit) 
         Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("日志详情", modifier = Modifier.semantics { heading() }, fontSize = MiuixTheme.textStyles.title4.fontSize)
-                Text(entry.timestamp, color = colors.textSecondary, fontSize = 14.sp, lineHeight = 20.sp)
-                Text("${operationalLogLevelLabel(entry.level)} · ${operationalLogKindLabel(entry.kind)} · ${entry.displayLabel}",
+                Text(operationalLogEntryTitle(entry), modifier = Modifier.semantics { heading() }, fontSize = MiuixTheme.textStyles.title4.fontSize)
+                Text(entry.timestamp + entry.timeZoneLabel?.let { " $it" }.orEmpty(), color = colors.textSecondary, fontSize = 14.sp, lineHeight = 20.sp)
+                Text("${operationalLogEntryContext(entry)} · ${operationalLogLevelLabel(entry.level)}",
                     color = colors.textSecondary, fontSize = 14.sp, lineHeight = 20.sp)
-                Text("已脱敏内容", fontSize = 14.sp, lineHeight = 20.sp)
+                Text(entry.safeSummary, fontSize = 16.sp, lineHeight = 22.sp, color = colors.textPrimary)
+                Text("技术详情", fontSize = 14.sp, lineHeight = 20.sp)
                 SelectionContainer {
                     Text(entry.safeDetail, fontSize = 16.sp, lineHeight = 22.sp, color = colors.textPrimary)
                 }
                 if (entry.detailTruncated) Text("显示内容已截断", color = colors.warning, fontSize = 14.sp, lineHeight = 20.sp)
             }
-            ManagerTextAction(if (copied) "已复制可展示内容" else "复制可展示内容", ManagerAction.ContextAction, {
+            ManagerTextAction(if (copied) "已复制详情" else "复制详情", ManagerAction.ContextAction, {
                 scope.launch { clipboard.setClipEntry(messageTextClipEntry(entry.safeDetail)); copied = true }
             }, modifier = Modifier.fillMaxWidth())
             ManagerTextAction("关闭", ManagerAction.Rejected, onDismiss, modifier = Modifier.fillMaxWidth())

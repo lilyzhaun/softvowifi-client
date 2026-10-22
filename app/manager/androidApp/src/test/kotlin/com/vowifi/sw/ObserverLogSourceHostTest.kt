@@ -22,6 +22,45 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35])
 class ObserverLogSourceHostTest {
+    @Test
+    @Config(application = android.app.Application::class)
+    fun directoryCreationAndLaterWritesRefreshTheSameObserverWithoutManualRefresh() = runBlocking {
+        val context = RuntimeEnvironment.getApplication()
+        val output = File(context.filesDir, "logs/ims-registration.jsonl")
+        output.parentFile!!.deleteRecursively()
+        val source = AndroidObserverLogSource(context)
+        try {
+            withTimeout(5000) { source.state.first { it == RegistrationUiState.Empty } }
+            val observer = AndroidObserverLogSource::class.java.getDeclaredField("observer").apply { isAccessible = true }
+                .get(source) as android.os.FileObserver
+            output.parentFile!!.mkdirs()
+            output.writeText("""{"timestampMs":1,"subId":555,"slot":0,"state":"REGISTERING"}""" + "\n")
+            observer.onEvent(android.os.FileObserver.CREATE, "logs")
+            withTimeout(5000) { source.state.first {
+                it is RegistrationUiState.Data && it.snapshot.events.last().state == "REGISTERING"
+            } }
+            output.appendText("""{"timestampMs":2,"subId":555,"slot":0,"state":"REGISTERED"}""" + "\n")
+            observer.onEvent(android.os.FileObserver.CLOSE_WRITE, output.name)
+            val updated = withTimeout(5000) { source.state.first {
+                it is RegistrationUiState.Data && it.snapshot.events.last().state == "REGISTERED"
+            } } as RegistrationUiState.Data
+            assertEquals(2, updated.snapshot.events.size)
+        } finally { source.close(); output.delete() }
+    }
+
+    @Test fun observerResetKeepsOnlyOneBoundedCurrentFile() {
+        val file = File(RuntimeEnvironment.getApplication().filesDir, "logs/ims-registration.jsonl")
+        file.parentFile!!.mkdirs()
+        file.writeBytes(ByteArray(1024 * 1024) { 'x'.code.toByte() })
+        val observer = RegistrationObserver(555, 0, null, { it.run() }, file)
+        val write = RegistrationObserver::class.java.getDeclaredMethod("write", JSONObject::class.java).apply { isAccessible = true }
+        write.invoke(observer, JSONObject().put("timestampMs", 1).put("subId", 555).put("state", "REGISTERED"))
+        assertTrue(file.length() in 1..1024 * 1024)
+        assertTrue(file.readText().contains("REGISTERED"))
+        assertTrue(!File(file.path + ".1").exists() && !File(file.path + ".2").exists())
+        file.delete()
+    }
+
     @Test fun independentObserversAppendCompleteFramesWithoutRewritingLegacyTail() {
         val file = File(RuntimeEnvironment.getApplication().filesDir, "writer-synthetic.jsonl")
         val legacy = """{"timestampMs":0,"subId":555,"state":"UNREGISTERED"}"""
@@ -33,7 +72,7 @@ class ObserverLogSourceHostTest {
         try {
             val tasks = (1..2).map { writer ->
                 workers.submit {
-                    val observer = RegistrationObserver(555, null, { it.run() }, file)
+                    val observer = RegistrationObserver(555, 0, null, { it.run() }, file)
                     check(start.await(3, TimeUnit.SECONDS))
                     repeat(50) { index ->
                         write.invoke(observer, JSONObject().put("timestampMs", writer * 100 + index)
@@ -63,7 +102,7 @@ class ObserverLogSourceHostTest {
 
     @Test fun realSourceReadsLatest50AndPreservesClosedTruncatedRecordWarning() = runBlocking {
         val context = RuntimeEnvironment.getApplication()
-        val output = File(context.filesDir, "ims-registration.jsonl")
+        val output = File(context.filesDir, "logs/ims-registration.jsonl").apply { parentFile!!.mkdirs() }
         output.writeText((1..1000).joinToString("\n") {
             """{"timestampMs":$it,"subId":555,"state":"UNREGISTERED"}"""
         })

@@ -14,7 +14,10 @@ object AndroidDiagnosticLog {
         val app = context.applicationContext
         if (app.isDeviceProtectedStorage || app.getSystemService(UserManager::class.java)?.isUserUnlocked != true) return
         // filesDir can create a directory: evaluate it only in the IO worker, never in emit().
-        writer = AsyncDiagnosticWriter(directory = { app.filesDir?.toPath()?.let(DiagnosticFiles::directoryInAppStorage) },
+        writer = AsyncDiagnosticWriter(directory = { app.filesDir?.toPath()?.let { root ->
+            DiagnosticFiles.clearLegacyInAppStorage(root)
+            DiagnosticFiles.directoryInAppStorage(root)
+        } },
             pid = Process.myPid(), monotonic = SystemClock::elapsedRealtime)
         emit(DiagnosticEvent(DiagnosticComponent.APP, DiagnosticLevel.INFO, DiagnosticName.PROCESS_STARTED,
             DiagnosticStage.PROCESS, DiagnosticResult.OBSERVED))
