@@ -9,6 +9,7 @@ import android.media.RingtoneManager
 import android.os.Looper
 import android.os.VibrationAttributes
 import android.os.VibratorManager
+import android.view.KeyEvent
 import com.vowifi.sw.manager.data.*
 import com.vowifi.sw.manager.model.*
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -79,7 +80,7 @@ class IncomingCallAlertHostTest {
         idle()
         assertFalse(vibrator.isVibrating)
         assertNull(shadowOf(manager).getNotification(INCOMING))
-        val ongoing = requireNotNull(shadowOf(manager).getNotification(101))
+        val ongoing = requireNotNull(shadowOf(manager).getNotification(com.vowifi.sw.manager.data.CallOngoingNotification.WITHOUT_MICROPHONE_ID))
         assertEquals(0, ongoing.flags and Notification.FLAG_INSISTENT)
     }
 
@@ -128,6 +129,19 @@ class IncomingCallAlertHostTest {
         assertFalse(vibrator.isVibrating)
         coordinator.setCallForeground(true)
         assertFalse(vibrator.isVibrating)
+    }
+
+    @Test fun volumeReleaseAloneAndEveryNonRingingPhaseKeepTheDefaultKeyPath() = withCall(foreground = true) { state, coordinator ->
+        assertRepeating()
+        assertFalse(coordinator.handleRingingVolumeKey(KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_VOLUME_DOWN)))
+        assertRepeating()
+        for (phase in CallPhase.entries.filter { it != CallPhase.Ringing }) {
+            state.value = ready(state).copy(phase = phase); idle()
+            assertFalse(coordinator.handleRingingVolumeKey(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_VOLUME_DOWN)))
+            assertFalse(coordinator.handleRingingVolumeKey(KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_VOLUME_UP)))
+        }
+        coordinator.stop()
+        assertFalse(coordinator.handleRingingVolumeKey(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_VOLUME_UP)))
     }
 
     @Test fun freshRuntimeClearsLoopingNotificationLeftByPreviousProcess() = withCall { _, previous ->

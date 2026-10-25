@@ -11,10 +11,17 @@ import androidx.compose.ui.unit.dp
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.Info
-import top.yukonga.miuix.kmp.icon.extended.File
-import top.yukonga.miuix.kmp.icon.extended.Phone
-import top.yukonga.miuix.kmp.icon.extended.Refresh
 import top.yukonga.miuix.kmp.icon.extended.Settings
+import top.yukonga.miuix.kmp.icon.extended.Theme
+import top.yukonga.miuix.kmp.icon.extended.Carrier
+import top.yukonga.miuix.kmp.icon.extended.SearchDevice
+import top.yukonga.miuix.kmp.icon.extended.Notes
+import top.yukonga.miuix.kmp.icon.extended.Answer
+import top.yukonga.miuix.kmp.icon.extended.Layers
+import top.yukonga.miuix.kmp.icon.extended.Background
+import top.yukonga.miuix.kmp.icon.extended.Show
+import top.yukonga.miuix.kmp.icon.extended.Back
+import top.yukonga.miuix.kmp.icon.extended.Tune
 
 internal data class AppearancePreferenceSpec(
     val key: AppearancePreferenceKey,
@@ -48,10 +55,11 @@ internal fun appearanceSectionSpecs(
     )
     run {
         val liquidSummary = appearanceLiquidGlassSummary(settings, blurSupported)
-        val availability = if (blurSupported) {
+        val availability = if (effectiveBlur(settings, blurSupported)) {
             ManagerPreferenceAvailability.Enabled
         } else {
-            ManagerPreferenceAvailability.Disabled(liquidSummary.text)
+            ManagerPreferenceAvailability.Disabled(if (blurSupported) liquidSummary.text
+                else "需先开启模糊效果；当前设备不支持模糊")
         }
         navSpecs += AppearancePreferenceSpec(
             AppearancePreferenceKey.LIQUID_GLASS_ENABLED,
@@ -106,11 +114,11 @@ internal fun appearanceSpecToTogglePreference(
     spec: AppearancePreferenceSpec,
 ): ManagerPreferenceRow.Toggle {
     val icon = when (spec.key) {
-        AppearancePreferenceKey.FLOATING_NAV -> MiuixIcons.Phone
-        AppearancePreferenceKey.BLUR_ENABLED -> MiuixIcons.Refresh
-        AppearancePreferenceKey.LIQUID_GLASS_ENABLED -> MiuixIcons.Refresh
-        AppearancePreferenceKey.PREDICTIVE_BACK_ENABLED -> MiuixIcons.Phone
-        AppearancePreferenceKey.HAPTICS_ENABLED -> MiuixIcons.Settings
+        AppearancePreferenceKey.FLOATING_NAV -> MiuixIcons.Layers
+        AppearancePreferenceKey.BLUR_ENABLED -> MiuixIcons.Background
+        AppearancePreferenceKey.LIQUID_GLASS_ENABLED -> MiuixIcons.Show
+        AppearancePreferenceKey.PREDICTIVE_BACK_ENABLED -> MiuixIcons.Back
+        AppearancePreferenceKey.HAPTICS_ENABLED -> MiuixIcons.Tune
     }
     return managerTogglePreference(
         key = spec.key,
@@ -164,11 +172,11 @@ internal fun SettingsScreen(
 }
 
 private fun SettingsRowPresentation.rootIcon(): ImageVector = when (id) {
-    SettingsRowId.Root.APPEARANCE -> MiuixIcons.Settings
-    SettingsRowId.Root.CONFIGURATION -> MiuixIcons.Settings
-    SettingsRowId.Root.DIAGNOSTICS -> MiuixIcons.Info
-    SettingsRowId.Root.OPERATIONAL_LOGS -> MiuixIcons.File
-    SettingsRowId.Root.CALL_NOTIFICATION -> MiuixIcons.Refresh
+    SettingsRowId.Root.APPEARANCE -> MiuixIcons.Theme
+    SettingsRowId.Root.CONFIGURATION -> MiuixIcons.Carrier
+    SettingsRowId.Root.DIAGNOSTICS -> MiuixIcons.SearchDevice
+    SettingsRowId.Root.OPERATIONAL_LOGS -> MiuixIcons.Notes
+    SettingsRowId.Root.CALL_NOTIFICATION -> MiuixIcons.Answer
     SettingsRowId.Root.ABOUT -> MiuixIcons.Info
     else -> MiuixIcons.Settings
 }

@@ -22,7 +22,8 @@ internal class MessageUnreadSummaryStore(repository: MessageRepository, scope: C
             for (request in requests) {
                 do {
                     val summary = try {
-                        MessageUnreadSummary.Ready(repository.countUnreadIncoming())
+                        val byOwner = repository.countUnreadByOwner()
+                        MessageUnreadSummary.Ready(byOwner.values.sum(), byOwner)
                     } catch (_: MessageStorageException) {
                         MessageUnreadSummary.Unavailable(lastKnownTotal)
                     }

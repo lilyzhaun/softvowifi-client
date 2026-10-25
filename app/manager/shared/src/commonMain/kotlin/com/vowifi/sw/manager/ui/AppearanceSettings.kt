@@ -38,6 +38,8 @@ enum class AppearanceBlurSummary(val text: String) {
 
 enum class AppearanceLiquidGlassSummary(val text: String) {
     ENABLED("通信操作与悬浮底栏使用液态折射"),
+    COMMUNICATION_ONLY("通信操作使用液态折射"),
+    BLUR_REQUIRED("需先开启模糊效果"),
     DISABLED("通信操作使用普通模糊或不透明背景"),
     UNSUPPORTED_FALLBACK("当前设备不支持模糊，使用不透明背景"),
 }
@@ -174,13 +176,15 @@ internal fun appearanceBlurSummary(
 }
 
 internal fun effectiveLiquidGlass(settings: AppearanceSettings, blurSupported: Boolean): Boolean =
-    settings.liquidGlassRequested && settings.floatingNavigation && blurSupported
+    settings.liquidGlassRequested && settings.floatingNavigation && effectiveBlur(settings, blurSupported)
 
 internal fun appearanceLiquidGlassSummary(
     settings: AppearanceSettings,
     blurSupported: Boolean,
 ): AppearanceLiquidGlassSummary = when {
     !blurSupported -> AppearanceLiquidGlassSummary.UNSUPPORTED_FALLBACK
+    !settings.blurRequested -> AppearanceLiquidGlassSummary.BLUR_REQUIRED
     !settings.liquidGlassRequested -> AppearanceLiquidGlassSummary.DISABLED
+    !settings.floatingNavigation -> AppearanceLiquidGlassSummary.COMMUNICATION_ONLY
     else -> AppearanceLiquidGlassSummary.ENABLED
 }

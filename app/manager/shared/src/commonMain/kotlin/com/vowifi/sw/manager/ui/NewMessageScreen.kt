@@ -28,7 +28,10 @@ import com.vowifi.sw.manager.model.MessageUiState
 import com.vowifi.sw.manager.model.MessageHistoryChoices
 import com.vowifi.sw.manager.data.MessageRemarkSaveResult
 import com.vowifi.sw.manager.data.SimOwnerId
+import com.vowifi.sw.manager.data.PeerNumberNormalizer
+import com.vowifi.sw.manager.data.StoredMessageConversation
 import com.vowifi.sw.manager.ui.navigation.AppRoute
+import com.vowifi.sw.manager.ui.navigation.ConversationHandle
 import top.yukonga.miuix.kmp.basic.TextField
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextFieldDefaults
@@ -58,9 +61,26 @@ internal fun NewMessageScreen(
     selectionNotice: String? = null,
     onConfirmHistoryOwner: (suspend (SimOwnerId) -> Boolean)? = null,
     onClearUnboundDraft: (() -> Unit)? = null,
+    findConversation: (suspend (SimOwnerId, String) -> ConversationHandle?)? = null,
+    onOpenConversation: ((ConversationHandle) -> Unit)? = null,
 ) = PhoneStyle {
     val compose = projectMessageConversations(messageProjectionOwner(), state).compose
-    val submission = rememberMessageDraftSubmission(state, recipient, body, onClearDraft, onSend)
+    val active = LocalAppRouteActive.current
+    val activeNow by rememberUpdatedState(active)
+    val submission = rememberMessageDraftSubmission(state, recipient, body, {
+        onClearDraft()
+        if (activeNow) (state as? MessageUiState.Available)?.sendAttempt?.let {
+            onOpenConversation?.invoke(StoredMessageConversation(it.owner, PeerNumberNormalizer.normalize(it.recipient)).handle)
+        }
+    }, onSend)
+    var existing by remember(draftOwner, recipient, findConversation, active) { mutableStateOf<ConversationHandle?>(null) }
+    LaunchedEffect(draftOwner, recipient, findConversation, active) {
+        existing = if (active && draftOwner != null && isValidMessageRecipient(recipient))
+            findConversation?.invoke(draftOwner, recipient) else null
+    }
+    val existingNow by rememberUpdatedState(existing)
+    val bodyNow by rememberUpdatedState(body)
+    val openNow by rememberUpdatedState(onOpenConversation)
     val requestImeOwner = rememberMessageImeOwnerRequest()
     var recipientTouched by rememberSaveable { mutableStateOf(false) }
     var pickerOpen by remember { mutableStateOf(false) }
@@ -107,6 +127,14 @@ internal fun NewMessageScreen(
                     Text("请输入有效号码，可使用开头的 + 和数字。",
                         color = LocalSoftVoWiFiColors.current.error,
                         fontSize = 14.sp, lineHeight = 20.sp)
+                }
+                if (existing != null) item(key = "existing-conversation") {
+                    Column {
+                        CommunicationNotice("此线路已有与该号码的会话")
+                        if (body.isEmpty() && onOpenConversation != null) CommunicationTextAction("打开会话", {
+                            if (activeNow && bodyNow.isEmpty()) existingNow?.let { openNow?.invoke(it) }
+                        }, enabled = !submission.pending)
+                    }
                 }
                 if (choices.lines.isNotEmpty() || draftOwner != null) {
                     item(key = "message-line-entry") {

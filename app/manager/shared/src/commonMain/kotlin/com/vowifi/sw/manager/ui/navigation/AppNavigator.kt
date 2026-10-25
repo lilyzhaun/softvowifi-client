@@ -39,6 +39,12 @@ object AppNavigator {
         return AppNavigationState.create(base + subpage) ?: state
     }
 
+    fun replaceTop(state: AppNavigationState, subpage: AppRoute.Subpage): AppNavigationState {
+        val previous = state.topRoute as? AppRoute.Subpage ?: return state
+        if (previous == subpage || previous.root != subpage.root) return state
+        return AppNavigationState.create(state.backStack.dropLast(1) + subpage) ?: state
+    }
+
     fun back(state: AppNavigationState): AppNavigationState {
         if (state.backStack.size == 1) {
             return if (state.currentRoot == AppRoute.Home) state else AppNavigationState.initial(AppRoute.Home)

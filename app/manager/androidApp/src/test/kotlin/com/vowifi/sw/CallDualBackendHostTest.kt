@@ -78,12 +78,56 @@ class CallDualBackendHostTest {
             assertTrue(withTimeout(4000) { answer.await() })
             await { fixture.second.commands.contains("answer") }
             fixture.second.incoming("IN_CALL")
-            await { fixture.starts.size == 1 }
+            fixture.connectedAudioSnapshot()
             assertTrue(fixture.first.commands.isEmpty())
             assertEquals(fixture.ownerA, fixture.source.lines.value.selectedOwner)
             fixture.second.incoming("ENDED", "remote")
             await { fixture.repository.listByOwner(fixture.ownerB).singleOrNull()?.outcome == CallOutcome.COMPLETED }
         } finally { fixture.close(); activity.close() }
+    }
+
+    @Test fun audioStartCannotCompleteTheFixtureBarrierWhileItsRealClockSnapshotIsHeld() = runBlocking {
+        val fixture = CallDualBackendFixture()
+        val activity = Robolectric.buildActivity(CallGateActivity::class.java).setup()
+        shadowOf(fixture.context).grantPermissions(Manifest.permission.RECORD_AUDIO)
+        val snapshotReply = CompletableDeferred<() -> Unit>()
+        try {
+            fixture.connected(); fixture.source.selectLine(fixture.ownerA)
+            fixture.lifecycle.setVisible(activity.get(), true)
+            fixture.second.incoming("RINGING")
+            await { fixture.ready()?.phase == CallPhase.Ringing }
+            val answer = async(start = CoroutineStart.UNDISPATCHED) {
+                fixture.lifecycle.perform(activity.get(), fixture.ready()!!.binding!!, MicrophoneCallAction.Answer)
+            }
+            val key = activity.get().serviceIntent!!.getStringExtra(AndroidCallLifecycle.EXTRA_REQUEST)!!
+            assertTrue(fixture.lifecycle.serviceStarted(key) {})
+            assertTrue(withTimeout(4000) { answer.await() })
+            withTimeout(8000) {
+                // Lifecycle acceptance only dispatches answer; the peer must receive it before
+                // this test advances the real call to IN_CALL, just like the adjacent test.
+                await { fixture.second.commands.contains("answer") }
+                assertEquals(1, fixture.second.commands.count { it == "answer" })
+                fixture.second.onSnapshotReply = { check(snapshotReply.complete(it)) }
+                fixture.second.incoming("IN_CALL")
+                await { fixture.starts.size == 1 && snapshotReply.isCompleted }
+            }
+            assertEquals(CallPhase.InCall, fixture.ready()?.phase)
+            assertNull("前提：真实IN_CALL时钟快照仍被阻挡，不能以audio.start代其完成", fixture.ready()?.clock)
+            val connected = async(start = CoroutineStart.UNDISPATCHED) { fixture.connectedAudioSnapshot() }
+            assertFalse("夹具必须等待实际时钟快照，而不是audio.start被调用", connected.isCompleted)
+            fixture.second.onSnapshotReply = null
+            snapshotReply.await().invoke()
+            withTimeout(8000) { connected.await() }
+            assertNotNull(fixture.ready()?.clock)
+            fixture.second.incoming("ENDED", "remote")
+            await { fixture.repository.listByOwner(fixture.ownerB).singleOrNull()?.outcome == CallOutcome.COMPLETED }
+            assertTrue(fixture.first.commands.isEmpty())
+            assertEquals(fixture.ownerA, fixture.source.lines.value.selectedOwner)
+        } finally {
+            val current = fixture.ready()
+            println("CALL_CLOCK_GATE|starts=${fixture.starts.size}|snapshotHeld=${snapshotReply.isCompleted}|phase=${current?.phase}|sync=${current?.sync}|clock=${current?.clock != null}|firstMethods=${fixture.first.commands}|secondMethods=${fixture.second.commands}")
+            fixture.close(); activity.close()
+        }
     }
 
     @Test fun reversedStreamsPersistBothOwnersWithSameTokenAndGenerationInRoom() = runBlocking {

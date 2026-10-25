@@ -32,7 +32,7 @@ public final class ObserverService extends Service {
     @Override
     public void onCreate() {
         super.onCreate();
-        startForeground(NOTIFICATION_ID, createNotification());
+        publishForeground();
         if (getApplication() instanceof ProcessRuntimeStarter) {
             ((ProcessRuntimeStarter) getApplication()).onObserverReady(this);
         }
@@ -91,7 +91,16 @@ public final class ObserverService extends Service {
     }
 
     public void restoreObserverNotification() {
-        startForeground(NOTIFICATION_ID, createNotification());
+        publishForeground();
+    }
+
+    private void publishForeground() {
+        Notification notification = createNotification();
+        if (getApplication() instanceof ProcessRuntimeStarter) {
+            ((ProcessRuntimeStarter) getApplication()).publishObserverForeground(this, NOTIFICATION_ID, notification);
+        } else {
+            startForeground(NOTIFICATION_ID, notification);
+        }
     }
 
     private void registerObservers() {

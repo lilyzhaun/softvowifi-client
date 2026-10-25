@@ -39,6 +39,7 @@ internal object DiagnosticLabels {
             DiagnosticStage.RESPONSE -> "收到字节"
             DiagnosticStage.CONNECT -> "连接"
             DiagnosticStage.STOP -> "停止"
+            DiagnosticStage.NOTIFICATION -> "前台通知"
         })
         append("：")
         append(when (event.result) {

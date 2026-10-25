@@ -31,6 +31,7 @@ sealed interface EnvironmentDiagnosticsUiState {
     data class Ready(
         val severity: DiagnosticCheckStatus,
         val checks: List<DiagnosticCheck>,
+        val module: ModuleDiagnostics? = null,
     ) : EnvironmentDiagnosticsUiState
 
     data class Failure(

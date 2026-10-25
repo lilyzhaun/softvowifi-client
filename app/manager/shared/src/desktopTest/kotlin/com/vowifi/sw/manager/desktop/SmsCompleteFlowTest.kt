@@ -82,7 +82,7 @@ class SmsCompleteFlowTest {
             page.state = MessageUiState.Failure("合成历史读取失败"); page.frame()
             assertTrue(page.has("消息读取失败"))
             assertFalse(page.nodes().any { it.config.contains(SemanticsProperties.ProgressBarRangeInfo) })
-            page.click("重试加载")
+            page.click("重试")
             assertEquals(1, page.retries)
             page.state = ready(); page.frame()
             assertTrue(page.has(historyBody))

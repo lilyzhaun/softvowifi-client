@@ -65,6 +65,21 @@ class CallEndToneHostTest {
         assertEquals(AudioManager.MODE_NORMAL, manager.mode)
         close(output)
     }
+
+    @Test fun transientLossStillRetiresTheFiniteEndPromptAndLateGainCannotReplayIt() {
+        shadowOf(manager).setNextFocusRequestResponse(AudioManager.AUDIOFOCUS_REQUEST_GRANTED)
+        val output = output()
+        assertTrue(play(output))
+        val focus = shadowOf(manager).lastAudioFocusRequest.listener
+        focus.onAudioFocusChange(AudioManager.AUDIOFOCUS_LOSS_TRANSIENT)
+        assertEquals(1, EndToneShadow.released)
+        assertEquals(AudioManager.MODE_NORMAL, manager.mode)
+        focus.onAudioFocusChange(AudioManager.AUDIOFOCUS_GAIN)
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(1))
+        assertEquals(1, EndToneShadow.created)
+        assertEquals(1, EndToneShadow.released)
+        assertFalse(play(output))
+    }
 }
 
 @Implements(ToneGenerator::class)

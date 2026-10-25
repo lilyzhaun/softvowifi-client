@@ -3,6 +3,8 @@ package com.vowifi.sw.manager.ui
 
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.semantics.SemanticsNode
@@ -20,6 +22,8 @@ import com.vowifi.sw.manager.desktop.s4Nodes as threadNodes
 import com.vowifi.sw.manager.desktop.s4SmsHost
 import com.vowifi.sw.manager.model.HistoryChangeReason
 import com.vowifi.sw.manager.model.MessageUiState
+import com.vowifi.sw.manager.model.MessageRecord
+import com.vowifi.sw.manager.model.MessageOrigin
 import com.vowifi.sw.manager.ui.testing.MotionTestEnvironment
 import com.vowifi.sw.manager.ui.testing.onMotionTestThread
 import kotlinx.coroutines.test.runTest
@@ -27,6 +31,43 @@ import kotlin.test.*
 
 /** Actual source, simulated Received and native LazyColumn; never a synthetic visibility flag. */
 class NewMessagesHintMotionRenderTest {
+    @Test fun distantHintApproachesWithinOneScreenBeforeTheFinalAnimation() = onMotionTestThread { runTest {
+        for (scale in listOf(1f, 0f)) {
+        val owner = assertNotNull(ownerFor(ICCID_A))
+        val identity = StoredMessageConversation(owner, SYNTH_NUMBER.drop(1))
+        val records = (0 until 500).map { MessageRecord.Incoming("far-$it", SYNTH_NUMBER, "合成远距消息$it", NOW_MS + it * 1000L) }
+        var state by mutableStateOf(MessageUiState.Ready(records, MessageOrigin.ENGINE, ownerId = owner))
+        MotionTestEnvironment(testScheduler, 420, 900, scale) { s4SmsHost {
+            MessageThreadScreen(identity.handle, state, { _, _ -> error("不得发送") })
+        } }.use { e ->
+            fun frames(n: Int) { repeat(n) { e.advanceFrameBy(16) } }
+            fun indices(): List<Int> {
+                val viewport = s4List(e).boundsInRoot
+                return threadNodes(e).filter { it.boundsInRoot.height > 0f && it.boundsInRoot.top >= viewport.top &&
+                    it.boundsInRoot.bottom <= viewport.bottom }.flatMap { it.config.getOrNull(SemanticsProperties.Text).orEmpty() }
+                    .mapNotNull { Regex("合成远距消息([0-9]+)").matchEntire(stripMessageDisplayJoiners(it.text))?.groupValues?.get(1)?.toInt() }
+                    .distinct().sorted()
+            }
+            frames(80)
+            assertTrue(indices().lastOrNull() == 499, "前提：实际最后一条499完整可见，不把scroll轴值当条目index：${indices()}")
+            val scroll = requireNotNull(s4List(e).config[SemanticsActions.ScrollBy].action)
+            assertTrue(scroll(0f, -100_000f)); frames(40)
+            assertTrue(indices().isNotEmpty() && indices().max() < 30, "前提：实际长线程已远离底部超过三屏；可见=${indices()}")
+            state = state.copy(records = records + MessageRecord.Incoming("far-new", SYNTH_NUMBER, "合成远距最新消息", NOW_MS + 501_000))
+            frames(40)
+            val hint = threadNodes(e).single { s4HasLabel(it, "查看新消息") && it.config.contains(SemanticsActions.OnClick) }
+            assertTrue(indices().isNotEmpty() && indices().max() < 30, "离底新消息不抢滚动")
+            e.press(hint.boundsInRoot.center); e.advanceFrameBy(8); e.release(hint.boundsInRoot.center)
+            repeat(4) { e.advanceFrameBy(0) }; frames(2)
+            val approached = indices()
+            assertTrue(approached.isNotEmpty() && approached.min() >= 500 - approached.size - 2,
+                "超过三屏应先靠近目标约一屏内；真实可见条目=$approached，不能用不等于index的滚动轴估值冒靠近")
+            frames(100)
+            assertTrue(threadNodes(e).any { s4HasLabel(it, "合成远距最新消息") && it.boundsInRoot.height > 0f })
+        }
+        }
+    } }
+
     @Test fun actualReceivedOffBottomHasAnEntranceAndItsTapStartsScrollingWithoutWaitingForExit() = onMotionTestThread { runTest {
         var normalTerminalTop: Float? = null
         for (scale in listOf(1f, 0f)) {

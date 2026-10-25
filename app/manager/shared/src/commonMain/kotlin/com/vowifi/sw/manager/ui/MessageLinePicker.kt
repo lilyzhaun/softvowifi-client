@@ -36,6 +36,7 @@ import com.vowifi.sw.manager.data.MessageRemarkSaveResult
 import com.vowifi.sw.manager.data.SimOwnerId
 import com.vowifi.sw.manager.model.MessageHistoryChoices
 import com.vowifi.sw.manager.model.MessageHistoryLine
+import com.vowifi.sw.manager.model.MessageUnreadSummary
 import kotlinx.coroutines.launch
 import top.yukonga.miuix.kmp.basic.HorizontalDivider
 import top.yukonga.miuix.kmp.basic.RadioButton
@@ -56,12 +57,20 @@ internal object MessageLineLayout {
     val secondaryLine = 20.sp
 }
 
+internal fun messageLineUnreadText(count: Long?): String? = count?.takeIf { it > 0 }?.let {
+    "${if (it > 99) "99+" else it.toString()} 条未读"
+}
+
 @Composable
 internal fun MessageLineEntry(choices: MessageHistoryChoices, title: String? = null, actionLabel: String = "短信线路", onOpen: () -> Unit) {
     val selected = choices.lines.firstOrNull { it.owner == choices.selectedOwner }
     val stopped = choices.hasRunningEngines && selected != null && !selected.running
+    val summary = LocalMessageUnreadSummary.current as? MessageUnreadSummary.Ready
+    val count = choices.selectedOwner?.let { summary?.byOwner?.get(it) }
+    val unread = messageLineUnreadText(count)
     Column(Modifier.padding(bottom = 4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        CommunicationLineChip(title ?: selected?.lineTitle() ?: "选择短信线路", actionLabel, onOpen)
+        CommunicationLineChip(listOfNotNull(title ?: selected?.lineTitle() ?: "选择短信线路", unread).joinToString(" · "),
+            if (unread == null) actionLabel else "$actionLabel，$count 条未读", onOpen)
         if (stopped) Text("原线路已停止，请切换运行线路；原草稿保持不变。",
             color = LocalSoftVoWiFiColors.current.textSecondary, fontSize = 12.sp, lineHeight = 16.sp)
         if (choices.labelsFailed || choices.labelsLoading) {
@@ -81,6 +90,8 @@ internal fun MessageLinePicker(
     onConfirm: (suspend (SimOwnerId) -> Boolean)? = null,
 ) {
     var query by remember { mutableStateOf("") }
+    // The popup host need not share the caller's business locals; pass its snapshot explicitly.
+    val unreadByOwner = (LocalMessageUnreadSummary.current as? MessageUnreadSummary.Ready)?.byOwner.orEmpty()
     val lines = filterMessageLines(choices.selectableLines(), query)
     val listState = rememberLazyListState()
     val scroll = rememberSmsScrollFeedback(listState.canScrollBackward || listState.canScrollForward)
@@ -115,8 +126,8 @@ internal fun MessageLinePicker(
                                  if (line.owner == choices.selectedOwner) sheet.close { onSelect(line.owner) }
                                  else confirm(line.owner) { onConfirm?.invoke(line.owner) ?: false }
                              } },
-                             { if (interactive) sheet.close { onEdit(line) } }, enabled = interactive,
-                             popSelection = line.owner == popOwner)
+                              { if (interactive) sheet.close { onEdit(line) } }, enabled = interactive,
+                              popSelection = line.owner == popOwner, unreadCount = unreadByOwner[line.owner])
               }
     }
             }
@@ -126,8 +137,11 @@ internal fun MessageLinePicker(
 
 @Composable
 private fun MessageLineRow(line: MessageHistoryLine, selected: Boolean, onSelect: () -> Unit, onEdit: () -> Unit,
-    enabled: Boolean = true, popSelection: Boolean = false) {
-    CommunicationLineRow(line.lineTitle(), line.lineSummary(), selected, onSelect, onEdit, enabled, popSelection = popSelection)
+    enabled: Boolean = true, popSelection: Boolean = false, unreadCount: Long? = null) {
+    val unread = messageLineUnreadText(unreadCount)
+    CommunicationLineRow(line.lineTitle(), listOfNotNull(line.lineSummary(), unread).joinToString(" · "),
+        selected, onSelect, onEdit, enabled, popSelection = popSelection,
+        stateLabel = if (unread == null) null else "$unreadCount 条未读")
 }
 
 @Composable

@@ -15,6 +15,7 @@ internal val IdleCallAudioControls: StateFlow<CallAudioControls> =
     MutableStateFlow(CallAudioControls()).asStateFlow()
 
 interface CallSource {
+    fun refreshHistory() = refresh()
     val state: StateFlow<CallUiState>
     val history: StateFlow<CallHistoryState>
     val historySnapshot: StateFlow<CallHistoryViewSnapshot>? get() = null

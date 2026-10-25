@@ -45,6 +45,9 @@ internal fun dispatchHomeAction(
 internal fun homeEventTime(timestampMs: Long, nowMs: Long, localDateLabel: (Long) -> String): String =
     formatCommunicationTime(timestampMs, nowMs, localDateLabel)
 
+internal fun engineStopCallWarning(slotIndex: Int?): String =
+    "${slotIndex?.let { "SIM ${it + 1} " } ?: "该线路"}正在通话，停止引擎会挂断当前通话。"
+
 private fun homeNotices(
     engine: SimControlUiState,
     diagnostics: EnvironmentDiagnosticsUiState,
@@ -53,26 +56,27 @@ private fun homeNotices(
         is SimControlUiState.Failure -> add(
             HomeNoticePresentation(
                 NoticeCardSpec(SemanticTone.ERROR, "无法读取 SIM 与引擎状态", "请刷新后重试。"),
-                AppRoute.SettingsConfiguration,
+                HomeNoticeAction.Refresh("重试"),
             ),
         )
         is SimControlUiState.PermissionDenied -> add(
             HomeNoticePresentation(
-                NoticeCardSpec(SemanticTone.WARNING, "SIM 控制权限不足", "请在 KernelSU Manager 授权后刷新。"),
-                AppRoute.SettingsConfiguration,
+                NoticeCardSpec(SemanticTone.WARNING, "SIM 控制权限不足", HOME_ROOT_INSTRUCTION),
+                HomeNoticeAction.Refresh("刷新"),
             ),
         )
         is SimControlUiState.Ready -> {
             engine.message?.let {
                 add(HomeNoticePresentation(
                     NoticeCardSpec(SemanticTone.WARNING, "SIM 控制状态需注意", homeSafeText(it, "部分 SIM 状态暂时不可用。", 80)),
-                    AppRoute.SettingsConfiguration,
+                    HomeNoticeAction.Navigate(AppRoute.SettingsConfiguration),
                 ))
             }
-            if (engine.instances.any { it.presence == SimPresence.ACTIVE_UNCONFIGURED }) {
+            engine.instances.filter { it.presence == SimPresence.ACTIVE_UNCONFIGURED && !it.canProvision }.forEach { instance ->
+                val sim = instance.slotIndex?.let { "SIM ${it + 1}" } ?: "该 SIM"
                 add(HomeNoticePresentation(
-                    NoticeCardSpec(SemanticTone.WARNING, "SIM 尚未配置", "这张 SIM 需要创建配置后才能启动引擎。"),
-                    AppRoute.SettingsConfiguration,
+                    NoticeCardSpec(SemanticTone.WARNING, "$sim 无法自动创建配置", "请前往 SIM 与网络配置查看配置状态。"),
+                    HomeNoticeAction.Navigate(AppRoute.SettingsConfiguration),
                 ))
             }
         }
@@ -82,32 +86,32 @@ private fun homeNotices(
         is EnvironmentDiagnosticsUiState.Failure -> add(
             HomeNoticePresentation(
                 NoticeCardSpec(SemanticTone.ERROR, "环境检查失败", "请刷新后重试。"),
-                AppRoute.SettingsDiagnostics,
+                HomeNoticeAction.Navigate(AppRoute.SettingsDiagnostics),
             ),
         )
         is EnvironmentDiagnosticsUiState.PermissionDenied -> add(
             HomeNoticePresentation(
-                NoticeCardSpec(SemanticTone.WARNING, "环境检查权限不足", "请在 KernelSU Manager 授权后刷新。"),
-                AppRoute.SettingsDiagnostics,
+                NoticeCardSpec(SemanticTone.WARNING, "环境检查权限不足", HOME_ROOT_INSTRUCTION),
+                HomeNoticeAction.Refresh("刷新"),
             ),
         )
         is EnvironmentDiagnosticsUiState.Unavailable -> add(
             HomeNoticePresentation(
                 NoticeCardSpec(SemanticTone.NEUTRAL, "环境检查不可用", "当前环境不提供诊断摘要。"),
-                AppRoute.SettingsDiagnostics,
+                HomeNoticeAction.Navigate(AppRoute.SettingsDiagnostics),
             ),
         )
         is EnvironmentDiagnosticsUiState.Ready -> when (diagnostics.severity) {
             DiagnosticCheckStatus.FAIL -> add(
                 HomeNoticePresentation(
                     NoticeCardSpec(SemanticTone.ERROR, "环境检查未通过", "请前往诊断页查看详情。"),
-                    AppRoute.SettingsDiagnostics,
+                    HomeNoticeAction.Navigate(AppRoute.SettingsDiagnostics),
                 ),
             )
             DiagnosticCheckStatus.WARN -> add(
                 HomeNoticePresentation(
                     NoticeCardSpec(SemanticTone.WARNING, "环境存在告警", "请前往诊断页查看详情。"),
-                    AppRoute.SettingsDiagnostics,
+                    HomeNoticeAction.Navigate(AppRoute.SettingsDiagnostics),
                 ),
             )
             DiagnosticCheckStatus.PASS -> Unit
@@ -159,7 +163,7 @@ private fun homeSimAction(instance: SimControlInstance): HomeSimActionPresentati
     val summary = when {
         instance.presence == SimPresence.ACTIVE_UNCONFIGURED && instance.canProvision -> "运营商资料已就绪，可以创建现有配置。"
         instance.presence == SimPresence.ACTIVE_UNCONFIGURED -> "当前运营商资料不足，无法自动创建配置。"
-        else -> "进程 ${processLabel(instance.pid)} · 隧道 ${homeSafeText(instance.runtime?.tunnel, "未连接", 24)} · IMS ${homeImsStatusLabel(instance.runtime?.ims)}"
+        else -> "隧道 ${homeTunnelStatusLabel(instance.runtime?.tunnel)} · IMS ${homeImsStatusLabel(instance.runtime?.ims)}"
     }
     return HomeSimActionPresentation(
         title = simCarrierTitle(instance.slotIndex, instance.homeCarrierLabel, instance.mcc),
@@ -192,7 +196,6 @@ private fun homeFacts(
     diagnostics: EnvironmentDiagnosticsUiState,
 ): List<HomeFactPresentation> {
     return listOf(
-        HomeFactPresentation("IMS 注册概况", ims.overview),
         HomeFactPresentation("活动 SIM", if (ims.readable) "${ims.total} 张" else "未知"),
         HomeFactPresentation("隧道连接", when {
             !ims.readable -> "未知"
@@ -219,16 +222,21 @@ private fun homeSafeText(value: String?, fallback: String, limit: Int): String {
     return if (normalized.length <= limit) normalized else normalized.take(limit - 1) + "…"
 }
 
-private fun homeImsStatusLabel(ims: String?): String {
-    val fallback = homeNonBreakingPhrase("未注册")
-    val text = ims?.trim()?.takeIf(String::isNotEmpty) ?: return fallback
-    return if (text == "未注册" || text.equals("unregistered", ignoreCase = true)) {
-        fallback
-    } else {
-        homeSafeText(text, fallback, 24)
-    }
+private fun homeTunnelStatusLabel(tunnel: String?): String = when (tunnel) {
+    "CONNECTED" -> "已连接"
+    "CONNECTING" -> "连接中"
+    "DISCONNECTED" -> "未连接"
+    else -> "状态未知"
+}
+
+private fun homeImsStatusLabel(ims: String?): String = when {
+    ims.isNullOrBlank() || ims == "UNREGISTERED" -> homeNonBreakingPhrase("未注册")
+    ims == "REGISTERED" -> "已注册"
+    ims == "REGISTERING" -> "注册中"
+    else -> "状态未知"
 }
 
 internal fun homeCountryFlag(iso2: String?): String? = com.vowifi.sw.manager.data.countryFlagEmoji(iso2)
 
 private val HOME_SENSITIVE = listOf("iccid", "imsi", "msisdn", "subid", "token", "/data/", "/proc/", "sip:", "raw:")
+private const val HOME_ROOT_INSTRUCTION = "在 KernelSU Manager 中为 SoftVoWiFi 授予 Root 权限后返回刷新"

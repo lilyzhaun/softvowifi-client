@@ -1,6 +1,10 @@
 package com.vowifi.sw.manager.ui
 
 import com.vowifi.sw.manager.model.OperationalLogFile
+import androidx.compose.ui.graphics.vector.ImageVector
+import top.yukonga.miuix.kmp.icon.MiuixIcons
+import top.yukonga.miuix.kmp.icon.extended.File
+import top.yukonga.miuix.kmp.icon.extended.Filter
 
 internal enum class LogFilterControlPresentation {
     OVERLAY_DROPDOWN,
@@ -8,6 +12,7 @@ internal enum class LogFilterControlPresentation {
 
 internal enum class LogEntrySurface {
     COMPACT_CARD,
+    GROUPED_ROWS,
 }
 
 internal enum class OperationalLogDataSection {
@@ -22,14 +27,14 @@ internal fun operationalLogDataSectionOrder(hasWarning: Boolean): List<Operation
         listOf(
             OperationalLogDataSection.WARNING,
             OperationalLogDataSection.FILTERS,
-            OperationalLogDataSection.EVENTS,
             OperationalLogDataSection.EXPORT,
+            OperationalLogDataSection.EVENTS,
         )
     } else {
         listOf(
             OperationalLogDataSection.FILTERS,
-            OperationalLogDataSection.EVENTS,
             OperationalLogDataSection.EXPORT,
+            OperationalLogDataSection.EVENTS,
         )
     }
 
@@ -43,9 +48,13 @@ internal data class LogsChromeContract(
     val usesDefaultSelectableIndication: Boolean,
     val usesBlueFilterUnderlines: Boolean,
     val cardGapDp: Int = homeLayoutContract.cardGapDp,
-    val entryGapDp: Int = homeLayoutContract.cardGapDp,
+    val entryGapDp: Int = 0,
     val privacyNarrativeCount: Int = 1,
     val entryBodyMaxLines: Int = 2,
+    val entryPressStyle: ManagerPressStyle = ManagerPressStyle.CardRow,
+    val fileIcon: ImageVector = MiuixIcons.File,
+    val kindIcon: ImageVector = MiuixIcons.Filter,
+    val levelIcon: ImageVector = MiuixIcons.Filter,
 )
 
 internal fun logsChromeContract() = LogsChromeContract(
@@ -54,11 +63,11 @@ internal fun logsChromeContract() = LogsChromeContract(
     levelControl = LogFilterControlPresentation.OVERLAY_DROPDOWN,
     verticalScrollOwnerCount = 1,
     embeddedNestedScroll = false,
-    entrySurface = LogEntrySurface.COMPACT_CARD,
+    entrySurface = LogEntrySurface.GROUPED_ROWS,
     usesDefaultSelectableIndication = false,
     usesBlueFilterUnderlines = false,
     cardGapDp = homeLayoutContract.cardGapDp,
-    entryGapDp = homeLayoutContract.cardGapDp,
+    entryGapDp = 0,
     privacyNarrativeCount = 1,
     entryBodyMaxLines = 2,
 )

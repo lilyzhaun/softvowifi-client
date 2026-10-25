@@ -4,6 +4,7 @@ import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
@@ -24,11 +25,14 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.text.TextLayoutResult
 import com.vowifi.sw.manager.model.OperationalLogEntry
 import com.vowifi.sw.manager.model.OperationalLogKind
 import com.vowifi.sw.manager.model.OperationalLogLevel
@@ -37,12 +41,14 @@ import com.vowifi.sw.manager.ui.testing.onMotionTestThread
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.runTest
 import top.yukonga.miuix.kmp.basic.Icon
+import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.Text
 import kotlin.math.abs
 import kotlin.math.sqrt
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
+import kotlin.test.assertFalse
 
 /** S1 §5.1 的真实控件合同；所有事实由指针、语义几何和实际像素读取，不读取生产源码作断言。 */
 @OptIn(ExperimentalComposeUiApi::class, ExperimentalCoroutinesApi::class)
@@ -171,25 +177,42 @@ class ManagerControlPressTest {
         }
     } }
 
-    @Test fun logEntryUsesP3LargeScaleWithoutTintingTheCard() = onMotionTestThread { runTest {
+    @Test fun groupedLogEntryUsesP4ContentScaleWithoutShrinkingOrTintingTheCard() = onMotionTestThread { runTest {
         val summary = "合成日志摘要用于测量卡片绘制层尺寸"
+        val title = "合成日志标题绘制层尺寸"
         val entry = OperationalLogEntry("10:00:00", OperationalLogLevel.INFO, OperationalLogKind.ENGINE,
-            "合成实例", OperationalLogMessage.ENGINE_STARTED, summary)
-        ManagerPressRenderFixture(testScheduler) { LogEntryRow(entry) }.use { fixture ->
+            "合成实例", OperationalLogMessage.ENGINE_STARTED, summary, headline = title)
+        ManagerPressRenderFixture(testScheduler) {
+            Card(insideMargin = PaddingValues(0.dp)) { LogEntryRow(entry) }
+        }.use { fixture ->
             val target = fixture.actions().single().boundsInRoot
             val backgroundPoint = Offset(target.center.x, target.top + 6f)
             val rest = fixture.pixel(backgroundPoint)
             assertTrue(rest != fixture.palette.canvas.toArgb(), "前提：实际卡片表面必须能与画布区分")
-            val before = fixture.inkBounds(Color(rest))
-            assertTrue(before.width >= 240f, "前提：实际整卡表面足够宽，才能区分 .98 与 .96")
+            val surface = fixture.inkBounds(Color(rest))
+            val titleBounds = fixture.textBounds(title)
+            val titleNode = fixture.nodes().single { it.config.contains(SemanticsActions.GetTextLayoutResult) &&
+                it.config.getOrNull(SemanticsProperties.Text)?.any { text -> text.text == title } == true }
+            val layouts = mutableListOf<TextLayoutResult>()
+            assertTrue(requireNotNull(titleNode.config[SemanticsActions.GetTextLayoutResult].action).invoke(layouts))
+            val layout = layouts.single()
+            println("s10-log-row precondition title=$titleBounds lines=${layout.lineCount} overflow=${layout.hasVisualOverflow} surface=$surface target=$target")
+            assertEquals(1, layout.lineCount, "前提：真实排版须完整单行")
+            assertFalse(layout.hasVisualOverflow)
+            assertFalse(layout.isLineEllipsized(0))
+            assertTrue(titleBounds.bottom <= fixture.textBounds(operationalLogEntryContext(entry)).top,
+                "前提：自然标题采样区域不得混入下方摘要")
+            val before = fixture.textInkSpan(title)
+            assertTrue(before >= 140f, "前提：真实标题覆盖率跨度足以区分 .98 与 .96")
             fixture.environment.press(target.center)
             fixture.frames(2)
             val pressed = fixture.pixel(backgroundPoint)
-            println("s1-log-card background=$rest/$pressed")
-            assertEquals(rest, pressed, "P3 不叠按压色层")
-            val during = fixture.inkBounds(Color(rest))
-            println("s1-log-card surfaceBefore=$before surfaceDuring=$during")
-            assertEquals(before.width * MotionTokens.ScalePressLarge, during.width, 1f, "P3 整卡是 .98，不是旧通用 .96")
+            assertEquals(rest, pressed, "P4 不叠按压色层")
+            assertEquals(surface, fixture.inkBounds(Color(rest)), "P4 不缩整张分组卡表面")
+            assertEquals(target, fixture.actions().single().boundsInRoot, "行命中范围不能随内容缩放")
+            val during = fixture.textInkSpan(title)
+            println("s10-log-row titleSpan=$before/$during surface=$surface target=$target")
+            assertEquals(before * MotionTokens.ScalePress, during, .8f, "P4 内容应为 .96，不是P3整卡.98或无缩放")
             assertTrue(fixture.haptics.isEmpty(), "尚未抬起，不应执行日志动作")
         }
     } }

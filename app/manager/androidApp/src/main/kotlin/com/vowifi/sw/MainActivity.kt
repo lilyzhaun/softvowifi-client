@@ -8,6 +8,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.view.WindowManager
+import android.view.KeyEvent
 import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -113,9 +114,11 @@ class MainActivity : ComponentActivity() {
             val operationalLogSource = remember { AndroidOperationalLogSource(this@MainActivity, observerSource) }
             val appearanceSource = remember { AndroidAppearanceSettingsSource(applicationContext) }
             val blurSupported = remember { androidBlurSupported(runtimeBlurSupported()) }
-            val appVersion = remember {
-                packageManager.getPackageInfo(packageName, 0).versionName ?: "未知"
-            }
+            val appInfo = remember { packageManager.getPackageInfo(packageName, 0) }
+            val appVersion = appInfo.versionName ?: "未知"
+            @Suppress("DEPRECATION")
+            val appVersionCode = appInfo.versionCode
+            val integrityReader = remember { com.vowifi.sw.manager.data.AndroidEngineIntegrityReader() }
             val launchRoute = remember {
                 IncomingRoute.initial(
                     intent.getStringExtra(AndroidIncomingCallNotificationCoordinator.EXTRA_DESTINATION),
@@ -184,12 +187,14 @@ class MainActivity : ComponentActivity() {
                     messages = messageSource,
                     calls = callSource,
                     callNotificationSettings = processRuntime.callNotificationSettings,
+                    readEngineIntegrity = { integrityReader.read(engineSource.state.value) },
                 ),
                 initialDestination = launchRoute.destination,
                 incomingRoutes = incomingRouteFlow,
                 exportBusy = exportBusy,
                 exportCompletion = exportCompletion,
                 appVersion = appVersion,
+                appVersionCode = appVersionCode,
                 microphonePermissionGranted = microphonePermissionGranted,
                 onRequestMicrophonePermission = {
                     microphonePermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
@@ -214,6 +219,11 @@ class MainActivity : ComponentActivity() {
                 onCallPermissions = if (micDenied) ({ startActivity(Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName"))) }) else null,
             )
         }
+    }
+
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        if (::processRuntime.isInitialized && processRuntime.notifications.handleRingingVolumeKey(event)) return true
+        return super.dispatchKeyEvent(event)
     }
 
     override fun onResume() {

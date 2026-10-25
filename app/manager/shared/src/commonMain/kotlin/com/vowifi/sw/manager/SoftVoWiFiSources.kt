@@ -25,6 +25,7 @@ data class SoftVoWiFiSources(
     val calls: CallSource,
     val callNotificationSettings: com.vowifi.sw.manager.data.CallNotificationSettingsSource =
         com.vowifi.sw.manager.data.UnsupportedCallNotificationSettingsSource,
+    val readEngineIntegrity: (suspend () -> com.vowifi.sw.manager.model.EngineIntegritySnapshot)? = null,
 )
 
 internal fun SoftVoWiFiSources.refresh(targets: Set<RefreshTarget>) {

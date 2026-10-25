@@ -8,6 +8,8 @@ import android.content.Context
 import android.media.AudioAttributes
 import android.media.RingtoneManager
 import android.os.Build
+import android.view.KeyEvent
+import com.vowifi.sw.manager.model.CallPhase
 import com.vowifi.sw.manager.model.CallSyncState
 import com.vowifi.sw.manager.model.CallUiState
 import java.util.UUID
@@ -59,6 +61,22 @@ class AndroidIncomingCallNotificationCoordinator(
     private var foregroundPublish: ((Notification) -> Unit)? = null
     private var foregroundRestore: (() -> Unit)? = null
     private var foregroundOwnsIncoming = false
+    private var silencedKey: String? = null
+
+    fun handleRingingVolumeKey(event: KeyEvent): Boolean {
+        if (event.keyCode != KeyEvent.KEYCODE_VOLUME_DOWN && event.keyCode != KeyEvent.KEYCODE_VOLUME_UP ||
+            event.action != KeyEvent.ACTION_DOWN && event.action != KeyEvent.ACTION_UP ||
+            collectJob?.isActive != true || !appForeground && !callForeground) return false
+        val ready = callState.value as? CallUiState.Ready ?: return false
+        if (ready.phase != CallPhase.Ringing || ready.sync != CallSyncState.Ready ||
+            microphoneRunning || ready.pendingAction != null) return false
+        val key = launches.update(ready) ?: return false
+        if (silencedKey == key) return true
+        if (event.action != KeyEvent.ACTION_DOWN || !vibration.isActiveFor(key)) return false
+        silencedKey = key
+        vibration.stop()
+        return true
+    }
 
     fun attachForegroundHost(owner: Any, publish: (Notification) -> Unit, restore: () -> Unit) {
         if (foregroundHost === owner) return
@@ -80,7 +98,7 @@ class AndroidIncomingCallNotificationCoordinator(
         if (foregroundOwnsIncoming) {
             foregroundOwnsIncoming = false
             state = IncomingCallNotificationState(notificationKey = null, peerName = null)
-            notificationManager.cancel(NOTIFICATION_ID)
+            cancelNotification(NOTIFICATION_ID)
         }
     }
     fun setCallForeground(value: Boolean) { callForeground = value; refreshForeground() }
@@ -116,9 +134,11 @@ class AndroidIncomingCallNotificationCoordinator(
     fun stop() {
         collectJob?.cancel()
         collectJob = null
+        silencedKey = null
         vibration.stop()
         cancelCurrentNotification()
-        notificationManager.cancel(CallOngoingNotification.ID)
+        cancelNotification(CallOngoingNotification.ID)
+        cancelNotification(CallOngoingNotification.WITHOUT_MICROPHONE_ID)
         scope.cancel()
     }
 
@@ -134,9 +154,19 @@ class AndroidIncomingCallNotificationCoordinator(
     private fun onCallStateChanged(uiState: CallUiState) {
         if (collectJob == null) return
         val key = launches.update(uiState)
+        if (uiState !is CallUiState.Ready || uiState.phase != CallPhase.Ringing || key != silencedKey) silencedKey = null
         if (uiState is CallUiState.Ready && key != null && (uiState.phase != com.vowifi.sw.manager.model.CallPhase.Ringing || microphoneRunning)) {
-            notificationManager.notify(CallOngoingNotification.ID, CallOngoingNotification.build(appContext, key, uiState, microphoneRunning))
-        } else if (!microphoneRunning) notificationManager.cancel(CallOngoingNotification.ID)
+            val id = if (microphoneRunning) CallOngoingNotification.ID else CallOngoingNotification.WITHOUT_MICROPHONE_ID
+            cancelNotification(if (microphoneRunning) CallOngoingNotification.WITHOUT_MICROPHONE_ID else CallOngoingNotification.ID)
+            val notification = CallOngoingNotification.build(appContext, key, uiState, microphoneRunning)
+            ForegroundNotificationDiagnostics.trace(appContext, NotificationDiagnosticOwner.COORDINATOR,
+                NotificationDiagnosticAction.NOTIFY, id, notification) {
+                notificationManager.notify(id, notification)
+            }
+        } else {
+            cancelNotification(CallOngoingNotification.WITHOUT_MICROPHONE_ID)
+            if (!microphoneRunning) cancelNotification(CallOngoingNotification.ID)
+        }
         if (uiState !is CallUiState.Ready || uiState.phase != com.vowifi.sw.manager.model.CallPhase.Ringing ||
             uiState.sync != CallSyncState.Ready || key == null || microphoneRunning || uiState.pendingAction != null) {
             vibration.stop()
@@ -145,7 +175,7 @@ class AndroidIncomingCallNotificationCoordinator(
         }
         if (appForeground || callForeground) {
             cancelIfActive()
-            vibration.start(key)
+            if (silencedKey == key) vibration.stop() else vibration.start(key)
             mutableRecovery.value = IncomingCallRecoveryState.NONE
             return
         }
@@ -191,11 +221,13 @@ class AndroidIncomingCallNotificationCoordinator(
         }
 
         val published = builder.post(peerName, notificationKey, policy,
-            notify = { notificationManager.notify(NOTIFICATION_ID, it) },
+            notify = { notification -> ForegroundNotificationDiagnostics.trace(appContext, NotificationDiagnosticOwner.COORDINATOR,
+                NotificationDiagnosticAction.NOTIFY, NOTIFICATION_ID, notification) { notificationManager.notify(NOTIFICATION_ID, notification) } },
             foregroundNotify = foregroundPublish?.let { publish -> { notification ->
                 publish(notification)
                 foregroundOwnsIncoming = true
             } },
+            silent = notificationKey == silencedKey,
         )
         if (!published) mutableRecovery.value = IncomingCallRecoveryState.FOREGROUND_SERVICE_REQUIRED
         return published
@@ -206,8 +238,11 @@ class AndroidIncomingCallNotificationCoordinator(
             foregroundRestore?.invoke()
             foregroundOwnsIncoming = false
         }
-        notificationManager.cancel(NOTIFICATION_ID)
+        cancelNotification(NOTIFICATION_ID)
     }
+
+    private fun cancelNotification(id: Int) = ForegroundNotificationDiagnostics.trace(appContext,
+        NotificationDiagnosticOwner.COORDINATOR, NotificationDiagnosticAction.CANCEL, id) { notificationManager.cancel(id) }
 
     private fun createChannel() {
         if (notificationManager.getNotificationChannel(CHANNEL_ID) != null) return

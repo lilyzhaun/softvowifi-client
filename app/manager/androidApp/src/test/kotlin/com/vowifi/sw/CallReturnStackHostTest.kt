@@ -2,11 +2,21 @@ package com.vowifi.sw
 
 import android.Manifest
 import android.content.Intent
+import android.net.Uri
 import android.os.Looper
 import com.vowifi.sw.manager.data.AndroidIncomingCallNotificationCoordinator
 import com.vowifi.sw.manager.data.SoftVoWiFiRuntime
+import com.vowifi.sw.manager.data.AndroidMessageNotifications
+import com.vowifi.sw.manager.ui.navigation.AppRoute
+import kotlinx.coroutines.channels.Channel
+import org.robolectric.util.ReflectionHelpers
 import com.vowifi.sw.manager.model.CallPhase
 import com.vowifi.sw.manager.model.CallUiState
+import com.vowifi.sw.manager.model.EngineProtocolFrame
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import org.junit.Assert.*
 import org.junit.Before
 import org.junit.Test
@@ -42,6 +52,14 @@ class CallReturnStackHostTest {
             assertEquals(runtime.notifications.keyForCurrent(), key)
             assertNotNull(runtime.notifications.resolveKey(key))
             assertNull(shadowOf(originalMain).nextStartedActivityForResult)
+            // 消费真实短信deep link作为Main已收到的会话导航；暖返回不能再发清栈事件。
+            val routes = ReflectionHelpers.getField<Channel<AppRoute>>(originalMain, "incomingRoutes")
+            routes.tryReceive() // Channel.CONFLATED最多一个待消费事件。
+            main.newIntent(Intent(AndroidMessageNotifications.ACTION)
+                .setData(Uri.parse("softvowifi-message:conversation-return-stack"))
+                .putExtra(AndroidMessageNotifications.EXTRA_HANDLE, "conversation-return-stack"))
+            assertEquals("conversation-return-stack", (routes.tryReceive().getOrNull() as AppRoute.MessageThread).conversation.value)
+            assertTrue(routes.tryReceive().isFailure)
             main.pause().stop()
             Robolectric.buildActivity(CallActivity::class.java, open).use { call ->
                 call.create().start().resume(); idle()
@@ -62,7 +80,9 @@ class CallReturnStackHostTest {
                 assertNull("同任务已有Main时不得再startActivity/CLEAR_TOP提前清除Call",
                     shadowOf(activity).nextStartedActivityForResult)
                 assertEquals(key, originalMain.intent.getStringExtra(CallActivity.EXTRA_MINIMIZED))
-                assertEquals("calls", originalMain.intent.getStringExtra(AndroidIncomingCallNotificationCoordinator.EXTRA_DESTINATION))
+                assertFalse("进行中暖返回只交接最小化key，不发送清栈路由",
+                    originalMain.intent.hasExtra(AndroidIncomingCallNotificationCoordinator.EXTRA_DESTINATION))
+                assertTrue("会话导航已消费后，暖最小化不能再发送任何根/子页路由", routes.tryReceive().isFailure)
                 assertFalse(originalMain.isFinishing); assertFalse(originalMain.isDestroyed)
                 activity.onBackPressedDispatcher.onBackPressed(); idle()
                 assertEquals("重复返回只能finish一次", 1, counter.finishCalls)
@@ -78,6 +98,35 @@ class CallReturnStackHostTest {
             assertEquals(key, runtime.notifications.keyForCurrent())
             assertEquals(CallPhase.Ringing, (runtime.calls.state.value as CallUiState.Ready).phase)
             assertTrue("最小化不能answer/hangup/cancel/dial", fixture.commands.isEmpty())
+            main.pause().stop().destroy()
+        }
+    }
+
+    @Test fun endedWarmReturnStillRequestsCallsRootAndDoesNotRelaunchMain() = withRuntime { fixture, runtime ->
+        Robolectric.buildActivity(MainActivity::class.java).use { main ->
+            main.create().start().resume(); idle()
+            val open = requireNotNull(shadowOf(main.get()).nextStartedActivityForResult).intent
+            main.pause().stop()
+            Robolectric.buildActivity(CallActivity::class.java, open).use { call ->
+                call.create().start().resume(); idle()
+                val events = fixture.primary.events as MutableSharedFlow<EngineProtocolFrame.Event>
+                assertTrue(events.subscriptionCount.value > 0)
+                fixture.stage = "IDLE"; fixture.revision++
+                runBlocking { events.emit(EngineProtocolFrame.Event("callEnded", buildJsonObject {
+                    put("callId", fixture.token); put("epoch", fixture.epoch)
+                    put("revision", fixture.revision); put("reason", "remote"); put("durationSec", 0)
+                })) }
+                idle()
+                assertEquals(CallPhase.Idle, (runtime.calls.state.value as CallUiState.Ready).phase)
+                call.get().onBackPressedDispatcher.onBackPressed(); idle()
+                assertEquals("calls", main.get().intent.getStringExtra(AndroidIncomingCallNotificationCoordinator.EXTRA_DESTINATION))
+                assertNull(shadowOf(call.get()).nextStartedActivityForResult)
+                assertEquals(1, Shadow.extract<CallReturnMotionActivityShadow>(call.get()).finishCalls)
+                assertTrue(fixture.commands.isEmpty())
+                call.pause().stop().destroy()
+            }
+            main.restart().start().resume(); idle()
+            assertNull(shadowOf(main.get()).nextStartedActivityForResult)
             main.pause().stop().destroy()
         }
     }

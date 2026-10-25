@@ -10,7 +10,7 @@ enum class DiagnosticName { PROCESS_STARTED, PROCESS_STOPPING, OBSERVED, REJECTE
 enum class DiagnosticStage {
     PROCESS, PERMISSION, ENUMERATE, IDENTITY, NORMALIZE, LISTENER, CONFIG_MATCH, CONFIG_CREATE,
     CONFIG_REFRESH, CONFIG_APPLY, STRICT_VERIFY, DISCOVER, PUBLISH, SNAPSHOT, SELECT, SOURCE, DNS, SOCKET,
-    WRITE, RESPONSE, CONNECT, STOP, SOCKET_CONTROL,
+    WRITE, RESPONSE, CONNECT, STOP, SOCKET_CONTROL, NOTIFICATION,
 }
 enum class DiagnosticResult { OBSERVED, STARTED, SUCCESS, FAILURE, CANCELLED, UNAVAILABLE, STOPPED }
 enum class DiagnosticReason {
@@ -42,14 +42,16 @@ data class DiagnosticEvent(
     val family: DiagnosticFamily? = null,
     val sourceFamily: DiagnosticFamily? = null,
     val endpoint: String? = null,
+    val notification: NotificationDiagnostic? = null,
 ) {
     internal fun valid(): Boolean = (slot == null || slot in 0..1) &&
         listOf(count, accepted, attempt).all { it == null || it in 0..1_000_000_000 } &&
         (networkGeneration == null || networkGeneration in 0..1_000_000_000_000L) &&
-        (endpoint == null || endpoint.matches(Regex("[0-9a-f]{32}")))
+        (endpoint == null || endpoint.matches(Regex("[0-9a-f]{32}"))) &&
+        (notification == null || component == DiagnosticComponent.APP && stage == DiagnosticStage.NOTIFICATION && notification.valid())
 
     internal val priority: Boolean get() = result == DiagnosticResult.FAILURE ||
-        result == DiagnosticResult.CANCELLED || name == DiagnosticName.RECOVERED || name == DiagnosticName.PROCESS_STOPPING
+        result == DiagnosticResult.CANCELLED || name == DiagnosticName.RECOVERED || name == DiagnosticName.PROCESS_STOPPING || notification != null
 }
 
 internal data class DiagnosticStats(
@@ -74,6 +76,7 @@ internal data class DiagnosticRecord(
         event.family?.let { put("family", it.name.lowercase()) }
         event.sourceFamily?.let { put("source_family", it.name.lowercase()) }
         event.endpoint?.let { put("endpoint", it) }
+        event.notification?.let { put("notification", it.json()) }
         put("suppressed", suppressed); put("first_mono_ms", first); put("last_mono_ms", last)
         put("dropped", dropped); put("evicted", evicted)
     }.toString() + "\n").encodeToByteArray()

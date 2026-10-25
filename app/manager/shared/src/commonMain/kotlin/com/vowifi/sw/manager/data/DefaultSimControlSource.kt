@@ -6,6 +6,7 @@ import com.vowifi.sw.manager.model.SimControlInstance
 import com.vowifi.sw.manager.model.SimControlUiState
 import com.vowifi.sw.manager.model.SimEngineJoinInput
 import com.vowifi.sw.manager.model.SimHandle
+import com.vowifi.sw.manager.model.CallUiState
 import kotlin.coroutines.CoroutineContext
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
@@ -108,6 +109,9 @@ internal class DefaultSimControlSource(
         val key = rawKeyIfCapable(handle) { it.canStop } ?: return
         engine.stop(key)
     }
+
+    override fun activeCallSims(currentCall: CallUiState): Map<SimHandle, Int?> =
+        activeCallSimsFor(state.value, currentCall, handles::keyFor)
 
     override fun close() {
         synchronized(lock) {

@@ -21,10 +21,11 @@ internal class IncomingCallNotificationBuilder(
         policy: NotificationPolicyDecision,
         notify: (Notification) -> Unit,
         foregroundNotify: ((Notification) -> Unit)?,
+        silent: Boolean = false,
     ): Boolean {
         val answer = buildAnswerPendingIntent(notificationKey)
         val reject = buildRejectPendingIntent(notificationKey)
-        val notification = build(peerName, notificationKey, answer, reject, policy)
+        val notification = build(peerName, notificationKey, answer, reject, policy, silent)
         try {
             notify(notification)
         } catch (error: IllegalArgumentException) {
@@ -44,6 +45,7 @@ internal class IncomingCallNotificationBuilder(
         answerPending: PendingIntent,
         rejectPending: PendingIntent,
         policy: NotificationPolicyDecision,
+        silent: Boolean = false,
     ): Notification {
         val person = Person.Builder()
             .setName(peerName)
@@ -84,8 +86,10 @@ internal class IncomingCallNotificationBuilder(
             -> Unit
         }
 
-        // 由系统按渠道偏好循环响铃/振动，来电终态时由 coordinator 取消。
-        return builder.build().apply { flags = flags or Notification.FLAG_INSISTENT }
+        // Native child-alert suppression silences this notification without changing the user's channel.
+        if (silent) builder.setGroup("softvowifi.silenced-incoming").setGroupAlertBehavior(Notification.GROUP_ALERT_SUMMARY)
+        // Non-silenced calls retain system-owned repeating alerts and all existing CallStyle/FSI policy.
+        return builder.build().apply { if (!silent) flags = flags or Notification.FLAG_INSISTENT }
     }
 
     fun buildAnswerPendingIntent(notificationKey: String): PendingIntent {

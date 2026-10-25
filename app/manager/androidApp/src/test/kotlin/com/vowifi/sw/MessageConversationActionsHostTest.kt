@@ -41,6 +41,73 @@ class MessageConversationActionsHostTest {
         } as MessageUiState.Inbox
     }
 
+    @Test fun groupedCountsAndReadTransactionPreserveOtherOwnersAndManualReminderSemanticsAfterReopen() = runBlocking {
+        var repo = open()
+        try {
+            repeat(2) { index -> repo.insertIncomingIfAbsent(owner, "a-$index", "engine-a-$index", "+155501", "synthetic A", index.toLong(), 1) }
+            repeat(3) { index -> repo.insertIncomingIfAbsent(other, "b-$index", "engine-b-$index", "+155501", "synthetic B", index.toLong(), 1) }
+            repo.insertIncomingIfAbsent(owner, "a-other", "engine-a-other", "+155502", "synthetic other thread", 3, 1)
+            assertEquals(mapOf(owner to 3L, other to 3L), repo.countUnreadByOwner())
+            assertEquals(6L, repo.countUnreadIncoming())
+            assertTrue(repo.changeConversation(identity, MessageConversationAction.MARK_READ))
+            assertEquals(mapOf(owner to 1L, other to 3L), repo.countUnreadByOwner())
+            val read = repo.listConversation(identity).filterIsInstance<MessageRecord.Incoming>()
+            assertTrue(read.all { it.isRead && it.readAtMs != null })
+            assertEquals(3, repo.listByOwner(other).filterIsInstance<MessageRecord.Incoming>().count { !it.isRead })
+            repo.insertQueued(owner, "manual-anchor", "+155501", "synthetic reminder", 10)
+            assertTrue(repo.changeConversation(identity, MessageConversationAction.MARK_UNREAD))
+            assertTrue(repo.changeConversation(identity, MessageConversationAction.MARK_UNREAD))
+            assertEquals(mapOf(owner to 2L, other to 3L), repo.countUnreadByOwner())
+            assertEquals(5L, repo.countUnreadIncoming())
+            assertTrue(repo.changeConversation(identity, MessageConversationAction.MARK_READ))
+            assertEquals(mapOf(owner to 1L, other to 3L), repo.countUnreadByOwner())
+            repo.close(); repo = open()
+            assertEquals(mapOf(owner to 1L, other to 3L), repo.countUnreadByOwner())
+            assertTrue(repo.listConversation(identity).filterIsInstance<MessageRecord.Incoming>().all { it.isRead })
+            assertEquals(4L, repo.countUnreadIncoming())
+        } finally { repo.close() }
+    }
+
+    @Test fun failedReadTransactionKeepsBothIncomingUnreadAndTheManualMarker() = runBlocking {
+        val repo = open()
+        try {
+            repo.insertQueued(owner, "anchor", "+155501", "synthetic reminder", 1)
+            assertTrue(repo.changeConversation(identity, MessageConversationAction.MARK_UNREAD))
+            repo.insertIncomingIfAbsent(owner, "incoming", "engine-incoming", "+155501", "synthetic incoming", 2, 2)
+            assertEquals(mapOf(owner to 2L), repo.countUnreadByOwner())
+            SQLiteDatabase.openDatabase(RuntimeEnvironment.getApplication().getDatabasePath(name).path, null, SQLiteDatabase.OPEN_READWRITE).use { database ->
+                database.execSQL("CREATE TRIGGER fail_mark_read BEFORE UPDATE OF `read` ON messages BEGIN SELECT RAISE(ABORT, 'synthetic read failure'); END")
+            }
+            try { repo.changeConversation(identity, MessageConversationAction.MARK_READ); fail("必须保留真实事务失败") }
+            catch (error: Exception) { assertEquals("MessageStorageException", error.javaClass.simpleName) }
+            assertEquals(mapOf(owner to 2L), repo.countUnreadByOwner())
+            assertEquals(2L, repo.countUnreadIncoming())
+            assertFalse((repo.listConversation(identity).single { it.id == "incoming" } as MessageRecord.Incoming).isRead)
+        } finally { repo.close() }
+    }
+
+    @Test fun explicitReadThroughTheProductionSourceReconcilesOnlyItsOwnNotificationAndCounts() = runBlocking {
+        val repo = open()
+        repo.insertIncomingIfAbsent(owner, "a", "engine-a", "+155501", "synthetic A", 1, 1)
+        repo.insertIncomingIfAbsent(other, "b", "engine-b", "+155501", "synthetic B", 1, 1)
+        repo.setLastOwner(owner)
+        val reconciled = mutableListOf<Pair<StoredMessageConversation, Set<String>>>()
+        val source = EngineMessageSource(EngineMessageRuntime({ emptyList() }, { error("不得连接引擎或发送") }, { 10L }),
+            Dispatchers.Unconfined, repo, { null }, { "unused" }, object : MessagePersistenceObserver {
+                override fun onSnapshot(owner: SimOwnerId, records: List<MessageRecord>, freshIncomingId: String?) { assertNull(freshIncomingId) }
+                override fun onThreadUnread(conversation: StoredMessageConversation, ids: Set<String>) { reconciled += conversation to ids }
+            })
+        try {
+            withTimeout(5000) { source.state.first { it is MessageUiState.Inbox && !it.page.loading && it.ownerId == owner } }
+            assertEquals(MessageConversationActionResult.APPLIED, source.changeConversation(identity.handle.value, MessageConversationAction.MARK_READ))
+            withTimeout(5000) { source.unreadSummary.first { it == MessageUnreadSummary.Ready(1, mapOf(other to 1L)) } }
+            withTimeout(5000) { source.state.first { it is MessageUiState.Inbox && !it.page.loading && it.page.items.singleOrNull()?.unreadCount == 0L } }
+            assertEquals(identity to emptySet<String>(), reconciled.last())
+            assertFalse((repo.listByOwner(other).single() as MessageRecord.Incoming).isRead)
+            assertEquals(1L, repo.countUnreadIncoming())
+        } finally { source.close(); repo.close() }
+    }
+
     @Test fun markingUnreadDoesNotReloadLineLabelsOrRawMessages() = runBlocking {
         val stored = open()
         stored.insertQueued(owner, "sent", identity.key, "synthetic", 1)
@@ -172,7 +239,7 @@ class MessageConversationActionsHostTest {
             withTimeout(5000) { source.state.first { it is MessageUiState.Inbox } }
             assertEquals(MessageConversationActionResult.APPLIED, source.changeConversation(identity.handle.value, MessageConversationAction.MARK_UNREAD))
             withTimeout(5000) { source.state.first { it is MessageUiState.Inbox && it.page.items.singleOrNull()?.unreadCount == 1L } }
-            withTimeout(5000) { source.unreadSummary.first { it == MessageUnreadSummary.Ready(1) } }
+            withTimeout(5000) { source.unreadSummary.first { it == MessageUnreadSummary.Ready(1, mapOf(owner to 1L)) } }
             assertEquals(1L, repo.countUnreadIncoming())
             source.markVisibleRead(request(listOf("sent")))
             withTimeout(5000) { source.unreadSummary.first { it == MessageUnreadSummary.Ready(0) } }

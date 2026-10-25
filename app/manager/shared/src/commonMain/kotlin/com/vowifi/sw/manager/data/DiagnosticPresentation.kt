@@ -102,5 +102,6 @@ internal object DiagnosticPresentation {
             Copy("正在等待 DNS 响应", "收到 DNS 响应数据", "DNS 响应读取失败")
             else Copy("正在等待对端数据", "收到对端数据", "对端数据读取失败")
         DiagnosticStage.PROCESS -> Copy("进程正在启动", "进程启动完成", "进程启动失败")
+        DiagnosticStage.NOTIFICATION -> Copy("正在执行通知步骤", "通知步骤已返回", "通知步骤异常")
     }
 }

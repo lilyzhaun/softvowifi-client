@@ -341,7 +341,7 @@ class S4SmsMutationRenderTest {
     @Test fun actualConversationDeleteWaitsForStorageRestoresFailureAndOnlyThenFadesAndClosesItsGap() = onMotionTestThread { runTest {
         S4SmsHistoryRig.create(testScheduler, sameThread = false, count = 3).use { rig ->
             // 复用原fake的实际记录与history实现；该有限仓储表是本测试source唯一读写视图。
-            // FakeMessageRepository没有DELETE实现，故在仓储代理内完成删除；不是在UI层过滤列表。
+            // 本用例以独立有限表保留受控DELETE写门；不是在UI层过滤列表。
             val table = (0 until 3).associate { index ->
                 val id = "id-$index"
                 id to requireNotNull(rig.stored.stored(id))
@@ -361,6 +361,8 @@ class S4SmsMutationRenderTest {
                 override suspend fun listByOwner(ownerId: SimOwnerId): List<MessageRecord> = table.values
                     .filter { it.ownerId == ownerId }.sortedWith(compareBy({ it.messageAtMs }, { it.id })).map { it.toRecord() }
                 override suspend fun countUnreadIncoming(): Long = table.values.count { it.incoming && !it.isRead }.toLong()
+                override suspend fun countUnreadByOwner(): Map<SimOwnerId, Long> = table.values.filter { it.countsAsUnread }
+                    .groupingBy { it.ownerId }.eachCount().mapValues { it.value.toLong() }
                 override suspend fun changeConversation(identity: StoredMessageConversation, action: MessageConversationAction): Boolean {
                     assertEquals(target, identity); assertEquals(MessageConversationAction.DELETE, action)
                     deleteCalls++; entered.complete(Unit)
@@ -417,7 +419,7 @@ class S4SmsMutationRenderTest {
                             bounds.top >= viewport.top && bounds.bottom <= viewport.bottom, "长按前提：目标真实行完整可见")
                         e.press(bounds.center); e.s4Frames(40); e.release(bounds.center); e.s4Frames(24)
                         assertEquals(0, opens, "长按不能先触发打开会话")
-                        assertNotNull(s4Visible(e, "标为未读"), "前提：真实原长按菜单已出现")
+                        assertNotNull(s4Visible(e, "标为已读"), "前提：真实未读会话的长按菜单已出现")
                         s4Tap(e, "删除"); e.s4Frames(40)
                         assertNotNull(s4Visible(e, "删除会话？"), "前提：必须经过真实确认，不能直接调后端")
                         // T7取代旧32ms即时交接前提：真实原宿主退出完成才交接；E2仍从真实写门/写回计时。

@@ -52,7 +52,6 @@ internal fun filterLoadedThread(items: List<MessageThreadItem>, query: String): 
 internal fun MessageThreadSearch(open: Boolean, query: String, matches: Int, onToggle: () -> Unit, onQuery: (String) -> Unit,
     contextLabel: String? = null) {
     val colors = LocalSoftVoWiFiColors.current
-    val duration = smsInnerMotionMillis()
     val host = LocalCommunicationPageControl.current
     val currentToggle by rememberUpdatedState(onToggle)
     val active = LocalAppRouteActive.current
@@ -74,8 +73,10 @@ internal fun MessageThreadSearch(open: Boolean, query: String, matches: Int, onT
             Text(contextLabel.orEmpty(), modifier = Modifier.weight(1f), color = colors.textSecondary, fontSize = 12.sp, lineHeight = 16.sp)
             CommunicationTextAction(label, toggle, enabled = active)
         }
-        AnimatedVisibility(open, enter = fadeIn(tween(duration)) + expandVertically(tween(duration)),
-            exit = fadeOut(tween(duration)) + shrinkVertically(tween(duration))) {
+        AnimatedVisibility(open, enter = fadeIn(tween(MotionTokens.DurBase, easing = MotionTokens.EaseStandard)) +
+            expandVertically(tween(MotionTokens.DurBase, easing = MotionTokens.EaseStandard)),
+            exit = fadeOut(tween(MotionTokens.DurFast, easing = MotionTokens.EaseExit)) +
+                shrinkVertically(tween(MotionTokens.DurFast, easing = MotionTokens.EaseExit))) {
             Column {
                 CommunicationInput(query, { onQuery(it.take(128)) }, "搜索已加载消息",
                     Modifier.fillMaxWidth().clearFocusOnInactiveRouteAndImeHide(), enabled = active && open, singleLine = true, leading = CommunicationSearch)

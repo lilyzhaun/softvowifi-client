@@ -57,7 +57,7 @@ object EnvironmentDiagnosticsEvaluator {
             engineCheck(snapshot.engine),
             wfcCheck(stockWfc),
         )
-        return EnvironmentDiagnosticsUiState.Ready(checks.maxOf { it.status }, checks)
+        return EnvironmentDiagnosticsUiState.Ready(checks.maxOf { it.status }, checks, module = snapshot.module)
     }
 }
 

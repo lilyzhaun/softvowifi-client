@@ -6,6 +6,7 @@ import android.os.Build
 import android.os.Bundle
 import android.os.SystemClock
 import android.view.accessibility.AccessibilityManager
+import android.view.KeyEvent
 import androidx.activity.ComponentActivity
 import androidx.activity.addCallback
 import androidx.activity.compose.setContent
@@ -134,6 +135,11 @@ class CallActivity : ComponentActivity() {
         setShowWhenLocked(false); setTurnScreenOn(false)
         if (key.isNullOrEmpty()) finish() else { runtime.calls.refresh(); authorizeIfReady() }
     }
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        if (::runtime.isInitialized && runtime.notifications.handleRingingVolumeKey(event)) return true
+        return super.dispatchKeyEvent(event)
+    }
+
     override fun onResume() {
         super.onResume(); resumed = true
         if (::runtime.isInitialized && !isFinishing) { runtime.calls.lifecycle.setVisible(this, true, true); authorizeIfReady(); microphone.resume() }
@@ -178,11 +184,14 @@ class CallActivity : ComponentActivity() {
         returning = true
         setShowWhenLocked(false); setTurnScreenOn(false)
         val management = Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
-            .putExtra(AndroidIncomingCallNotificationCoordinator.EXTRA_DESTINATION, "calls")
             .putExtra(EXTRA_MINIMIZED, runtime.notifications.keyForCurrent())
+        if ((runtime.calls.state.value as? CallUiState.Ready)?.phase == CallPhase.Idle) {
+            management.putExtra(AndroidIncomingCallNotificationCoordinator.EXTRA_DESTINATION, "calls")
+        }
         // With Main already underneath, only close this top Activity. CLEAR_TOP would
         // otherwise remove it as part of a second launch before its own close transition.
         if (!MainActivity.prepareCallReturn(taskId, management)) {
+            management.putExtra(AndroidIncomingCallNotificationCoordinator.EXTRA_DESTINATION, "calls")
             startActivity(management,
                 ActivityOptions.makeCustomAnimation(this, R.anim.s6_call_stay_exit, R.anim.s6_call_down).toBundle())
         }

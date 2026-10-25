@@ -165,17 +165,26 @@ class S3ConfigurationProvisionStateHostTest {
 
     @Test fun automaticBatchReportsRealPendingWithoutAUserCompletionEvent() = runBlocking {
         ConfigurationProvisionHostFixture(automatic = true).use { fixture ->
+            val readback = fixture.holdReadback()
             try {
                 fixture.createHold.awaitEntered()
                 assertEquals(setOf(fixture.target), fixture.source.provisioning.value.pending)
                 assertTrue(fixture.source.provisioning.value.completions.isEmpty())
                 fixture.createHold.release()
-                withTimeout(3000) { fixture.source.state.first { it is ConfigurationUiState.Ready } }
-                fixture.joinProducer()
+                readback.awaitEntered()
+                assertEquals(setOf(fixture.target), fixture.source.provisioning.value.pending)
+                assertTrue(fixture.source.provisioning.value.completions.isEmpty())
+                readback.release()
+                // Ready is published before the refresh completion callback clears pending.
+                // Await the public terminal, not a snapshot of internal scope children.
+                withTimeout(3000) {
+                    fixture.source.state.first { it is ConfigurationUiState.Ready }
+                    fixture.source.provisioning.first { it.pending.isEmpty() }
+                }
                 assertTrue(fixture.source.provisioning.value.pending.isEmpty())
                 assertTrue(fixture.source.provisioning.value.completions.isEmpty())
                 assertEquals(1, ConfigurationProvisionCommandShadow.creates.get())
-            } finally { fixture.createHold.release() }
+            } finally { fixture.createHold.release(); readback.release() }
         }
     }
 

@@ -27,7 +27,7 @@ class MessageUnreadSummaryTest {
         try {
             assertEquals(MessageUnreadSummary.Loading, source.unreadSummary.value)
             runCurrent()
-            assertEquals(MessageUnreadSummary.Ready(5), source.unreadSummary.value)
+            assertEquals(expectedUnreadSummary(2, 3), source.unreadSummary.value)
             assertEquals(listOf("a-1", "a-2"), inspectInboxThreads(source).records.map { it.id })
             assertEquals(listOf(OWNER_A), snapshots)
         } finally { source.close() }
@@ -43,7 +43,7 @@ class MessageUnreadSummaryTest {
             assertFalse(ready.composerEnabled)
             assertEquals(2, source.historyChoices.value.lines.size)
             assertEquals(2L, ready.page.items.sumOf { it.messageCount })
-            assertEquals(MessageUnreadSummary.Ready(5), source.unreadSummary.value)
+            assertEquals(expectedUnreadSummary(2, 3), source.unreadSummary.value)
             assertEquals(0, repository.listByOwnerCalls)
         } finally { source.close() }
     }
@@ -58,7 +58,7 @@ class MessageUnreadSummaryTest {
             val ready = assertIs<MessageUiState.Inbox>(source.state.value)
             assertFalse(ready.composerEnabled)
             assertEquals(2L, ready.page.items.sumOf { it.messageCount })
-            assertEquals(MessageUnreadSummary.Ready(5), source.unreadSummary.value)
+            assertEquals(expectedUnreadSummary(2, 3), source.unreadSummary.value)
         } finally { source.close() }
     }
 
@@ -73,16 +73,16 @@ class MessageUnreadSummaryTest {
         try {
             source.markVisibleRead(unreadRequest(OWNER_A, "a-1"))
             runCurrent()
-            assertEquals(MessageUnreadSummary.Ready(4), source.unreadSummary.value)
+            assertEquals(expectedUnreadSummary(1, 3), source.unreadSummary.value)
             transport.emitReceived("engine-a-1", "+155501", "synthetic-duplicate", 1)
             runCurrent()
-            assertEquals(MessageUnreadSummary.Ready(4), source.unreadSummary.value)
+            assertEquals(expectedUnreadSummary(1, 3), source.unreadSummary.value)
             assertTrue(alerts.isEmpty())
             assertTrue(assertIs<MessageRecord.Incoming>(repository.listByOwner(OWNER_A).first()).isRead)
             assertEquals(3, repository.listByOwner(OWNER_B).count { it is MessageRecord.Incoming && !it.isRead })
             transport.emitReceived("engine-fresh", "+155501", "synthetic-fresh", 2)
             runCurrent()
-            assertEquals(MessageUnreadSummary.Ready(5), source.unreadSummary.value)
+            assertEquals(expectedUnreadSummary(2, 3), source.unreadSummary.value)
             assertEquals(1, alerts.size)
         } finally { source.close() }
     }
@@ -94,7 +94,7 @@ class MessageUnreadSummaryTest {
             val before = source.state.value
             source.markVisibleRead(unreadRequest(OWNER_B, "b-1"))
             runCurrent()
-            assertEquals(MessageUnreadSummary.Ready(4), source.unreadSummary.value)
+            assertEquals(expectedUnreadSummary(2, 2), source.unreadSummary.value)
             assertEquals(before, source.state.value)
         } finally { source.close() }
     }
@@ -112,7 +112,7 @@ class MessageUnreadSummaryTest {
             repository.insertIncomingIfAbsent(OWNER_B, "b-later", "engine-b-later", "+155501", "synthetic", 10, 10)
             transport.emitReceived("engine-a-1", "+155501", "synthetic-duplicate", 1)
             runCurrent()
-            assertEquals(MessageUnreadSummary.Ready(6), source.unreadSummary.value)
+            assertEquals(expectedUnreadSummary(2, 4), source.unreadSummary.value)
             assertTrue(alerts.isEmpty())
         } finally { source.close() }
     }
@@ -127,7 +127,7 @@ class MessageUnreadSummaryTest {
             repository.failNextList = true
             transport.emitReceived("engine-new", "+155501", "synthetic", 10)
             runCurrent()
-            assertEquals(MessageUnreadSummary.Ready(6), source.unreadSummary.value)
+            assertEquals(expectedUnreadSummary(3, 3), source.unreadSummary.value)
             assertEquals(2L, assertIs<MessageUiState.Inbox>(source.state.value).page.items.sumOf { it.messageCount })
         } finally { source.close() }
     }
@@ -144,7 +144,7 @@ class MessageUnreadSummaryTest {
             assertTrue(assertIs<MessageRecord.Incoming>(inspectInboxThreads(source).records.first()).isRead)
             source.refresh()
             runCurrent()
-            assertEquals(MessageUnreadSummary.Ready(4), source.unreadSummary.value)
+            assertEquals(expectedUnreadSummary(1, 3), source.unreadSummary.value)
         } finally { source.close() }
     }
 
@@ -178,6 +178,9 @@ internal suspend fun seededUnreadRepository(): FakeMessageRepository = FakeMessa
         )
     }
 }
+
+internal fun expectedUnreadSummary(a: Long, b: Long) = MessageUnreadSummary.Ready(a + b,
+    mapOf(OWNER_A to a, OWNER_B to b).filterValues { it > 0 })
 
 internal fun unreadRequest(owner: SimOwnerId, id: String): ObservedIncomingReadRequest =
     checkNotNull(ObservedIncomingReadRequest.create(owner, "155501", listOf(id)))

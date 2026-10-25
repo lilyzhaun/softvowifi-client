@@ -19,6 +19,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -139,7 +140,8 @@ internal val LocalCommunicationPalette = staticCompositionLocalOf<CommunicationC
     modifier: Modifier = Modifier, enabled: Boolean = true, singleLine: Boolean = false,
     maxLines: Int = 5, keyboardOptions: KeyboardOptions = KeyboardOptions.Default,
     leading: ImageVector? = null, background: Boolean = true, fontSize: Int = 17,
-    textAreaModifier: Modifier = Modifier, showPlaceholder: Boolean = true) {
+    textAreaModifier: Modifier = Modifier, showPlaceholder: Boolean = true,
+    keyboardActions: KeyboardActions = KeyboardActions.Default) {
     val colors = LocalSoftVoWiFiColors.current
     val tokens = communicationColors()
     val shape = RoundedCornerShape(if (leading != null) 16.dp else 24.dp)
@@ -158,7 +160,8 @@ internal val LocalCommunicationPalette = staticCompositionLocalOf<CommunicationC
         singleLine = singleLine, maxLines = if (singleLine) 1 else maxLines,
         textStyle = TextStyle(color = if (enabled) colors.textPrimary else colors.textDisabled,
             fontSize = fontSize.sp, lineHeight = (fontSize + 5).sp),
-        cursorBrush = SolidColor(tokens.accent), keyboardOptions = keyboardOptions, interactionSource = interaction,
+        cursorBrush = SolidColor(tokens.accent), keyboardOptions = keyboardOptions, keyboardActions = keyboardActions,
+        interactionSource = interaction,
         decorationBox = { field ->
             Row(Modifier.padding(horizontal = 12.dp, vertical = 12.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -226,7 +229,8 @@ internal val LocalCommunicationPalette = staticCompositionLocalOf<CommunicationC
 }
 
 @Composable internal fun CommunicationLineRow(title: String, summary: String, selected: Boolean,
-    onSelect: () -> Unit, onEdit: (() -> Unit)? = null, enabled: Boolean = true, popSelection: Boolean = false) {
+    onSelect: () -> Unit, onEdit: (() -> Unit)? = null, enabled: Boolean = true, popSelection: Boolean = false,
+    stateLabel: String? = null) {
     val colors = LocalSoftVoWiFiColors.current
     val tokens = communicationColors()
     val actionable = enabled && LocalAppRouteActive.current
@@ -241,7 +245,8 @@ internal val LocalCommunicationPalette = staticCompositionLocalOf<CommunicationC
                 .communicationContentPress(feedback, interaction)
                 .managerPressInputGate(actionable)
                 .selectable(selected, enabled = actionable, role = Role.RadioButton, interactionSource = interaction, indication = null,
-                    onClick = { if (actionableNow) acceptedSelect() }).padding(16.dp),
+                    onClick = { if (actionableNow) acceptedSelect() })
+                .then(stateLabel?.let { label -> Modifier.semantics { stateDescription = label } } ?: Modifier).padding(16.dp),
                 horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
                 Box(Modifier.size(36.dp).background(tokens.field, RoundedCornerShape(8.dp)).clearAndSetSemantics {},
                     contentAlignment = Alignment.Center) { Icon(CommunicationSim, null, Modifier.size(22.dp), tint = tokens.accent) }

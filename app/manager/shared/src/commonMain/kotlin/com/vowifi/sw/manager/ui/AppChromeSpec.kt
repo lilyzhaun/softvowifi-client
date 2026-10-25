@@ -34,7 +34,7 @@ internal fun appChromeSpec(
         blurRadius = 25f,
         motionDurationMillis = 180,
         pressedScale = 0.96f,
-        communicationLiquidGlass = settings.liquidGlassRequested && blurSupported,
+        communicationLiquidGlass = settings.liquidGlassRequested && blur,
     )
 }
 

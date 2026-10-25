@@ -117,7 +117,7 @@ internal fun ConfigurationSaveBar(
         show = selected != null,
         title = if (selected == ConfigurationEditConfirmation.Discard) "放弃修改？" else "保存并重启实例？",
         summary = if (selected == ConfigurationEditConfirmation.Discard) "恢复最近读取的配置，不修改设备配置。"
-            else "保存后将重启当前引擎实例，连接会暂时中断。",
+            else listOfNotNull("保存后将重启当前引擎实例，连接会暂时中断。", model.callWarning).joinToString(" "),
         onDismissRequest = { confirmation = null },
     ) {
         val confirmLabel = if (selected == ConfigurationEditConfirmation.Discard) "放弃修改" else "保存并重启"
@@ -169,7 +169,8 @@ internal fun ConfigurationLeaveGuard(
     OverlayDialog(
         show = asking && guarding,
         title = "保存修改？",
-        summary = configurationLeaveSummary(draft.modifiedCount, model.instance.lifecycle),
+        summary = listOfNotNull(configurationLeaveSummary(draft.modifiedCount, model.instance.lifecycle),
+            model.callWarning?.takeIf { restart }).joinToString(" "),
         onDismissRequest = { asking = false },
     ) {
         val saveLabel = if (restart) "保存并重启" else "保存"

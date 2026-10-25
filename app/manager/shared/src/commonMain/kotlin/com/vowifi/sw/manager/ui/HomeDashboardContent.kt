@@ -1,9 +1,12 @@
 package com.vowifi.sw.manager.ui
 
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.ExitTransition
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
@@ -16,16 +19,20 @@ import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.vowifi.sw.manager.model.ConfigurationProvisionOutcome
@@ -48,12 +55,21 @@ internal fun LazyListScope.homeDashboardItems(
     onStop: (SimHandle) -> Unit,
     onProvision: (SimHandle) -> Unit,
     onOpenNotice: (AppRoute.Subpage) -> Unit,
+    onRefresh: () -> Unit,
+    refreshEnabled: Boolean = true,
+    refreshRunning: Boolean = false,
     provisioning: ConfigurationProvisionState = ConfigurationProvisionState(),
+    callProtection: () -> Map<SimHandle, Int?> = { emptyMap() },
 ) {
     presentation.sections.forEach { section ->
         when (section) {
             HomeSectionId.NOTICES -> items(presentation.notices, key = { "home-notice-${it.title}" }) { notice ->
-                HomeNoticeCard(notice, { onOpenNotice(notice.destination) }, Modifier.padding(bottom = homeLayoutContract.cardGapDp.dp))
+                val onAction = when (val action = notice.action) {
+                    is HomeNoticeAction.Navigate -> ({ onOpenNotice(action.destination) })
+                    is HomeNoticeAction.Refresh -> onRefresh
+                }
+                HomeNoticeCard(notice, onAction, Modifier.padding(bottom = homeLayoutContract.cardGapDp.dp),
+                    refreshEnabled, refreshRunning)
             }
             HomeSectionId.HERO -> item("home-hero") {
                 HomeTopGrid(presentation)
@@ -64,7 +80,7 @@ internal fun LazyListScope.homeDashboardItems(
                     Card(Modifier.fillMaxWidth(), insideMargin = PaddingValues(vertical = 4.dp)) {
                         presentation.actions.forEach { row ->
                              key(row.action.handle) {
-                                 HomeEngineRow(row, provisioning) { dispatchHomeAction(row.action, onStart, onStop, onProvision) }
+                                  HomeEngineRow(row, provisioning, callProtection) { dispatchHomeAction(row.action, onStart, onStop, onProvision) }
                             }
                         }
                     }
@@ -99,13 +115,25 @@ private fun HomeFactsCard(facts: List<HomeFactPresentation>) {
 }
 
 @Composable
-private fun HomeEngineRow(row: HomeSimActionPresentation, provisioning: ConfigurationProvisionState, onAction: () -> Unit) {
+private fun HomeEngineRow(row: HomeSimActionPresentation, provisioning: ConfigurationProvisionState,
+    callProtection: () -> Map<SimHandle, Int?>, onAction: () -> Unit) {
     val creating = row.action.id == HomeActionId.PROVISION
     val provisionPending = creating && row.action.handle in provisioning.pending
     val provisionCompletion = if (creating) provisioning.completions[row.action.handle] else null
     val completion = row.action.controlCompletion.takeUnless { creating }
     val active = LocalAppRouteActive.current
     val haptics = LocalHapticFeedback.current
+    var stopWarning by remember(row.action.handle) { mutableStateOf<String?>(null) }
+    LaunchedEffect(active, row.action.id, row.action.enabled) {
+        if (!active || row.action.id != HomeActionId.STOP || !row.action.enabled) stopWarning = null
+    }
+    val callProtected = row.action.id == HomeActionId.STOP && row.action.handle in callProtection()
+    val requestAction = {
+        val protectedSims = callProtection()
+        if (row.action.id == HomeActionId.STOP && row.action.handle in protectedSims) {
+            stopWarning = engineStopCallWarning(protectedSims[row.action.handle])
+        } else onAction()
+    }
     var seenCompletion by remember(row.action.handle) { mutableStateOf(completion?.sequence) }
     LaunchedEffect(completion?.sequence, active) {
         if (completion != null && completion.sequence != seenCompletion) {
@@ -130,11 +158,15 @@ private fun HomeEngineRow(row: HomeSimActionPresentation, provisioning: Configur
         ConfigurationProvisionOutcome.Unconfirmed -> "创建配置结果未确认，请刷新核对"
         else -> null
     }
+    var retainedFailure by remember(row.action.handle) { mutableStateOf(failure) }
+    SideEffect { if (failure != null) retainedFailure = failure }
+    val space = MotionTokens.SpringSpatialFast
+    val heightSpec = spring<IntSize>(dampingRatio = space.dampingRatio, stiffness = space.stiffness)
     Column {
         BoxWithConstraints(Modifier.fillMaxWidth()) {
             val stacked = homeTopGridLayout(HomeTopGridSpec(), HomeTopGridEnvironment(maxWidth.value, LocalDensity.current.fontScale)) == HomeTopGridLayout.STACKED
             val action: @Composable () -> Unit = {
-                ManagerTextAction(row.action.label, homeManagerAction(row.action.id), onAction,
+                ManagerTextAction(row.action.label, if (callProtected) ManagerAction.Navigate else homeManagerAction(row.action.id), requestAction,
                     enabled = row.action.enabled, busy = if (creating) provisionPending else row.action.busy,
                     busyLabel = if (creating) "正在创建" else "正在处理",
                     labelCandidates = if (creating) listOf(row.action.label, "正在创建")
@@ -177,11 +209,20 @@ private fun HomeEngineRow(row: HomeSimActionPresentation, provisioning: Configur
             )
         }
         AnimatedVisibility(failure != null,
-            enter = fadeIn(tween(MotionTokens.DurBase, easing = MotionTokens.EaseEnter)),
-            exit = ExitTransition.None) {
-            Text(failure.orEmpty(), modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+            enter = expandVertically(heightSpec, expandFrom = Alignment.Top) +
+                fadeIn(tween(MotionTokens.DurBase, easing = MotionTokens.EaseEnter)),
+            exit = shrinkVertically(heightSpec, shrinkTowards = Alignment.Top) +
+                fadeOut(tween(MotionTokens.DurFast, easing = MotionTokens.EaseExit)), label = "home-engine-failure") {
+            Text(failure ?: retainedFailure.orEmpty(), modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)
+                .then(if (failure == null) Modifier.clearAndSetSemantics { } else Modifier),
                 color = LocalSoftVoWiFiColors.current.error, fontSize = 14.sp, lineHeight = 20.sp)
         }
+    }
+    stopWarning?.let { warning ->
+        HomeEngineStopConfirmation(warning, onCancel = { stopWarning = null }, onConfirm = {
+            stopWarning = null
+            if (active && row.action.id == HomeActionId.STOP && row.action.enabled) onAction()
+        })
     }
 }
 

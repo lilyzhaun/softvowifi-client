@@ -396,7 +396,7 @@ private fun MessageThreadTimeline(
             visible = hasNewMessages && !searchOpen && listState.canScrollForward,
             modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = bottomInset),
         ) {
-            scope.launch { lastItemIndex?.let { listState.animateScrollToItem(it) }; hasNewMessages = false }
+            scope.launch { lastItemIndex?.let { listState.animateScrollToItemFromNearby(it) }; hasNewMessages = false }
         }
     }
     }
@@ -417,7 +417,7 @@ private fun MessageMissingThread(state: MessageUiState, onRetry: () -> Unit) {
             .fillMaxSize()
             .padding(start = 16.dp, top = topInset + 16.dp, end = 16.dp, bottom = bottomInset + 16.dp),
     ) { CommunicationListState(panel) {
-        if (state is MessageUiState.Failure) CommunicationTextAction("重试加载", onRetry)
+        if (state is MessageUiState.Failure) CommunicationTextAction("重试", onRetry)
     } }
 }
 

@@ -24,7 +24,7 @@ class HomeSoftwareImsProjectionTest {
         assertEquals(SemanticTone.SUCCESS, result.hero.tone)
         assertEquals("IMS 已注册", result.hero.title)
         assertEquals(SemanticTone.SUCCESS, result.metrics.first().tone)
-        assertEquals("1 / 2 张活动 SIM 已注册", result.facts.first().value)
+        assertEquals("1 / 2 张活动 SIM 已注册", result.hero.summary)
     }
 
     @Test
@@ -32,8 +32,9 @@ class HomeSoftwareImsProjectionTest {
         val result = dashboard(ready(), stock("REGISTERED", "REGISTERED", "REGISTERED"))
         assertEquals("2", result.metrics.first().value)
         assertEquals("已注册 IMS", result.metrics.first().label)
-        assertEquals("2 / 2 张活动 SIM 已注册", result.facts.first().value)
-        assertEquals("IMS 注册概况", result.facts.first().label)
+        assertEquals("2 / 2 张活动 SIM 已注册", result.hero.summary)
+        assertEquals(listOf("活动 SIM", "隧道连接", "环境检查"), result.facts.map { it.label })
+        assertEquals("2 张", result.facts.first().value)
     }
 
     @Test
@@ -73,7 +74,7 @@ class HomeSoftwareImsProjectionTest {
         listOf(null, runtime().copy(ims = "unexpected"), runtime().copy(ims = "registered")).forEach { runtime ->
             val result = dashboard(SimControlUiState.Ready(listOf(sim(), sim(1).copy(runtime = runtime))))
             assertEquals("1", result.metrics.first().value)
-            assertEquals("1 / 2 张活动 SIM 已注册 · 1 张未知", result.facts.first().value)
+            assertEquals("1 / 2 张活动 SIM 已注册 · 1 张未知", result.hero.summary)
             assertEquals("IMS 已注册", result.hero.title)
             assertEquals(SemanticTone.SUCCESS, result.hero.tone)
         }
@@ -84,13 +85,13 @@ class HomeSoftwareImsProjectionTest {
         val retained = sim(2).copy(presence = SimPresence.REMOVED_CONFIG_RETAINED)
         val result = dashboard(SimControlUiState.Ready(listOf(sim(), sim(1), retained)))
         assertEquals("2", result.metrics.first().value)
-        assertEquals("2 / 2 张活动 SIM 已注册", result.facts.first().value)
+        assertEquals("2 / 2 张活动 SIM 已注册", result.hero.summary)
         val unconfigured = sim(1).copy(presence = SimPresence.ACTIVE_UNCONFIGURED, lifecycle = EngineLifecycle.CONFIG_MISSING)
         val partial = dashboard(SimControlUiState.Ready(listOf(sim(), unconfigured, retained)))
-        assertEquals("1 / 2 张活动 SIM 已注册", partial.facts.first().value)
+        assertEquals("1 / 2 张活动 SIM 已注册", partial.hero.summary)
         assertEquals("IMS 已注册", partial.hero.title)
         assertEquals(SemanticTone.SUCCESS, partial.hero.tone)
-        assertTrue(partial.notices.any { it.title == "SIM 尚未配置" })
+        assertTrue(partial.notices.any { it.title == "SIM 2 无法自动创建配置" })
     }
 
     @Test
@@ -100,7 +101,7 @@ class HomeSoftwareImsProjectionTest {
         assertEquals(SemanticTone.SUCCESS, result.metrics.first().tone)
         assertEquals("IMS 已注册", result.hero.title)
         assertEquals(SemanticTone.SUCCESS, result.hero.tone)
-        assertEquals("1 / 2 张活动 SIM 已注册", result.facts.first().value)
+        assertEquals("1 / 2 张活动 SIM 已注册", result.hero.summary)
     }
 
     @Test
@@ -109,7 +110,7 @@ class HomeSoftwareImsProjectionTest {
             val result = dashboard(state)
             assertEquals("未知", result.metrics.first().value)
             assertFalse(result.hero.tone == SemanticTone.SUCCESS)
-            assertFalse(result.facts.first().value.contains("0 / 0"))
+            assertEquals("未知", result.facts.single { it.label == "活动 SIM" }.value)
         }
         assertEquals("SIM 控制权限不足", dashboard(SimControlUiState.PermissionDenied("denied")).notices.single().title)
     }
@@ -147,7 +148,8 @@ class HomeSoftwareImsProjectionTest {
         assertEquals("无 SIM", result.metrics.first().value)
         assertEquals("暂无活动 SIM", result.hero.title)
         assertEquals(SemanticTone.NEUTRAL, result.hero.tone)
-        assertEquals("暂无活动 SIM", result.facts.first().value)
+        assertEquals("0 张", result.facts.single { it.label == "活动 SIM" }.value)
+        assertEquals("暂无活动 SIM", result.facts.single { it.label == "隧道连接" }.value)
         assertFalse(result.facts.any { it.label in listOf("最近注册事件", "事件质量", "Observer 注册概况") })
     }
 

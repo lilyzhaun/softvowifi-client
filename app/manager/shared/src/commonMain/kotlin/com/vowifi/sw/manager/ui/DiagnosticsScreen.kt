@@ -7,20 +7,41 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.key
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import com.vowifi.sw.manager.model.DiagnosticCheck
+import com.vowifi.sw.manager.model.DiagnosticCheckId
 import com.vowifi.sw.manager.model.DiagnosticCheckStatus
+import com.vowifi.sw.manager.ui.navigation.AppRoute
 import com.vowifi.sw.manager.model.EnvironmentDiagnosticsUiState
 import top.yukonga.miuix.kmp.basic.BasicComponent
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.icon.MiuixIcons
-import top.yukonga.miuix.kmp.icon.extended.Info
+import top.yukonga.miuix.kmp.icon.extended.Ok
+import top.yukonga.miuix.kmp.icon.extended.Close
+import top.yukonga.miuix.kmp.icon.extended.Report
 
-internal fun LazyListScope.diagnosticItems(state: EnvironmentDiagnosticsUiState, onRetry: (() -> Unit)? = null) {
+internal fun diagnosticStatusIcon(status: DiagnosticCheckStatus): ImageVector = when (status) {
+    DiagnosticCheckStatus.PASS -> MiuixIcons.Ok
+    DiagnosticCheckStatus.FAIL -> MiuixIcons.Close
+    DiagnosticCheckStatus.WARN -> MiuixIcons.Report
+}
+
+internal fun diagnosticRecoveryRoute(check: DiagnosticCheck): AppRoute? =
+    if (check.status == DiagnosticCheckStatus.PASS) null else when (check.id) {
+        DiagnosticCheckId.CONFIG -> AppRoute.SettingsConfiguration
+        DiagnosticCheckId.ENGINE -> AppRoute.Home
+        else -> null
+    }
+
+internal fun LazyListScope.diagnosticItems(state: EnvironmentDiagnosticsUiState, onRetry: (() -> Unit)? = null,
+    onOpenConfiguration: (() -> Unit)? = null, onHome: (() -> Unit)? = null,
+) {
     when (state) {
         EnvironmentDiagnosticsUiState.Loading,
         is EnvironmentDiagnosticsUiState.Failure,
@@ -45,7 +66,14 @@ internal fun LazyListScope.diagnosticItems(state: EnvironmentDiagnosticsUiState,
                 ) {
                     Column {
                         state.checks.forEach { check ->
-                            DiagnosticCheckRow(check)
+                            key(check.id) {
+                                val recover = when (diagnosticRecoveryRoute(check)) {
+                                    AppRoute.SettingsConfiguration -> onOpenConfiguration
+                                    AppRoute.Home -> onHome
+                                    else -> null
+                                }
+                                DiagnosticCheckRow(check, onRecover = recover)
+                            }
                         }
                     }
                 }
@@ -77,7 +105,7 @@ fun OverallDiagnosticsBand(
             summary = summaryLines.joinToString("\n"),
             startAction = {
                 Icon(
-                    imageVector = MiuixIcons.Info,
+                    imageVector = diagnosticStatusIcon(status),
                     contentDescription = null,
                     tint = diagnosticAccent(tone, colors),
                     modifier = Modifier.size(24.dp),
@@ -91,7 +119,7 @@ fun OverallDiagnosticsBand(
 }
 
 @Composable
-fun DiagnosticCheckRow(check: DiagnosticCheck, modifier: Modifier = Modifier) {
+fun DiagnosticCheckRow(check: DiagnosticCheck, modifier: Modifier = Modifier, onRecover: (() -> Unit)? = null) {
     val colors = LocalSoftVoWiFiColors.current
     val tone = diagnosticTone(check.status)
     val summary = if (check.guidance != null) "${check.detail}\n${check.guidance}" else check.detail
@@ -101,7 +129,7 @@ fun DiagnosticCheckRow(check: DiagnosticCheck, modifier: Modifier = Modifier) {
         summary = summary,
         startAction = {
             Icon(
-                imageVector = MiuixIcons.Info,
+                imageVector = diagnosticStatusIcon(check.status),
                 contentDescription = null,
                 tint = diagnosticAccent(tone, colors),
                 modifier = Modifier.size(20.dp),
@@ -109,6 +137,16 @@ fun DiagnosticCheckRow(check: DiagnosticCheck, modifier: Modifier = Modifier) {
         },
         endActions = {
             SemanticStatusBadge(diagnosticCheckBadgeSpec(check))
+        },
+        bottomAction = {
+            if (onRecover != null) {
+                val label = when (diagnosticRecoveryRoute(check)) {
+                    AppRoute.SettingsConfiguration -> "前往 SIM 与网络配置"
+                    AppRoute.Home -> "前往首页"
+                    else -> null
+                }
+                if (label != null) ManagerTextAction(label, ManagerAction.Navigate, onRecover)
+            }
         },
     )
 }

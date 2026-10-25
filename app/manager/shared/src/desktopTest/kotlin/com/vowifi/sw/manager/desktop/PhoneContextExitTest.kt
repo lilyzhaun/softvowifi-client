@@ -13,21 +13,24 @@ import androidx.compose.ui.unit.dp
 import com.vowifi.sw.manager.data.*
 import com.vowifi.sw.manager.model.*
 import com.vowifi.sw.manager.ui.*
+import com.vowifi.sw.manager.ui.testing.onMotionTestThread
 import kotlinx.coroutines.test.*
 import org.jetbrains.skia.Bitmap
 import java.nio.file.Files
 import java.nio.file.Path
 import kotlin.math.abs
 import kotlin.test.*
+import javax.swing.SwingUtilities
 
 @OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class, kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class PhoneContextExitTest {
-    @Test fun historyLastPreviewFrameMatchesRestoredSource() = runTest { checkExit(false, testScheduler) }
-    @Test fun detailLastPreviewFrameMatchesRestoredSource() = runTest { checkExit(true, testScheduler) }
-    @Test fun historyPointerReleaseAndDismissDoNotReopenTheWindow() = runTest { checkExit(false, testScheduler, pointer = true) }
-    @Test fun detailPointerReleaseAndDismissDoNotReopenTheWindow() = runTest { checkExit(true, testScheduler, pointer = true) }
+    @Test fun historyLastPreviewFrameMatchesRestoredSource() = onMotionTestThread { runTest { checkExit(false, testScheduler) } }
+    @Test fun detailLastPreviewFrameMatchesRestoredSource() = onMotionTestThread { runTest { checkExit(true, testScheduler) } }
+    @Test fun historyPointerReleaseAndDismissDoNotReopenTheWindow() = onMotionTestThread { runTest { checkExit(false, testScheduler, pointer = true) } }
+    @Test fun detailPointerReleaseAndDismissDoNotReopenTheWindow() = onMotionTestThread { runTest { checkExit(true, testScheduler, pointer = true) } }
 
     private fun checkExit(detail: Boolean, scheduler: TestCoroutineScheduler, pointer: Boolean = false) {
+        assertTrue(SwingUtilities.isEventDispatchThread(), "场景创建、绘制、状态变更和关闭须与全局snapshot通知同属EDT")
         val owner = requireNotNull(SimOwnerId.parse("sim-owner-v1:" + "a".repeat(43)))
         val record = requireNotNull(CallHistoryWrite.parse(CallHistoryDraft("synthetic", CallDirection.OUTGOING,
             "+12025550123", CallTimesDraft(1790956800000L, 1790956801000L, 1790956861000L, 60), CallOutcome.COMPLETED))).toRecord(owner)
@@ -84,7 +87,7 @@ class PhoneContextExitTest {
             assertTrue(errorAtHandoff < 1.0, "交接前一帧必须已经回到原内容，当前RGB平均差=$errorAtHandoff")
             assertTrue(errors.all { it < .1 }, "弹层释放后不得出现源空帧/闪回：$errors")
             assertEquals(bounds, source().boundsInRoot)
-        } finally { scene.close() }
+        } finally { scene.close(); scheduler.runCurrent() }
     }
     private fun nodes(scene: ImageComposeScene) = scene.semanticsOwners.flatMap { owner ->
         fun tree(node: SemanticsNode): List<SemanticsNode> = listOf(node) + node.children.flatMap(::tree)

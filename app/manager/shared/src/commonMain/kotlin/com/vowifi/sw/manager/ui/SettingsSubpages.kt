@@ -1,21 +1,21 @@
 package com.vowifi.sw.manager.ui
 
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.key
-import androidx.compose.ui.unit.dp
 import com.vowifi.sw.manager.model.ConfigurationUiState
 import com.vowifi.sw.manager.model.ConfigurationProvisionState
 import com.vowifi.sw.manager.data.RefreshResult
 import kotlinx.coroutines.flow.StateFlow
 import com.vowifi.sw.manager.model.EnvironmentDiagnosticsUiState
+import com.vowifi.sw.manager.model.DiagnosticCheckId
+import com.vowifi.sw.manager.ui.navigation.AppRoute
 import com.vowifi.sw.manager.model.OperationalLogEntry
 import com.vowifi.sw.manager.model.OperationalLogKind
 import com.vowifi.sw.manager.model.OperationalLogLevel
@@ -24,9 +24,7 @@ import com.vowifi.sw.manager.model.SimControlUiState
 import com.vowifi.sw.manager.model.SimHandle
 import com.vowifi.sw.manager.model.LogExportCompletion
 import com.vowifi.sw.manager.model.LogExportOutcome
-import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.icon.MiuixIcons
-import top.yukonga.miuix.kmp.icon.extended.Info
 import top.yukonga.miuix.kmp.icon.extended.Refresh
 
 internal data class SettingsConfigurationActions(
@@ -86,10 +84,23 @@ internal fun SettingsConfigurationScreen(
 internal fun SettingsDiagnosticsScreen(
     state: EnvironmentDiagnosticsUiState,
     onRefresh: (suspend () -> RefreshResult)? = null,
+    onOpenConfiguration: (() -> Unit)? = null,
+    onHome: (() -> Unit)? = null,
 ) {
     val refresh = rememberManagerRefreshController(onRefresh)
     val rotation = rememberManagerRefreshRotation(refresh)
     if (onRefresh != null) RegisterManagerRefreshAction(refresh, "刷新诊断", rotation)
+    val currentState = rememberUpdatedState(state)
+    val currentActive = rememberUpdatedState(LocalAppRouteActive.current)
+    fun recover(id: DiagnosticCheckId) {
+        if (!currentActive.value) return
+        val check = (currentState.value as? EnvironmentDiagnosticsUiState.Ready)?.checks?.firstOrNull { it.id == id }
+        when (check?.let(::diagnosticRecoveryRoute)) {
+            AppRoute.SettingsConfiguration -> onOpenConfiguration?.invoke()
+            AppRoute.Home -> onHome?.invoke()
+            else -> Unit
+        }
+    }
     val loading = rememberManagerLoadingState(state == EnvironmentDiagnosticsUiState.Loading,
         state is EnvironmentDiagnosticsUiState.Ready)
     val inlineRefresh = LocalSubpageTopBarAction.current == null
@@ -97,7 +108,9 @@ internal fun SettingsDiagnosticsScreen(
         refreshRotation = rotation, contentAlpha = loading.alpha) {
         managerRefreshResultItem(refresh, "diagnostics-refresh-result")
         if (!loading.hidden) diagnosticItems(if (loading.showLoading) EnvironmentDiagnosticsUiState.Loading else state,
-            onRetry = if (refresh.enabled) ({ refresh.request() }) else null)
+            onRetry = if (refresh.enabled) ({ refresh.request() }) else null,
+            onOpenConfiguration = onOpenConfiguration?.let { { recover(DiagnosticCheckId.CONFIG) } },
+            onHome = onHome?.let { { recover(DiagnosticCheckId.ENGINE) } })
         if (inlineRefresh && onRefresh != null) {
             item(key = "diagnostics-refresh-action") {
                 ManagerIconAction(MiuixIcons.Refresh, "刷新诊断", ManagerAction.Refresh, { refresh.request() },
@@ -159,31 +172,6 @@ internal fun SettingsLogsScreen(
                 item(key = "logs-refresh-action") {
                     ManagerIconAction(MiuixIcons.Refresh, "刷新运行日志", ManagerAction.Refresh, { refresh.request() },
                         enabled = refresh.enabled, iconRotation = rotation)
-                }
-            }
-        }
-    }
-}
-
-internal fun aboutInformationRows(appVersion: String): List<ManagerPreferenceRow.Information> {
-    val about = aboutPresentation(appVersion)
-    return listOf(
-        managerInformationPreference("应用版本", about.versionLabel, MiuixIcons.Info),
-        managerInformationPreference("应用信息", about.description, MiuixIcons.Info),
-    )
-}
-
-@Composable
-internal fun SettingsAboutScreen(appVersion: String) {
-    val about = aboutPresentation(appVersion)
-    val rows = aboutInformationRows(appVersion)
-    AppPageScaffold(title = about.title, showTopBar = false) {
-        item(key = "about-card") {
-            Card(insideMargin = PaddingValues(vertical = 4.dp)) {
-                Column {
-                    rows.forEach { row ->
-                        ManagerInformationPreferenceItem(row)
-                    }
                 }
             }
         }

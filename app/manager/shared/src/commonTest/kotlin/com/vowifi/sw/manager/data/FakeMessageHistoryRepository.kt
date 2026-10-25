@@ -10,7 +10,7 @@ internal class FakeMessageHistoryRepository(private val snapshot: () -> List<Fak
             .filter { cursor == null || it.key.wire() > cursor.after }.take(51)
         val visible = rows.take(50)
         return MessageOwnerPage(visible.map { (owner, messages) ->
-            MessageOwnerSummary(owner, messages.map { it.conversationKey }.distinct().size.toLong(), messages.size.toLong(), messages.count { it.incoming && !it.isRead }.toLong())
+            MessageOwnerSummary(owner, messages.map { it.conversationKey }.distinct().size.toLong(), messages.size.toLong(), messages.count { it.countsAsUnread }.toLong())
         }, if (rows.size > 50) MessageOwnerCursor(visible.last().key.wire()) else null)
     }
 
@@ -22,7 +22,7 @@ internal class FakeMessageHistoryRepository(private val snapshot: () -> List<Fak
             val last = messages.maxWith(compareBy<FakeStoredMessage> { it.messageAtMs }.thenBy { it.id })
             MessageConversationSummary(StoredMessageConversation(request.owner, key), messageSenderDisplay(last.peerAddress),
                 boundedCommunicationText(last.body, "内容不可显示", 80), last.id, last.messageAtMs, last.outgoingStatus,
-                messages.size.toLong(), messages.count { it.incoming && !it.isRead }.toLong(), last.engineStatus)
+                messages.size.toLong(), messages.count { it.countsAsUnread }.toLong(), last.engineStatus)
         }.sortedWith(compareByDescending<MessageConversationSummary> { it.timestampMs }.thenByDescending { it.latestMessageId }.thenByDescending { it.identity.key })
             .filter { cursor == null || it.timestampMs < cursor.timestampMs || it.timestampMs == cursor.timestampMs && it.latestMessageId < cursor.messageId }
             .filter { it.peerDisplay.contains(query, true) || it.latestPreview.contains(query, true) }.take(51)

@@ -92,6 +92,8 @@ interface MessageRepository {
 
     suspend fun countUnreadIncoming(): Long
 
+    suspend fun countUnreadByOwner(): Map<SimOwnerId, Long> = throw MessageStorageException()
+
     suspend fun lastOwner(): SimOwnerId?
 
     suspend fun setLastOwner(ownerId: SimOwnerId)

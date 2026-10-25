@@ -104,10 +104,16 @@ internal data class HomeFactPresentation(
     val flow: HomeFactFlowSpec = HomeFactFlowSpec(),
 )
 
+internal sealed interface HomeNoticeAction {
+    data class Navigate(val destination: AppRoute.Subpage) : HomeNoticeAction
+    data class Refresh(val label: String) : HomeNoticeAction
+}
+
 internal data class HomeNoticePresentation(
     val spec: NoticeCardSpec,
-    val destination: AppRoute.Subpage,
+    val action: HomeNoticeAction,
 ) {
+    val destination: AppRoute.Subpage? get() = (action as? HomeNoticeAction.Navigate)?.destination
     val title: String get() = spec.title
     val summary: String get() = spec.summary
     val tone: SemanticTone get() = spec.tone

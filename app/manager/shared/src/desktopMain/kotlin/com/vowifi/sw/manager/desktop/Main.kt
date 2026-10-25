@@ -65,6 +65,10 @@ fun main(args: Array<String>) {
             logs = operationalLogSource,
             messages = messageSource,
             calls = callSource,
+            readEngineIntegrity = {
+                com.vowifi.sw.manager.model.EngineIntegritySnapshot("d".repeat(12), listOf(
+                    com.vowifi.sw.manager.model.RunningEngineIntegrity(101, com.vowifi.sw.manager.model.EngineExecutableMatch.SAME)))
+            },
         )
         val initialSubpage = when (subpage) {
             null -> null

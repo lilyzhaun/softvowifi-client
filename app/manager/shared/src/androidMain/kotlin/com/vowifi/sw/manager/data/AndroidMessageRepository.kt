@@ -21,7 +21,7 @@ internal class AndroidMessageRepository @JvmOverloads constructor(
     override val history: MessageHistoryRepository = AndroidMessageHistoryStore(database.historyDao())
 
     override suspend fun changeConversation(identity: StoredMessageConversation, action: MessageConversationAction): Boolean = storageCall {
-        messages.changeConversation(identity.owner.wire(), identity.key, action)
+        messages.changeConversation(identity.owner.wire(), identity.key, action, kotlin.time.Clock.System.now().toEpochMilliseconds())
     }
 
     override suspend fun unreadNotificationPreview(identity: StoredMessageConversation): List<MessageRecord> = storageCall {
@@ -193,6 +193,12 @@ internal class AndroidMessageRepository @JvmOverloads constructor(
     }
 
     override suspend fun countUnreadIncoming(): Long = storageCall { messages.countUnreadIncoming() }
+
+    override suspend fun countUnreadByOwner(): Map<SimOwnerId, Long> = storageCall {
+        messages.countUnreadByOwner().associate { row ->
+            (SimOwnerId.parse(row.owner) ?: throw MessageStorageException()) to row.unreadCount
+        }
+    }
 
     override suspend fun setLastOwner(ownerId: SimOwnerId) = storageCall {
         metadata.upsert(MessageMetadataEntity(KEY_LAST_OWNER, ownerId.wire()))

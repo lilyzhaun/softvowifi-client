@@ -95,7 +95,7 @@ class HomeScreenTest {
         assertEquals(listOf("1", "1"), presentation.metrics.map { it.value })
         assertEquals(listOf("已注册 IMS", "运行中引擎"), presentation.metrics.map { it.label })
         assertEquals(listOf(SemanticTone.SUCCESS, SemanticTone.SUCCESS), presentation.metrics.map { it.tone })
-        assertEquals("1 / 2 张活动 SIM 已注册", presentation.facts.first().value)
+        assertEquals("1 / 2 张活动 SIM 已注册", presentation.hero.summary)
     }
 
     @Test
@@ -221,8 +221,8 @@ class HomeScreenTest {
         val localized = homeEventTime(NOW_MS - 2 * 24 * 60 * 60_000, NOW_MS) { "8月23日" }
 
         assertTrue(relative.facts.size <= 4)
-        assertEquals(listOf("IMS 注册概况", "活动 SIM", "隧道连接", "环境检查"), relative.facts.map { it.label })
-        assertEquals("0 / 1 张活动 SIM 已注册 · 1 张未知", relative.facts.first().value)
+        assertEquals(listOf("活动 SIM", "隧道连接", "环境检查"), relative.facts.map { it.label })
+        assertEquals("0 / 1 张活动 SIM 已注册 · 1 张未知", relative.hero.summary)
         assertEquals("8月23日", localized)
         assertTrue(relative.facts.all { it.flow.softWrap && it.flow.stackAtLargeFont })
     }

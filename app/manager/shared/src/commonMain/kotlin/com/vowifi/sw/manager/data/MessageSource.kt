@@ -7,6 +7,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
 interface MessageSource {
+    /** An optional existing-thread suggestion, never a negative existence claim or a selection/read action. */
+    suspend fun findConversation(owner: SimOwnerId, recipient: String): com.vowifi.sw.manager.ui.navigation.ConversationHandle? = null
     suspend fun changeConversation(handle: String, action: MessageConversationAction): MessageConversationActionResult = MessageConversationActionResult.FAILED
     fun searchHistory(query: String) = Unit
     fun loadMoreHistory() = Unit

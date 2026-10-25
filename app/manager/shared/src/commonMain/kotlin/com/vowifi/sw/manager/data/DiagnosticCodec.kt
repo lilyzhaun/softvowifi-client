@@ -8,7 +8,7 @@ import kotlinx.serialization.json.JsonPrimitive
 internal object DiagnosticCodec {
     private val fields = setOf("v", "wall_ms", "mono_ms", "run", "pid", "component", "level", "name",
         "stage", "result", "reason", "slot", "count", "accepted", "attempt", "network_generation",
-        "suppressed", "first_mono_ms", "last_mono_ms", "dropped", "evicted", "family", "source_family", "endpoint")
+        "suppressed", "first_mono_ms", "last_mono_ms", "dropped", "evicted", "family", "source_family", "endpoint", "notification")
     private val runPattern = Regex("[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}")
 
     fun parse(line: String): DiagnosticRecord? = try {
@@ -27,6 +27,7 @@ internal object DiagnosticCodec {
         if (optional.dropLast(1).any { (number(value, it) ?: 0L) !in 0..1_000_000_000L }) return null
         if (listOf("family", "source_family").any { it in value && enumValue<DiagnosticFamily>(value, it) == null }) return null
         if ("endpoint" in value && text(value,"endpoint") == null) return null
+        val notification = if ("notification" in value) NotificationDiagnostic.parse(value["notification"]) ?: return null else null
         val event = DiagnosticEvent(
             enumValue<DiagnosticComponent>(value, "component") ?: return null,
             enumValue<DiagnosticLevel>(value, "level") ?: return null,
@@ -38,6 +39,7 @@ internal object DiagnosticCodec {
             number(value, "accepted")?.toInt(), number(value, "attempt")?.toInt(),
             number(value, "network_generation"),
             enumValue<DiagnosticFamily>(value, "family"), enumValue<DiagnosticFamily>(value, "source_family"), text(value,"endpoint"),
+            notification,
         )
         if (!event.valid()) return null
         val suppressed = number(value, "suppressed")?.takeIf { it in 0..1_000_000_000L } ?: return null

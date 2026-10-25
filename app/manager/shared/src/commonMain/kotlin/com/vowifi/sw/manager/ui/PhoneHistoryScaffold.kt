@@ -11,6 +11,9 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.SideEffect
@@ -56,7 +59,8 @@ import androidx.navigationevent.compose.rememberNavigationEventState
     RegisterRootScrollToTop(state)
     Box(Modifier.fillMaxSize().background(palette.canvas).statusBarsPadding()) {
         Column(Modifier.fillMaxSize()) {
-            CommunicationSearchHeader("通话记录", "搜索号码", searching, query, onSearch, onQuery, onCloseSearch, state) {
+            CommunicationSearchHeader("通话记录", "搜索号码", searching, query, onSearch, onQuery, onCloseSearch, state,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone, imeAction = ImeAction.Search)) {
                 searchFocused = it
                 publishObscured(active && (it || imeVisible))
             }

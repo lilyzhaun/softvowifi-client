@@ -5,6 +5,9 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
+import top.yukonga.miuix.kmp.icon.MiuixIcons
+import top.yukonga.miuix.kmp.icon.extended.File
+import top.yukonga.miuix.kmp.icon.extended.Filter
 
 class LogChromeContractTest {
     @Test
@@ -16,11 +19,15 @@ class LogChromeContractTest {
         assertEquals(LogFilterControlPresentation.OVERLAY_DROPDOWN, contract.levelControl)
         assertEquals(1, contract.verticalScrollOwnerCount)
         assertFalse(contract.embeddedNestedScroll)
-        assertEquals(LogEntrySurface.COMPACT_CARD, contract.entrySurface)
+        assertEquals(LogEntrySurface.GROUPED_ROWS, contract.entrySurface)
+        assertEquals(ManagerPressStyle.CardRow, contract.entryPressStyle)
+        assertEquals(MiuixIcons.File, contract.fileIcon)
+        assertEquals(MiuixIcons.Filter, contract.kindIcon)
+        assertEquals(MiuixIcons.Filter, contract.levelIcon)
         assertFalse(contract.usesDefaultSelectableIndication)
         assertFalse(contract.usesBlueFilterUnderlines)
         assertEquals(12, contract.cardGapDp)
-        assertEquals(12, contract.entryGapDp)
+        assertEquals(0, contract.entryGapDp)
         assertEquals(1, contract.privacyNarrativeCount)
         assertEquals(2, contract.entryBodyMaxLines)
     }
@@ -30,8 +37,8 @@ class LogChromeContractTest {
         assertEquals(
             listOf(
                 OperationalLogDataSection.FILTERS,
-                OperationalLogDataSection.EVENTS,
                 OperationalLogDataSection.EXPORT,
+                OperationalLogDataSection.EVENTS,
             ),
             operationalLogDataSectionOrder(hasWarning = false),
         )
@@ -39,8 +46,8 @@ class LogChromeContractTest {
             listOf(
                 OperationalLogDataSection.WARNING,
                 OperationalLogDataSection.FILTERS,
-                OperationalLogDataSection.EVENTS,
                 OperationalLogDataSection.EXPORT,
+                OperationalLogDataSection.EVENTS,
             ),
             operationalLogDataSectionOrder(hasWarning = true),
         )

@@ -31,6 +31,7 @@ fun HomeScreen(
     onOpenNotice: (AppRoute.Subpage) -> Unit,
     provisioning: StateFlow<ConfigurationProvisionState>? = null,
     provisionBusy: Boolean = false,
+    callProtection: () -> Map<SimHandle, Int?> = { com.vowifi.sw.manager.data.activeCallSimsFor(engineState) },
 ) {
     val progress = provisioning?.collectAsState()?.value ?: ConfigurationProvisionState()
     val refresh = rememberManagerRefreshController(onRefresh, enabled = !provisionBusy && progress.pending.isEmpty())
@@ -77,8 +78,12 @@ fun HomeScreen(
             onStart = onStartEngine,
             onStop = onStopEngine,
              onProvision = onProvision,
-             onOpenNotice = onOpenNotice,
-             provisioning = progress,
+              onOpenNotice = onOpenNotice,
+              onRefresh = { refresh.request() },
+              refreshEnabled = refresh.enabled,
+              refreshRunning = refresh.running,
+              provisioning = progress,
+              callProtection = callProtection,
          )
     }
 }

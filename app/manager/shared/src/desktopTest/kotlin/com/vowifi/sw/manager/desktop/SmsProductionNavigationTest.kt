@@ -49,6 +49,106 @@ import kotlin.test.assertTrue
 
 @OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class, kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class SmsProductionNavigationTest {
+    @Test fun acceptedNewMessageReplacesItsPageAndBackDoesNotReopenTheComposer() = onMotionTestThread {
+        for (status in listOf(OutgoingMessageStatus.ACCEPTED, OutgoingMessageStatus.DELIVERY_REPORTED)) {
+            Driver(AppRoute.NewMessage).use { driver ->
+                driver.edit(0, peer); driver.edit(1, "synthetic accepted draft"); driver.send()
+                assertTrue(driver.hasText("新建短信"), "受理前仍保留真实新建页")
+                driver.complete(status)
+                assertFalse(driver.hasText("新建短信"), "本次受理/报告后应替换为会话，而不是只清稿仍留在新建页")
+                assertEquals(identity.handle.value, driver.source.selected)
+                driver.click("返回")
+                assertFalse(driver.hasText("新建短信"), "替换栈顶后返回不能重新露出新建页")
+                assertEquals(null, driver.source.selected)
+                assertEquals(1, driver.source.sends)
+            }
+        }
+    }
+
+    @Test fun failedAndUnknownNewMessageStayOnThePageWithTheOriginalDraft() = onMotionTestThread {
+        for (status in listOf(OutgoingMessageStatus.FAILED, OutgoingMessageStatus.UNKNOWN)) {
+            Driver(AppRoute.NewMessage).use { driver ->
+                driver.edit(0, peer); driver.edit(1, "synthetic retained draft"); driver.send(); driver.complete(status)
+                assertTrue(driver.hasText("新建短信"))
+                assertEquals("synthetic retained draft", driver.fieldText(1))
+                assertEquals(null, driver.source.selected)
+                assertEquals(1, driver.source.sends)
+            }
+        }
+    }
+
+    @Test fun lateAcceptanceCannotReplaceTheUsersNewerNavigation() = onMotionTestThread {
+        Driver(AppRoute.NewMessage).use { driver ->
+            driver.edit(0, peer); driver.edit(1, "synthetic late draft"); driver.send()
+            driver.route(AppRoute.SettingsAbout)
+            assertTrue(driver.hasText("关于"))
+            driver.complete()
+            assertTrue(driver.hasText("关于"), "迟到受理不能把用户的新导航替换成会话")
+            assertEquals(null, driver.source.selected)
+            assertEquals(1, driver.source.sends)
+        }
+    }
+
+    @Test fun productionAcceptanceOpensThePersistedThreadThroughTheRealSendPath() = onMotionTestThread { runTest(timeout = 20.seconds) {
+        val stored = FakeMessageRepository()
+        val transport = FakeEngineMessageTransport(sendResult = EngineMessagePersistenceFixtures.sendOk("accepted-engine-id", 202, 1))
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val backend = EngineMessageSource(EngineMessageRuntime(
+            { listOf(EngineMessagePersistenceFixtures.running(EngineMessagePersistenceFixtures.ICCID_A)) },
+            { transport }, { 1_700_000_000_000L }, { listOf(EngineMessagePersistenceFixtures.ICCID_A) }),
+            backgroundScope.coroutineContext + dispatcher, stored, { owner }, { "accepted-local-id" })
+        val paging = PagingSource(backend, testScheduler, dispatcher)
+        try { Driver(AppRoute.NewMessage, paging).use { driver ->
+            assertTrue(transport.statusRequests > 0)
+            driver.edit(0, peer); driver.edit(1, "synthetic production body"); driver.send()
+            val record = stored.listByOwner(owner).filterIsInstance<MessageRecord.Outgoing>().single()
+            assertEquals(OutgoingMessageStatus.ACCEPTED, record.status)
+            assertEquals(1, transport.requests.count { it.method == "sendSms" })
+            assertFalse(driver.hasText("新建短信"))
+            assertEquals(identity.handle.value, paging.selected)
+            assertTrue(driver.hasText("synthetic production body"))
+            driver.click("返回")
+            assertEquals(null, paging.selected)
+            assertFalse(driver.hasText("新建短信"))
+        } } finally { backend.close(); runCurrent(); stored.close() }
+    } }
+
+    @Test fun existingConversationOutsideTheInboxPageCanOpenWithoutSendingOrDiscardingBody() = onMotionTestThread { runTest(timeout = 20.seconds) {
+        val stored = FakeMessageRepository()
+        val epoch = 1_700_000_000_000L
+        stored.insertIncomingIfAbsent(owner, "old-peer", "old-engine", peer, "synthetic old conversation", epoch, epoch)
+        repeat(55) { index -> stored.insertIncomingIfAbsent(owner, "new-$index", "engine-$index", "+1202556${index.toString().padStart(4, '0')}",
+            "synthetic newer conversation", epoch + (index + 1) * 60000L, epoch) }
+        val transport = FakeEngineMessageTransport()
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val backend = EngineMessageSource(EngineMessageRuntime(
+            { listOf(EngineMessagePersistenceFixtures.running(EngineMessagePersistenceFixtures.ICCID_A)) },
+            { transport }, { epoch + 60 * 60000L }, { listOf(EngineMessagePersistenceFixtures.ICCID_A) }),
+            backgroundScope.coroutineContext + dispatcher, stored, { owner }, { "unused-new-id" })
+        val paging = PagingSource(backend, testScheduler, dispatcher)
+        try { Driver(AppRoute.NewMessage, paging).use { driver ->
+            val inbox = backend.state.value as MessageUiState.Inbox
+            assertEquals(50, inbox.page.items.size)
+            assertTrue(inbox.page.items.none { it.identity == identity }, "前提：目标真实记录不在已加载首页")
+            assertTrue(transport.statusRequests > 0)
+            driver.edit(0, peer)
+            assertTrue(driver.hasText("此线路已有与该号码的会话"), "存在提示必须查真实owner历史，不能只看首页summary")
+            assertTrue(driver.hasText("打开会话"))
+            driver.edit(1, "synthetic unsent body")
+            assertTrue(driver.hasText("此线路已有与该号码的会话"))
+            assertFalse(driver.hasText("打开会话"), "非空正文只提示，不能转移或丢弃草稿")
+            assertEquals("synthetic unsent body", driver.fieldText(1))
+            driver.edit(1, "")
+            driver.click("打开会话")
+            assertEquals(identity.handle.value, paging.selected)
+            assertFalse(driver.hasText("新建短信"))
+            driver.click("返回")
+            assertEquals(null, paging.selected)
+            assertFalse(driver.hasText("新建短信"))
+            assertTrue(transport.requests.none { it.method == "sendSms" })
+        } } finally { backend.close(); runCurrent(); stored.close() }
+    } }
+
     @Test fun pendingNewMessageDepartureReturnAndEditBackCannotLateClearDraft() = onMotionTestThread {
         Driver(AppRoute.NewMessage).use { driver ->
             driver.edit(0, peer)
@@ -254,8 +354,8 @@ class SmsProductionNavigationTest {
             assertTrue(requireNotNull(node.config[SemanticsActions.OnClick].action).invoke())
             frame()
         }
-        fun complete() {
-            source.ready = source.ready.copy(sendBusy = false, sendAttempt = source.ready.sendAttempt?.copy(status = OutgoingMessageStatus.ACCEPTED))
+        fun complete(status: OutgoingMessageStatus = OutgoingMessageStatus.ACCEPTED) {
+            source.ready = source.ready.copy(sendBusy = false, sendAttempt = source.ready.sendAttempt?.copy(status = status))
             frame()
         }
         fun releaseBusy() { source.ready = source.ready.copy(sendBusy = false); frame() }

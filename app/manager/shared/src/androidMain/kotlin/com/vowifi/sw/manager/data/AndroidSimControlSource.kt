@@ -2,6 +2,7 @@ package com.vowifi.sw.manager.data
 
 import com.vowifi.sw.manager.model.SimControlUiState
 import com.vowifi.sw.manager.model.SimHandle
+import com.vowifi.sw.manager.model.CallUiState
 import kotlin.coroutines.CoroutineContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.StateFlow
@@ -28,6 +29,8 @@ internal class AndroidSimControlSource(
     override fun start(handle: SimHandle) = delegate.start(handle)
 
     override fun stop(handle: SimHandle) = delegate.stop(handle)
+
+    override fun activeCallSims(currentCall: CallUiState): Map<SimHandle, Int?> = delegate.activeCallSims(currentCall)
 
     override fun close() = delegate.close()
 }

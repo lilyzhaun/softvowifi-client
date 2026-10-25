@@ -35,6 +35,7 @@ import com.vowifi.sw.manager.model.ConfigurationSubmit
 import com.vowifi.sw.manager.model.ConfigurationTransport
 import com.vowifi.sw.manager.model.ConfigurationUiState
 import com.vowifi.sw.manager.model.SimControlUiState
+import com.vowifi.sw.manager.model.SimHandle
 import com.vowifi.sw.manager.ui.navigation.ConfigurationSimHandle
 import kotlinx.coroutines.flow.StateFlow
 import top.yukonga.miuix.kmp.basic.BasicComponent
@@ -53,6 +54,7 @@ internal data class ConfigurationEditorModel(
     val readyState: ConfigurationUiState.Ready,
     val enabled: Boolean,
     val status: String?,
+    val callWarning: String? = null,
 )
 
 /** Per-SIM editor route: resolves the opaque handle against the live rows, never against labels or slots. */
@@ -65,6 +67,7 @@ internal fun SettingsConfigurationSimScreen(
     drafts: ConfigurationDraftStore,
     provisioning: StateFlow<ConfigurationProvisionState>? = null,
     provisionBusy: Boolean = false,
+    activeCallSims: Map<SimHandle, Int?> = emptyMap(),
 ) {
     val presentation = configurationPresentation(state, simState)
     val row = presentation.rows.firstOrNull { it.key == handle.value && it.kind == ConfigurationRowKind.CONFIGURED }
@@ -90,7 +93,9 @@ internal fun SettingsConfigurationSimScreen(
         }
         return
     }
-    ConfigurationSimEditor(ConfigurationEditorModel(instance, ready, row.canApply, row.status), draft, actions.onSubmit,
+    val simHandle = SimHandle(handle.value)
+    val callWarning = if (simHandle in activeCallSims) engineStopCallWarning(activeCallSims[simHandle]) else null
+    ConfigurationSimEditor(ConfigurationEditorModel(instance, ready, row.canApply, row.status, callWarning), draft, actions.onSubmit,
         refresh, rotation)
 }
 

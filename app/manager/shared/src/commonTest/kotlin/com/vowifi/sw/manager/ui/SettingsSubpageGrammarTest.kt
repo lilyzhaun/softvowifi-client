@@ -40,7 +40,7 @@ class SettingsSubpageGrammarTest {
         val sanitizedRows = aboutInformationRows(unsafeVersion)
 
         // Then
-        assertEquals(2, safeRows.size)
+        assertEquals(listOf("应用版本", "应用信息", "模块版本", "引擎标识", "运行实例"), safeRows.map { it.title })
         assertTrue(safeRows.none { it.actionable })
         assertEquals("应用版本", safeRows[0].title)
         assertEquals("版本 1.2.3-alpha", safeRows[0].summary)

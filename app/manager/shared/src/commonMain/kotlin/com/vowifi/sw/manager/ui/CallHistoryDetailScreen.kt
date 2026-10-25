@@ -6,6 +6,9 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.platform.LocalClipboard
+import com.vowifi.sw.manager.data.CallLineState
+import kotlinx.coroutines.launch
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
@@ -28,7 +31,9 @@ import top.yukonga.miuix.kmp.icon.extended.Close
 @Composable internal fun CallHistoryDetailScreen(handle: CallHistoryHandle, history: CallHistoryState,
     onDelete: (CallHistoryState.Ready, Set<CallHistoryRecordId>) -> Unit,
     historySnapshot: CallHistoryViewSnapshot?,
-    onDeleteAndAwait: (suspend (CallHistoryState.Ready, Set<CallHistoryRecordId>) -> CallHistoryDeleteResult)?) = PhoneStyle {
+    onDeleteAndAwait: (suspend (CallHistoryState.Ready, Set<CallHistoryRecordId>) -> CallHistoryDeleteResult)?,
+    onCallback: ((String) -> Unit)? = null, callbackUnavailableReason: String? = null,
+    onRetry: (() -> Unit)? = null) = PhoneStyle {
     val palette = phoneColors()
     val confirmedHistory = historySnapshot?.view ?: history
     val ready = confirmedHistory as? CallHistoryState.Ready
@@ -44,6 +49,7 @@ import top.yukonga.miuix.kmp.icon.extended.Close
     SideEffect { if (group != null) retainedGroup = group }
     val shownGroup = group ?: retainedGroup?.takeIf { rows.rows.isNotEmpty() }
     LaunchedEffect(confirmedHistory, active) { deletion = null }
+    CommunicationFeedbackHost {
     LazyColumn(Modifier.fillMaxSize().background(palette.canvas).phoneOverscroll()
         .callsHistoryReplacementFade(historySnapshot?.change, selection), overscrollEffect = null,
         contentPadding = PaddingValues(start = 24.dp, end = 24.dp, top = LocalSubpageTopContentInset.current + 24.dp,
@@ -57,7 +63,9 @@ import top.yukonga.miuix.kmp.icon.extended.Close
                 else -> StatePanelSpec(CallPhoneIcons.Information, StatePanelTone.NEUTRAL,
                     "通话记录不可用", "记录已变化或线路已切换，请返回通话列表。")
             }
-            CommunicationListState(panel)
+            CommunicationListState(panel) {
+                if (confirmedHistory is CallHistoryState.Failure) onRetry?.let { CommunicationTextAction("重试", it) }
+            }
         } else {
             item {
                 Column(Modifier.fillMaxWidth().padding(bottom = 28.dp), horizontalAlignment = Alignment.CenterHorizontally,
@@ -66,7 +74,11 @@ import top.yukonga.miuix.kmp.icon.extended.Close
                         Icon(CallPhoneIcons.Phone, null, Modifier.size(30.dp), tint = palette.accent)
                     }
                     PhoneText(shownGroup.peer?.dialNumber()?.let { displayCallNumber(privateUiPhoneDisplay(it)) } ?: "未知号码",
-                        Modifier.semantics { heading() }, size = 24)
+                         Modifier.semantics { heading() }, size = 24)
+                    shownGroup.peer?.dialNumber()?.let { number ->
+                        CallHistoryDetailActions(number, active && group != null && deletion == null,
+                            onCallback, callbackUnavailableReason)
+                    }
                     PhoneText("${shownGroup.records.size} 次通话 · 当前线路本机记录", size = 14, secondary = true)
                 }
             }
@@ -100,4 +112,39 @@ import top.yukonga.miuix.kmp.icon.extended.Close
     }
     deletion?.takeIf { active }?.let { id -> if (ready != null)
         CallHistoryDeleteConfirmation(ready, setOf(id), true, { deletion = null }, deletionUi.submit) }
+    }
+}
+
+/** Shared by the list and detail callers; no UI inference of SIM identity or new selection. */
+internal fun callHistoryCallbackUnavailableReason(history: CallHistoryState, lines: CallLineState, hasDial: Boolean): String? = when {
+    history !is CallHistoryState.Ready -> "通话记录不可用。"
+    !hasDial -> "当前入口不支持拨号。"
+    history.owner != lines.selectedOwner -> "请先选择此记录所属线路后回拨。"
+    lines.outgoingBinding == null -> "当前线路不可拨号，请检查线路注册状态。"
+    else -> null
+}
+
+@Composable private fun CallHistoryDetailActions(number: String, enabled: Boolean, onCallback: ((String) -> Unit)?,
+    unavailableReason: String?) {
+    val clipboard = LocalClipboard.current
+    val scope = rememberCoroutineScope()
+    val copied = LocalCommunicationCopyFeedback.current
+    val activeNow by rememberUpdatedState(enabled && LocalAppRouteActive.current)
+    val mounted = remember(number) { mutableStateOf(true) }
+    DisposableEffect(mounted) { onDispose { mounted.value = false } }
+    val reason = unavailableReason ?: if (onCallback == null) "当前入口不支持拨号。" else null
+    Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterHorizontally)) {
+            PhoneButton("回拨", { if (activeNow) onCallback?.invoke(number) }, Modifier.weight(1f),
+                icon = CallPhoneIcons.Phone, compact = true, enabled = enabled && reason == null)
+            PhoneButton("复制号码", {
+                scope.launch {
+                    if (!activeNow || !mounted.value) return@launch
+                    clipboard.setClipEntry(messageTextClipEntry(number))
+                    if (activeNow && mounted.value) copied(CommunicationCopyFeedback.NUMBER)
+                }
+            }, Modifier.weight(1f), icon = CommunicationCopy, compact = true, enabled = enabled)
+        }
+        reason?.let { PhoneText(it, secondary = true, size = 14) }
+    }
 }

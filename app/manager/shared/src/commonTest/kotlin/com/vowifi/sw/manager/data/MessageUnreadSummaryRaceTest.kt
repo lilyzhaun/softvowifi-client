@@ -25,8 +25,8 @@ class MessageUnreadSummaryRaceTest {
         val release = CompletableDeferred<Unit>()
         var holdNextCount = false
         val repository = object : MessageRepository by backing {
-            override suspend fun countUnreadIncoming(): Long {
-                val snapshot = backing.countUnreadIncoming()
+            override suspend fun countUnreadByOwner(): Map<SimOwnerId, Long> {
+                val snapshot = backing.countUnreadByOwner()
                 if (holdNextCount) {
                     holdNextCount = false
                     started.complete(Unit)
@@ -49,8 +49,8 @@ class MessageUnreadSummaryRaceTest {
             runCurrent()
             release.complete(Unit)
             runCurrent()
-            assertEquals(MessageUnreadSummary.Ready(5), source.unreadSummary.value)
-            assertFalse(MessageUnreadSummary.Ready(4) in observed)
+            assertEquals(expectedUnreadSummary(1, 4), source.unreadSummary.value)
+            assertFalse(expectedUnreadSummary(1, 3) in observed)
         } finally { source.close() }
     }
 
@@ -78,16 +78,16 @@ class MessageUnreadSummaryRaceTest {
             runCurrent()
             source.markVisibleRead(unreadRequest(OWNER_A, "a-1"))
             runCurrent()
-            assertEquals(MessageUnreadSummary.Ready(5), source.unreadSummary.value)
+            assertEquals(expectedUnreadSummary(2, 3), source.unreadSummary.value)
             iccid = "8986002"
             source.refresh()
             runCurrent()
             transport.emitReceived("engine-b-later", "+155501", "synthetic", 10)
             runCurrent()
-            assertEquals(MessageUnreadSummary.Ready(6), source.unreadSummary.value)
+            assertEquals(expectedUnreadSummary(2, 4), source.unreadSummary.value)
             release.complete(Unit)
             runCurrent()
-            assertEquals(MessageUnreadSummary.Ready(5), source.unreadSummary.value)
+            assertEquals(expectedUnreadSummary(1, 4), source.unreadSummary.value)
             val selected = assertIs<MessageUiState.Inbox>(source.state.value)
             assertEquals(OWNER_B, selected.ownerId)
             assertEquals(4L, selected.page.items.sumOf { it.messageCount })
@@ -102,7 +102,7 @@ class MessageUnreadSummaryRaceTest {
             runCurrent()
             source.markVisibleRead(unreadRequest(OWNER_A, "a-1"))
             runCurrent()
-            assertEquals(MessageUnreadSummary.Ready(5), source.unreadSummary.value)
+            assertEquals(expectedUnreadSummary(2, 3), source.unreadSummary.value)
             assertEquals(5L, repository.countUnreadIncoming())
         } finally { source.close() }
     }

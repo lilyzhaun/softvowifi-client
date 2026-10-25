@@ -37,7 +37,7 @@ fun settingsCatalog(snapshot: SettingsCatalogSnapshot): SettingsCatalog {
                 routeRow(
                     SettingsRowId.Root.APPEARANCE,
                     "外观设置",
-                    "悬浮底栏与模糊效果",
+                    "悬浮底栏、模糊与液态玻璃、返回与触感",
                     appearance.route,
                 ),
             ),

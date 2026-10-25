@@ -110,7 +110,8 @@ class S4RootCommunicationEntryRenderTest {
                     val outside = point + Offset(0f, -96f)
                     environment.move(outside); environment.release(outside); s4Frames(environment, 40)
                     s4Action(environment, label)
-                    val face = s4Nodes(environment).single { it.config.getOrNull(SemanticsProperties.TestTag) == "phone-face-$label" }.boundsInRoot
+                    val faceTag = if (label == "返回通话") "ongoing-call-face" else "phone-face-$label"
+                    val face = s4Nodes(environment).single { it.config.getOrNull(SemanticsProperties.TestTag) == faceTag }.boundsInRoot
                     val region = Rect(face.center.x - 16f, face.center.y - 16f, face.center.x + 16f, face.center.y + 16f)
                     val initial = s3SmallPatch(environment, testScheduler, region)
                     assertTrue(initial.pixels.distinct().size >= 4, "采样前提：32×32 内有实际入口图标/字形而非纯色空白")
@@ -140,7 +141,7 @@ class S4RootCommunicationEntryRenderTest {
                     val exitAt = testScheduler.currentTime
                     fun traceFrame(phase: String) {
                         val semanticFace = s4Nodes(environment).singleOrNull {
-                            it.config.getOrNull(SemanticsProperties.TestTag) == "phone-face-$label"
+                            it.config.getOrNull(SemanticsProperties.TestTag) == faceTag
                         }?.boundsInRoot
                         val inputs = s4Nodes(environment, false).filter { it.config.contains(SemanticsActions.SetText) }
                             .map { it.boundsInRoot to (it.config.getOrNull(SemanticsProperties.Focused) == true) }
@@ -152,7 +153,8 @@ class S4RootCommunicationEntryRenderTest {
                     assertTrue(s4Actions(environment, label).isEmpty(), "C14：退出首帧即时撤销触摸与动作语义，不能仅透明化或等退场完")
                     presses.clear()
                     environment.press(point)
-                    assertTrue(presses.any { (position, consumed) -> position == point && !consumed }, "实际旧命中位置的Press必须不再被退出入口吞掉")
+                    assertTrue(presses.any { (position, consumed) -> position == point && !consumed },
+                        "实际旧命中位置的Press必须不再被退出入口吞掉；point=$point observed=$presses")
                     environment.release(point)
                     traceFrame("afterOldHit")
                     // 真实回执中业务失效在 t32 尚为初始绘制（diff=0/1016），不能误判为已经卸载。
@@ -199,6 +201,9 @@ class S4RootCommunicationEntryRenderTest {
                     assertEquals(CallPhase.Ringing, assertIs<CallUiState.Ready>(backend.source.state.value).phase)
                     backend.first.emitIncoming(CALL_TOKEN, "IN_CALL"); s4Frames(environment, 100)
                     assertEquals(CallPhase.InCall, assertIs<CallUiState.Ready>(backend.source.state.value).phase)
+                    // Legacy fixture events carry no elapsed clock. Read the real snapshot before asserting duration.
+                    backend.source.refresh(); s4Frames(environment, 10)
+                    assertNotNull(assertIs<CallUiState.Ready>(backend.source.state.value).clock, "前提：权威IN_CALL快照已建立真实计时")
                     fun tabs() = s4Nodes(environment, false).filter {
                         it.config.getOrNull(SemanticsProperties.Role) == Role.Tab && it.config.contains(SemanticsActions.OnClick)
                     }
@@ -214,8 +219,9 @@ class S4RootCommunicationEntryRenderTest {
                         it.config.getOrNull(SemanticsProperties.Focused) == true }, "前提：Messages当前无输入焦点")
                     assertEquals(CallPhase.InCall, assertIs<CallUiState.Ready>(backend.source.state.value).phase)
                     assertEquals(0, returnedToCall)
-                    s4Action(environment, "返回当前通话")
-                    withdraw("返回当前通话", awaitInputFocus = true) { s4Tap(environment, searchButton("openSearchWithCall").boundsInRoot.center) }
+                    val callLabel = s4Action(environment, "返回通话").config[SemanticsProperties.ContentDescription].single()
+                    assertTrue(callLabel.matches(Regex("通话中 [0-9:]{5,8} · 返回通话")), "根条须显示真实阶段与计时：actual=$callLabel")
+                    withdraw("返回通话", awaitInputFocus = true) { s4Tap(environment, searchButton("openSearchWithCall").boundsInRoot.center) }
                 }
             } finally { environment.close(); backend.source.close(); back.navigationEventDispatcher.dispose() }
         }
@@ -268,7 +274,7 @@ class S4RootCommunicationEntryRenderTest {
                         s4Matches(it, "短信") && it.config.contains(SemanticsActions.OnClick) }
                     s4Tap(e, tab.boundsInRoot.center); s4Frames(e, 80)
                     assertEquals(CallPhase.InCall, assertIs<CallUiState.Ready>(calls.source.state.value).phase)
-                    val oldEntries = listOf("新建短信", "返回当前通话").map { s4Action(e, it).boundsInRoot.center }
+                    val oldEntries = listOf("新建短信", "返回通话").map { s4Action(e, it).boundsInRoot.center }
                     val row = s4Nodes(e, false).single { it.config.contains(SemanticsActions.OnClick) && s4Matches(it, "s7-row-79") }
                     s4Tap(e, row.boundsInRoot.center); s4Frames(e, 80)
                     val thread = assertIs<MessageUiState.Ready>(messages.state.value)
@@ -276,9 +282,13 @@ class S4RootCommunicationEntryRenderTest {
                     assertTrue(thread.records.filterIsInstance<MessageRecord.Incoming>().all { it.isRead })
                     fun field() = s4Nodes(e, false).single { it.config.contains(SemanticsActions.SetText) &&
                         !it.config.contains(SemanticsProperties.Disabled) && it.boundsInRoot.width > 0 }
-                    fun list() = s4Nodes(e, false).single { it.config.contains(SemanticsActions.ScrollToIndex) &&
-                        it.boundsInRoot.width > 0 && it.boundsInRoot.left >= 0 && it.boundsInRoot.right <= 390 &&
-                        it.boundsInRoot.top >= 0 && it.boundsInRoot.bottom <= availableHeight }
+                    fun list(): SemanticsNode {
+                        val candidates = s4Nodes(e, false).filter { it.config.contains(SemanticsActions.ScrollToIndex) &&
+                         it.boundsInRoot.width > 0 && it.boundsInRoot.left >= 0 && it.boundsInRoot.right <= 390 &&
+                         it.boundsInRoot.top >= 0 && it.boundsInRoot.bottom <= availableHeight }
+                        assertEquals(1, candidates.size, "活动时间线viewport须唯一：${candidates.map { it.id to it.boundsInRoot }}")
+                        return candidates.single()
+                    }
                     val messageIdsByLabel = ids.mapIndexed { index, id -> "s7-row-$index" to id }.toMap()
                     fun historyLabel(node: SemanticsNode) = node.config.getOrNull(SemanticsProperties.Text)?.singleOrNull()?.text
                         ?.let(::stripMessageDisplayJoiners)
@@ -321,7 +331,9 @@ class S4RootCommunicationEntryRenderTest {
                     val latest = assertNotNull(bubble("s7-row-79"), "E1：原在底部时缩高后最新气泡仍须完整可见")
                     assertTrue(latest.boundsInRoot.bottom <= list().boundsInRoot.bottom)
                     assertTrue(latest.boundsInRoot.bottom <= field().boundsInRoot.top, "真实最新气泡须完整位于composer输入上方")
-                    for (label in listOf("新建短信", "返回当前通话")) assertTrue(s4Actions(e, label).isEmpty(), "C14不可命中：$label")
+                    assertTrue(s4Actions(e, "新建短信").isEmpty(), "根入口不能穿透子页")
+                    val callBar = s4Action(e, "返回通话")
+                    assertTrue(callBar.boundsInRoot.bottom < list().boundsInRoot.top, "子页顶部通话条保留，不能覆盖时间线或受IME隐藏")
                     oldEntries.forEach { point -> e.press(point); e.release(point) }; s4Frames(e, 2)
                     assertEquals(0, returnedToCall)
                     assertEquals(owner, assertIs<MessageUiState.Ready>(messages.state.value).ownerId)

@@ -13,6 +13,7 @@ internal class AndroidCallEndTone(context: Context) : AutoCloseable {
     private val finish = Runnable { close() }
     private var tone: ToneGenerator? = null
     private var closed = false
+    init { policy.onFocusChanged = { focused -> if (!focused) close() } }
 
     @Synchronized fun play(speaker: Boolean): Boolean {
         if (closed) return false

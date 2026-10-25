@@ -1,6 +1,7 @@
 package com.vowifi.sw
 
 import android.app.Service
+import android.app.Notification
 import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.IBinder
@@ -22,9 +23,8 @@ class CallMicrophoneService : Service() {
                 owner.lastStartId = startId
             } else {
                 try {
-                    startForeground(CallOngoingNotification.ID, CallOngoingNotification.build(this, null, null),
-                        ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE)
-                    stopForeground(STOP_FOREGROUND_REMOVE)
+                    promote(CallOngoingNotification.build(this, null, null))
+                    retire(STOP_FOREGROUND_REMOVE)
                 } catch (_: SecurityException) {
                     current.calls.lifecycle.feedback.value = "系统拒绝麦克风服务，请检查权限"
                 } catch (_: IllegalStateException) {
@@ -34,18 +34,20 @@ class CallMicrophoneService : Service() {
             return START_NOT_STICKY
         }
         try {
-            startForeground(CallOngoingNotification.ID, CallOngoingNotification.build(this, current.notifications.keyForCurrent(),
-                current.calls.state.value as? CallUiState.Ready), ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE)
+            promote(CallOngoingNotification.build(this, current.notifications.keyForCurrent(),
+                current.calls.state.value as? CallUiState.Ready))
             val owner = ActiveStart(key, startId)
             activeStart = owner
             if (!current.calls.lifecycle.serviceStarted(key) {
                     if (activeStart === owner) {
                         activeStart = null
-                        stopForeground(STOP_FOREGROUND_DETACH)
+                        // DETACH can force a deferred CallStyle to be reposted after its FGS
+                        // owner is gone. Remove that notification; Coordinator owns the plain one.
+                        retire(STOP_FOREGROUND_REMOVE)
                         stopSelf(owner.lastStartId)
                         current.notifications.setMicrophoneRunning(false)
                     }
-                }) { stopForeground(STOP_FOREGROUND_REMOVE); stopSelf(startId) }
+                }) { retire(STOP_FOREGROUND_REMOVE); stopSelf(startId) }
             else current.notifications.setMicrophoneRunning(true)
         } catch (_: SecurityException) {
             current.calls.lifecycle.serviceFailed(key); stopSelf(startId)
@@ -53,6 +55,16 @@ class CallMicrophoneService : Service() {
             current.calls.lifecycle.serviceFailed(key); stopSelf(startId)
         }
         return START_NOT_STICKY
+    }
+    private fun promote(notification: Notification) = ForegroundNotificationDiagnostics.trace(this,
+        NotificationDiagnosticOwner.MICROPHONE, NotificationDiagnosticAction.PROMOTE, CallOngoingNotification.ID, notification) {
+        startForeground(CallOngoingNotification.ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE)
+    }
+    private fun retire(flags: Int) = ForegroundNotificationDiagnostics.trace(this,
+        NotificationDiagnosticOwner.MICROPHONE,
+        if (flags and STOP_FOREGROUND_DETACH != 0) NotificationDiagnosticAction.DETACH else NotificationDiagnosticAction.RETIRE,
+        CallOngoingNotification.ID) {
+        stopForeground(flags)
     }
     override fun onDestroy() {
         activeStart?.let { owner ->

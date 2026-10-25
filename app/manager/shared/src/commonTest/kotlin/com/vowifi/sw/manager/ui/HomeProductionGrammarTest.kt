@@ -112,5 +112,10 @@ class HomeProductionGrammarTest {
         assertTrue(contract.usesArrowPreference)
         assertTrue(contract.usesCard)
         assertFalse(contract.usesStatePanel)
+        val recovery = homeNoticeRenderingContract(navigation = false)
+        assertTrue(recovery.actionable)
+        assertTrue(recovery.usesCard)
+        assertFalse(recovery.usesArrowPreference)
+        assertFalse(recovery.usesStatePanel)
     }
 }

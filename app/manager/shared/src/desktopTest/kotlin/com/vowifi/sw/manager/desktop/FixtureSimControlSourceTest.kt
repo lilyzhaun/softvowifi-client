@@ -58,7 +58,8 @@ class FixtureSimControlSourceTest {
         val scene = ImageComposeScene(width = 344, height = 1800, density = Density(1f, fontScale)) {
             SoftVoWiFiTheme(forceDark = fontScale == 2f) {
                 LazyColumn {
-                    homeDashboardItems(presentation, {}, { stopped = it }, {}, {})
+                    homeDashboardItems(presentation, {}, { stopped = it }, {}, {},
+                        onRefresh = { error("停止回调测试不得刷新") })
                 }
             }
         }

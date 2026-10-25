@@ -53,7 +53,12 @@ internal class AndroidCallAudioController(
         stop()
         val focusLost = AtomicBoolean(false)
         val devices = AndroidCallAudioDevices.create(appContext,
-            onLost = { focusLost.set(true); interrupt(session) },
+            onLost = { synchronized(lock) {
+                // A recording/focus failure must either reject startup or interrupt its published
+                // owner. Serialize the marker and publication; there must be no empty-session gap.
+                focusLost.set(true)
+                interrupt(session)
+            } },
             onRoute = { route -> mutableControls.value = route.copy(muted = mutableControls.value.muted) },
             playbackOnly = session.mode == CallAudioMode.Progress)
         val socket = try {
@@ -85,7 +90,7 @@ internal class AndroidCallAudioController(
         }
         val next = Session(socket, devices, session)
         synchronized(lock) {
-            if (released.get() || !microphone.permits(session)) {
+            if (focusLost.get() || released.get() || !microphone.permits(session)) {
                 next.closeFromStop()
                 throw AndroidCallAudioException()
             }

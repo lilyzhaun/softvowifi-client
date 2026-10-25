@@ -17,8 +17,6 @@ import com.vowifi.sw.manager.model.SYSTEM_REGISTRATION_LOG_ID
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.Text
-import top.yukonga.miuix.kmp.icon.MiuixIcons
-import top.yukonga.miuix.kmp.icon.extended.Info
 import top.yukonga.miuix.kmp.preference.OverlayDropdownPreference
 
 internal data class LogFilterPresentation(
@@ -71,7 +69,7 @@ internal fun LogFilterRow(
                 title = "日志来源",
                 startAction = {
                     Icon(
-                        imageVector = MiuixIcons.Info,
+                        imageVector = logsChromeContract().fileIcon,
                         contentDescription = null,
                         modifier = Modifier.size(20.dp),
                     )
@@ -87,7 +85,7 @@ internal fun LogFilterRow(
                 selectedIndex = kindOptions.indexOfFirst { it.first == filter.kind }.coerceAtLeast(0),
                 startAction = {
                     Icon(
-                        imageVector = MiuixIcons.Info,
+                        imageVector = logsChromeContract().kindIcon,
                         contentDescription = null,
                         modifier = Modifier.size(20.dp),
                     )
@@ -100,7 +98,7 @@ internal fun LogFilterRow(
                 selectedIndex = levelOptions.indexOfFirst { it.first == filter.level }.coerceAtLeast(0),
                 startAction = {
                     Icon(
-                        imageVector = MiuixIcons.Info,
+                        imageVector = logsChromeContract().levelIcon,
                         contentDescription = null,
                         modifier = Modifier.size(20.dp),
                     )

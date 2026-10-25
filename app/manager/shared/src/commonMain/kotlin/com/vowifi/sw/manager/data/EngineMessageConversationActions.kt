@@ -27,9 +27,11 @@ internal suspend fun changeStoredMessageConversation(
         }
         // Reconcile existing notifications only; a manual reminder is not a new MT.
         session.observer.onThreadUnread(identity, session.repository.history.unreadIds(identity).toSet())
-        val mutation = MessageHistoryMutation(identity, HistoryChangeReason.USER_DELETE)
+        val mutation = MessageHistoryMutation(identity,
+            if (action == MessageConversationAction.DELETE) HistoryChangeReason.USER_DELETE else HistoryChangeReason.CONTENT)
         session.publish(mutation)
-        session.selection.refreshInbox(mutation)
+        if (action == MessageConversationAction.MARK_READ) session.selection.refreshInboxContent(mutation)
+        else session.selection.refreshInbox(mutation)
         MessageConversationActionResult.APPLIED
     } catch (_: MessageStorageException) {
         MessageConversationActionResult.FAILED

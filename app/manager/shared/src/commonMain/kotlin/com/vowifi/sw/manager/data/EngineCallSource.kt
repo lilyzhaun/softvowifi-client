@@ -64,6 +64,7 @@ class EngineCallSource @JvmOverloads internal constructor(
         launch { refreshConnection() }
     }
     override fun refresh() = launch { refreshConnection() }
+    override fun refreshHistory() = recorder.refreshHistory()
     override fun deleteHistory(expected: CallHistoryState.Ready, ids: Set<CallHistoryRecordId>) = recorder.delete(expected, ids)
     override suspend fun deleteHistoryAndAwait(expected: CallHistoryState.Ready, ids: Set<CallHistoryRecordId>) =
         if (closed) CallHistoryDeleteResult.UNAVAILABLE else recorder.deleteAndAwait(expected, ids)

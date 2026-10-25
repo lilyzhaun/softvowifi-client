@@ -33,16 +33,30 @@ class CallControlSocketHostTest {
             assertEquals(CallPhase.Canceling, (source.state.value as CallUiState.Ready).phase)
             assertFalse(server.primaryClosed)
             assertTrue(server.connections.size >= 3)
-            server.finishCanceled()
+            // Make the late snapshot/Idle interleaving deterministic: Idle is not RPC quiescence.
+            server.holdSnapshot = true
+            server.finishCanceledReply()
+            withTimeout(5000) { while (server.heldSnapshot == null) delay(10) }
+            val snapshotSocket = checkNotNull(server.heldSnapshot).first
+            assertNotSame(server.primary, snapshotSocket)
+            server.sendCanceledEvent()
             withTimeout(5000) { source.state.first { it is CallUiState.Ready && it.phase == CallPhase.Idle } }
             assertEquals(1, server.cancels.get())
             assertEquals(1, server.dials.get())
             assertFalse(server.primaryClosed)
+            assertFalse("Idle不能把仍在途的权威快照冒充已完成", snapshotSocket.closed)
+            withTimeout(5000) { while (server.connections.filter { "cancelCall" in it.methods }.any { !it.closed }) delay(10) }
+            assertEquals("初始及取消后快照都必须真实执行", 2, server.connections.count { "getCallSnapshot" in it.methods })
+            server.releaseSnapshot()
             withTimeout(5000) { while (server.connections.filterNot { it === server.primary }.any { !it.closed }) delay(10) }
-            assertTrue(server.connections.filterNot { it === server.primary }.all { it.closed })
+            assertTrue("独立连接状态：${server.connections.map { "primary=${it === server.primary},closed=${it.closed},methods=${it.methods}" }}",
+                server.connections.filterNot { it === server.primary }.all { it.closed })
             val stillReadable = primary.request("getCallSnapshot", buildJsonObject {}, 2000)
             assertEquals("IDLE", stillReadable.result!!.getValue("stage").jsonPrimitive.content)
-        } finally { source.close(); server.close() }
+        } finally {
+            println("CALL_CONTROL_SOCKETS|" + server.connections.joinToString { "primary=${it === server.primary},closed=${it.closed},methods=${it.methods}" })
+            source.close(); server.close()
+        }
         assertTrue(server.primaryClosed)
     }
 

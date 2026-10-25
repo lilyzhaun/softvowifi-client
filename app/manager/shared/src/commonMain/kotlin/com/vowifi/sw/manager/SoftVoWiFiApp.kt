@@ -65,6 +65,7 @@ fun SoftVoWiFiApp(
     appearanceSource: AppearanceSettingsSource = InMemoryAppearanceSettingsSource(),
     blurSupported: Boolean = false,
     initialSubpage: AppRoute.Subpage? = null,
+    appVersionCode: Int? = null,
 ) {
     SoftVoWiFiApp(
         sources = SoftVoWiFiSources(
@@ -80,6 +81,7 @@ fun SoftVoWiFiApp(
         onExportLogs = onExportLogs,
         exportBusy = exportBusy,
         appVersion = appVersion,
+        appVersionCode = appVersionCode,
         initialDestination = initialDestination,
         incomingRoutes = incomingRoutes,
         forceDark = forceDark,
@@ -111,6 +113,7 @@ fun SoftVoWiFiApp(
     callLineLabel: String = "当前绑定线路",
     onCallPermissions: (() -> Unit)? = null,
     exportCompletion: com.vowifi.sw.manager.model.LogExportCompletion? = null,
+    appVersionCode: Int? = null,
 ) {
     val observerState by sources.observer.state.collectAsState()
     val engineState by sources.engine.state.collectAsState()
@@ -220,11 +223,17 @@ fun SoftVoWiFiApp(
         callHistorySnapshot = callHistorySnapshot,
         callHistoryOwners = callHistoryOwners,
     ).let { input -> remember(input) { input } }
+    val openCurrentCall: (() -> Unit)? = remember(sources.calls, onOpenCall) {
+        onOpenCall?.let { open -> {
+            val current = sources.calls.state.value as? CallUiState.Ready
+            if (current != null && current.phase != CallPhase.Idle) open()
+        } }
+    }
     val contentActions = SoftVoWiFiContentActions(
         sources = sources,
         configurationDrafts = configurationDrafts,
         callDial = onCallDial,
-        openCall = onOpenCall,
+        openCall = openCurrentCall,
         callLineLabel = callLineLabel,
         callPermissions = onCallPermissions,
         microphonePermissionGranted = microphonePermissionGranted,
@@ -232,6 +241,7 @@ fun SoftVoWiFiApp(
         exportLogs = onExportLogs,
         exportBusy = exportBusy,
         appVersion = appVersion,
+        appVersionCode = appVersionCode,
         refreshHome = refreshHome,
         exportCompletion = exportCompletion,
         onEntriesObscuredChange = { root, obscured ->
@@ -246,6 +256,12 @@ fun SoftVoWiFiApp(
         onNavigate = { subpage ->
             navigate(AppNavigator.push(navigationState, subpage))
         },
+        onOpenNewMessageConversation = { handle ->
+            if (navigationState.topRoute == AppRoute.NewMessage) {
+                navigate(AppNavigator.replaceTop(navigationState, AppRoute.MessageThread(handle)))
+            }
+        },
+        onCommunicationHome = { navigate(AppNavigator.selectRoot(navigationState, AppRoute.Home)) },
         onOpenHomeNotice = { subpage ->
             navigate(AppNavigator.open(navigationState, subpage))
         },
@@ -263,7 +279,11 @@ fun SoftVoWiFiApp(
     ).let { input -> remember(input) { input } }
     SoftVoWiFiTheme(forceDark) {
         val resultFeedback = rememberManagerResultFeedback()
-        CompositionLocalProvider(LocalManagerResultFeedback provides resultFeedback) {
+        val ongoing = (callState as? CallUiState.Ready)?.takeIf { it.phase != CallPhase.Idle && onOpenCall != null }
+        CompositionLocalProvider(LocalManagerResultFeedback provides resultFeedback,
+            com.vowifi.sw.manager.ui.LocalOngoingCall provides ongoing?.let {
+                com.vowifi.sw.manager.ui.OngoingCallPresentation(it, requireNotNull(openCurrentCall))
+            }) {
             AppShell(
                 navigationState = navigationState,
                 onNavigationStateChange = ::navigate,
@@ -274,7 +294,7 @@ fun SoftVoWiFiApp(
                 messageUnreadSummary = messageUnreadSummary,
                 entriesObscured = navigationState.currentRoot in obscuredEntryRoots,
                 ongoingCall = if (onOpenCall != null && callPhase != null && callPhase != CallPhase.Idle && navigationState.currentRoot != AppRoute.Calls) {
-                    { hitEnabled -> com.vowifi.sw.manager.ui.OngoingCallAffordance(hitEnabled = hitEnabled, onClick = onOpenCall) }
+                    { hitEnabled -> ongoing?.let { com.vowifi.sw.manager.ui.OngoingCallAffordance(it, hitEnabled = hitEnabled, onClick = requireNotNull(openCurrentCall)) } }
                 } else null,
                 resultOverlay = { bottomInset ->
                     val registered = com.vowifi.sw.manager.ui.hasRegisteredCommunicationEngine(callLines)

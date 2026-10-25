@@ -1,6 +1,7 @@
 package com.vowifi.sw.manager.ui
 
 import androidx.compose.animation.core.spring
+import androidx.compose.foundation.MutatePriority
 import androidx.compose.foundation.pager.PagerState
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.runtime.Composable
@@ -107,24 +108,25 @@ internal class AppRootPagerState(
         val page = pagerPageForRoot(root)
         val active = selectionJob?.isActive == true
         if (mode == RootSelectionMode.ANIMATE && coordinator.selectedPage == page && (pagerState.currentPage == page || active)) return
-        if (mode == RootSelectionMode.SNAP && pagerState.currentPage == page && !active) return
         coordinator.select(page, mode)
         selectedPage = coordinator.selectedPage
         selectionJob?.cancel()
         selectionJob = scope.launch {
-            when (mode) {
-                RootSelectionMode.ANIMATE -> {
-                    val contract = appRootPagerContract()
-                    pagerState.animateScrollToPage(
-                        page = page,
-                        animationSpec = spring(
-                            dampingRatio = contract.springDampingRatio,
-                            stiffness = contract.springStiffness,
-                            visibilityThreshold = contract.springVisibilityThreshold,
-                        ),
-                    )
+            if (mode == RootSelectionMode.SNAP) {
+                // Only forced routes preempt UserInput; normal selections keep their spring.
+                with(pagerState) {
+                    scroll(MutatePriority.PreventUserInput) { requestScrollToPage(page) }
                 }
-                RootSelectionMode.SNAP -> pagerState.scrollToPage(page)
+            } else {
+                val contract = appRootPagerContract()
+                pagerState.animateScrollToPage(
+                    page = page,
+                    animationSpec = spring(
+                        dampingRatio = contract.springDampingRatio,
+                        stiffness = contract.springStiffness,
+                        visibilityThreshold = contract.springVisibilityThreshold,
+                    ),
+                )
             }
         }.also { job ->
             job.invokeOnCompletion {

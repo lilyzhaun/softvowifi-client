@@ -2,9 +2,12 @@ package com.vowifi.sw.manager.ui
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyListScope
+import androidx.compose.runtime.key
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -15,6 +18,7 @@ import com.vowifi.sw.manager.model.OperationalLogFilter
 import com.vowifi.sw.manager.model.OperationalLogUiState
 import com.vowifi.sw.manager.model.SYSTEM_REGISTRATION_LOG_ID
 import top.yukonga.miuix.kmp.basic.Text
+import top.yukonga.miuix.kmp.basic.Card
 
 internal fun LazyListScope.operationalLogItems(
     state: OperationalLogUiState,
@@ -101,16 +105,17 @@ private fun LazyListScope.operationalLogDataItems(
     val technicalCount = filteredEntries.count { !isKeyLogEntry(it) }
     val fileSelection = LogFileSelection(actions.setInstance, actions.selectFile)
     val gap = logsChromeContract().cardGapDp.dp
-    val sections = operationalLogDataSectionOrder(state is OperationalLogUiState.Warning)
+    val warning = operationalLogDataWarningSpec(state)
+    val sections = operationalLogDataSectionOrder(warning != null)
     sections.forEach { section ->
         when (section) {
             OperationalLogDataSection.WARNING -> {
-                if (state is OperationalLogUiState.Warning) {
+                if (warning != null) {
                     item(key = "operational-logs-warning") {
                         StatePanel(
-                            spec = operationalLogWarningSpec(state).copy(retryDescription =
-                                if (state.loadInfo.issue != null && onRetry != null) "重试读取日志" else null),
-                             onRetry = if (state.loadInfo.issue != null) onRetry else null,
+                            spec = warning.copy(retryDescription =
+                                if (loadInfo.issue != null && onRetry != null) "重试读取日志" else null),
+                              onRetry = if (loadInfo.issue != null) onRetry else null,
                              retryEnabled = retryEnabled,
                             modifier = Modifier.padding(bottom = gap),
                         )
@@ -133,11 +138,11 @@ private fun LazyListScope.operationalLogDataItems(
             OperationalLogDataSection.EVENTS -> {
                 item(key = "operational-log-read-status") {
                      val labels = listOfNotNull(
+                          operationalLogWindowNote(state),
                           if (selectedFileId == SYSTEM_REGISTRATION_LOG_ID) "显示最近最多50条系统电话服务记录，与软件引擎的注册记录相互独立。" else null,
                          if (loadInfo.legacy) "正在按旧模块提供的文件读取日志。" else null,
-                          if (loadInfo.issue != null) "此次刷新未完成，当前仍是上次读取的记录。" else if (loadInfo.cached) "显示上次读取的记录，刷新可更新。" else null,
+                           if (loadInfo.issue == null && loadInfo.cached) "显示上次读取的记录，刷新可更新。" else null,
                         if (loadInfo.reading) "正在读取所选日志" else null,
-                        loadInfo.issue,
                     )
                     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                           if (sourceEntries.any { it.technical } && onShowTechnical != null) {
@@ -148,9 +153,6 @@ private fun LazyListScope.operationalLogDataItems(
                           }
                          labels.forEach { label -> Text(label, modifier = Modifier.padding(bottom = gap),
                              color = LocalSoftVoWiFiColors.current.textSecondary, fontSize = 14.sp, lineHeight = 20.sp) }
-                         if (loadInfo.issue != null && onRetry != null) {
-                             ManagerTextAction("重试读取日志", ManagerAction.Refresh, onRetry, enabled = retryEnabled)
-                         }
                     }
                 }
                 if (displayed.isEmpty() && !loadInfo.reading && loadInfo.issue == null) {
@@ -161,19 +163,27 @@ private fun LazyListScope.operationalLogDataItems(
                         )
                     }
                 } else {
-                    items(displayed.size, key = { index -> "operational-log-entry-${displayed[index].index}" }) { index ->
-                        LogEntryRow(
-                            entry = displayed[index].value,
-                            modifier = Modifier.padding(bottom = gap),
-                        )
+                    item(key = "operational-log-entries") {
+                        Card(modifier = Modifier.fillMaxWidth(), insideMargin = PaddingValues(0.dp)) {
+                            Column {
+                                displayed.forEachIndexed { position, indexed ->
+                                    key(indexed.index) {
+                                        if (position > 0) LogEntryDivider()
+                                        LogEntryRow(indexed.value)
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }
             OperationalLogDataSection.EXPORT -> {
-                item(key = "operational-logs-export") {
-                    val colors = LocalSoftVoWiFiColors.current
+                 item(key = "operational-logs-export") {
+                     val colors = LocalSoftVoWiFiColors.current
+                     val export = logExportPresentation(actions.fullDiagnosticExport || filteredEntries.isNotEmpty(), exportBusy)
+                     val exportAllowed = rememberUpdatedState(export.enabled && LocalAppRouteActive.current)
                     Column(
-                        modifier = Modifier.fillMaxWidth(),
+                         modifier = Modifier.fillMaxWidth().padding(bottom = gap),
                         verticalArrangement = Arrangement.spacedBy(8.dp),
                      ) {
                         if(actions.fullDiagnosticExport) {
@@ -184,8 +194,8 @@ private fun LazyListScope.operationalLogDataItems(
                             Text("导出所选时间内已保留的应用与连接记录，包含技术步骤，不受页面筛选或最近记录窗口限制。系统 IMS 注册记录请切换到对应来源后导出。",color=colors.textSecondary,fontSize=14.sp,lineHeight=20.sp)
                         }
                         LogExportButton(
-                            presentation = logExportPresentation(actions.fullDiagnosticExport || filteredEntries.isNotEmpty(), exportBusy),
-                            onClick = { actions.onExport(filteredEntries) },
+                             presentation = export,
+                             onClick = { if (exportAllowed.value) actions.onExport(filteredEntries) },
                         )
                         Text(
                             text = logPrivacyNote(),
@@ -232,31 +242,6 @@ internal fun operationalLogManagerStatus(state: OperationalLogUiState): ManagerS
     -> error("Data states use filters and entries")
 }
 
-internal fun operationalLogWarningStatus(state: OperationalLogUiState.Warning): ManagerStatus {
-    val readFailed = state.loadInfo.issue != null
-    val parseIssues = state.issues.isNotEmpty()
-    val windowOnly = state.truncated && !parseIssues && !readFailed
-    return managerStatus(
-        kind = when {
-            readFailed -> ManagerStatusKind.Failure
-            windowOnly -> ManagerStatusKind.Unavailable
-            else -> ManagerStatusKind.Warning
-        },
-        title = when {
-            readFailed -> "日志读取失败"
-            parseIssues -> "部分日志无法解析"
-            windowOnly -> "最近日志窗口"
-            else -> "日志可能不完整"
-        },
-        summary = buildString {
-            append("已显示可用的运行事件。")
-            if (state.truncated) append("每个来源最多显示最近50条运行记录；更早记录未在此窗口显示。")
-            if (parseIssues) append("有${state.issues.size}处日志格式无法解析。")
-            if (readFailed) append("本次日志读取未完成，请刷新重试。")
-        },
-    )
-}
-
 internal fun operationalLogFilteredEmptyStatus(): ManagerStatus = managerStatus(
     kind = ManagerStatusKind.Empty,
     title = "暂无运行日志",
@@ -266,8 +251,29 @@ internal fun operationalLogFilteredEmptyStatus(): ManagerStatus = managerStatus(
 internal fun operationalLogStateSpec(state: OperationalLogUiState): StatePanelSpec =
     operationalLogManagerStatus(state).toStatePanelSpec()
 
-internal fun operationalLogWarningSpec(state: OperationalLogUiState.Warning): StatePanelSpec =
-    operationalLogWarningStatus(state).toStatePanelSpec()
+internal fun operationalLogDataWarningSpec(state: OperationalLogUiState): StatePanelSpec? {
+    val loadInfo = when (state) {
+        is OperationalLogUiState.Ready -> state.loadInfo
+        is OperationalLogUiState.Warning -> state.loadInfo
+        else -> return null
+    }
+    val readFailed = loadInfo.issue != null
+    val parseCount = (state as? OperationalLogUiState.Warning)?.issues?.size ?: 0
+    if (!readFailed && parseCount == 0) return null
+    return managerStatus(
+        kind = if (readFailed) ManagerStatusKind.Failure else ManagerStatusKind.Warning,
+        title = if (readFailed) "日志读取失败" else "部分日志无法解析",
+        summary = buildString {
+            append("已显示可用的运行事件。")
+            if (parseCount > 0) append("有${parseCount}处日志格式无法解析。")
+            if (readFailed) append("当前仍是上次读取的记录。本次日志读取未完成，请刷新重试。")
+        },
+    ).toStatePanelSpec()
+}
+
+internal fun operationalLogWindowNote(state: OperationalLogUiState): String? =
+    if (state is OperationalLogUiState.Warning && state.truncated)
+        "最近日志窗口：每个来源最多显示最近50条运行记录；更早记录未在此窗口显示。" else null
 
 internal fun operationalLogFilteredEmptySpec(): StatePanelSpec =
     operationalLogFilteredEmptyStatus().toStatePanelSpec()

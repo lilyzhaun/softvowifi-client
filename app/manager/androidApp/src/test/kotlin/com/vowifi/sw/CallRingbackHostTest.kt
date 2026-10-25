@@ -30,8 +30,11 @@ class CallRingbackHostTest {
         val manager = RuntimeEnvironment.getApplication().getSystemService(AudioManager::class.java)
         val track = AudioTrack(AudioManager.STREAM_VOICE_CALL, 16_000, AudioFormat.CHANNEL_OUT_MONO,
             AudioFormat.ENCODING_PCM_16BIT, 640, AudioTrack.MODE_STREAM)
+        val policy = AndroidCallAudioPolicy(manager, {}, {})
+        shadowOf(manager).setNextFocusRequestResponse(AudioManager.AUDIOFOCUS_REQUEST_GRANTED)
+        assertTrue(policy.acquire())
         val type = Class.forName("com.vowifi.sw.manager.data.AndroidCallAudioDevices")
-        return type.constructors.single().newInstance(null, track, AndroidCallAudioPolicy(manager, {}, {}),
+        return type.constructors.single().newInstance(null, track, policy,
             { fail("ringback playback failed") }) as AutoCloseable
     }
 
@@ -86,6 +89,28 @@ class CallRingbackHostTest {
         devices.remotePlaybackStarted(byteArrayOf(1, 0))
         shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(2))
         assertEquals(0, RingbackToneShadow.started)
+    }
+
+    @Test fun transientFocusStopsRingbackAndOnlyGainInTheLiveSessionCanResumeIt() {
+        val devices = output()
+        val policy = devices.javaClass.getDeclaredField("policy").let {
+            it.isAccessible = true
+            it.get(devices) as AndroidCallAudioPolicy
+        }
+        try {
+            devices.ringback(true)
+            assertEquals(1, RingbackToneShadow.started)
+            policy.onAudioFocusChange(AudioManager.AUDIOFOCUS_LOSS_TRANSIENT)
+            assertEquals(1, RingbackToneShadow.released)
+            shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(2))
+            assertEquals(1, RingbackToneShadow.started)
+            policy.onAudioFocusChange(AudioManager.AUDIOFOCUS_GAIN)
+            assertEquals(2, RingbackToneShadow.started)
+            devices.close()
+            policy.onAudioFocusChange(AudioManager.AUDIOFOCUS_GAIN)
+            assertEquals(2, RingbackToneShadow.started)
+            assertEquals(2, RingbackToneShadow.released)
+        } finally { devices.close() }
     }
 }
 

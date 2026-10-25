@@ -2,6 +2,7 @@ package com.vowifi.sw.manager.ui
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -22,6 +23,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.graphics.RectangleShape
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.semantics.ProgressBarRangeInfo
 import androidx.compose.ui.semantics.progressBarRangeInfo
@@ -146,6 +149,7 @@ internal fun AppSubpageScene(
     val latestBack = rememberUpdatedState(onBack)
     val backController = remember(route) { SubpageBackController { latestBack.value() } }
     val pageTitle = remember(route) { mutableStateOf<String?>(null) }
+    val aboutHeader = if (route == AppRoute.SettingsAbout) rememberAboutHeaderState() else null
     val backdrop = if (communication) rememberCommunicationBackdrop()
         else if (chromeSpec.effectiveBlur) rememberSoftVoWiFiBackdrop(chromeSpec) else null
     val currentTitle = titleOverride ?: pageTitle.value ?: route.topBarTitle
@@ -157,18 +161,25 @@ internal fun AppSubpageScene(
     Scaffold(
         modifier = Modifier.fillMaxSize().background(canvas.copy(alpha = 1f)),
         topBar = {
+            Column {
             if (communication) CompositionLocalProvider(LocalCommunicationBackdrop provides backdrop) {
                 CommunicationNavigation(title, leading = {
                     CommunicationIconAction(MiuixIcons.Back, "返回", onBack, enabled = routeActive)
                 }, trailing = { pageControl.value?.let { CommunicationIconAction(it.icon, it.label, it.action, enabled = routeActive) } },
                     subtitle = pageControl.value?.subtitle)
             } else {
+            Box {
+            if (aboutHeader != null) Box(
+                Modifier.matchParentSize().graphicsLayer { alpha = aboutHeader.progress }
+                    .then(chromeSurfaceModifier(Modifier, chromeSpec, backdrop, RectangleShape, blendAlpha = contract.topBarBlendAlpha))
+                    .background(rootTopBarContainerColor(chromeSurfaceFallbackRenderer(chromeSpec.effectiveBlur, backdrop != null), colors.canvas)),
+            )
             SmallTopAppBar(
-                modifier = chromeSurfaceModifier(Modifier, chromeSpec, backdrop, RectangleShape, blendAlpha = contract.topBarBlendAlpha),
+                modifier = if (aboutHeader != null) Modifier else chromeSurfaceModifier(Modifier, chromeSpec, backdrop, RectangleShape, blendAlpha = contract.topBarBlendAlpha),
                 title = if (expandedPeer) "" else title,
-                color = rootTopBarContainerColor(
+                color = if (aboutHeader != null) Color.Transparent else rootTopBarContainerColor(
                     chromeSurfaceFallbackRenderer(chromeSpec.effectiveBlur, backdrop != null), colors.canvas),
-                titleColor = colors.textPrimary,
+                titleColor = colors.textPrimary.copy(alpha = aboutHeader?.progress ?: 1f),
                 navigationIcon = {
                     if (communication) CompositionLocalProvider(LocalCommunicationBackdrop provides backdrop) {
                         CommunicationIconAction(MiuixIcons.Back, "返回", onBack, enabled = routeActive)
@@ -190,6 +201,9 @@ internal fun AppSubpageScene(
                 },
             )
             }
+            }
+            SubpageOngoingCallBar(routeActive, canvas)
+            }
         },
         containerColor = canvas.copy(alpha = 1f),
     ) { padding ->
@@ -205,6 +219,7 @@ internal fun AppSubpageScene(
                 LocalSubpageTopBarAction provides topBarAction.takeIf { !communication },
                 LocalSubpageBackController provides backController.takeIf { !communication },
                 LocalSubpageTitle provides pageTitle.takeIf { !communication },
+                LocalAboutHeaderState provides aboutHeader,
             ) {
                 content()
             }

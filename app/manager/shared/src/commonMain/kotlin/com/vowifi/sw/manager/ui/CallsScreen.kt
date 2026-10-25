@@ -76,37 +76,50 @@ fun CallsScreen(
     onEntriesObscuredChange: (Boolean) -> Unit = {},
     historySnapshot: CallHistoryViewSnapshot? = null,
     onDeleteRecordsAndAwait: (suspend (CallHistoryState.Ready, Set<CallHistoryRecordId>) -> CallHistoryDeleteResult)? = null,
+    onRetryHistory: (() -> Unit)? = null,
+    showUnregisteredNotice: Boolean = false,
+    onGoHome: (() -> Unit)? = null,
 ) = PhoneStyle {
     val routeActive = LocalAppRouteActive.current
     val confirmedHistory = historySnapshot?.view ?: history
+    var lastHistory by remember { mutableStateOf<CallHistoryState?>(null) }
+    var lastChange by remember { mutableStateOf(historySnapshot?.change) }
+    SideEffect {
+        if (confirmedHistory is CallHistoryState.Ready || confirmedHistory == CallHistoryState.Empty) {
+            lastHistory = confirmedHistory; lastChange = historySnapshot?.change
+        }
+    }
+    val loading = rememberManagerLoadingState(confirmedHistory == CallHistoryState.Loading, lastHistory != null)
+    val displayedHistory = if (confirmedHistory == CallHistoryState.Loading) lastHistory ?: confirmedHistory else confirmedHistory
+    val displayedChange = if (confirmedHistory == CallHistoryState.Loading && lastHistory != null) lastChange else historySnapshot?.change
+    val historyEnabled = confirmedHistory != CallHistoryState.Loading && !loading.showLoading && !loading.hidden
     val ready = state as? CallUiState.Ready
     val active = ready != null && ready.phase != CallPhase.Idle
     var entriesObscured by remember { mutableStateOf(false) }
-    val liveCallLabel = ready?.takeIf { active }?.let { "${callSessionStatusTitle(it)} · 返回通话" }
-    var retainedCallLabel by remember { mutableStateOf(liveCallLabel.orEmpty()) }
+    var retainedCall by remember { mutableStateOf(ready?.takeIf { active }) }
     val availability = if (state is CallUiState.Ready) null else callStatePanelSpec(state)?.let {
         it to (canRefreshCallState(state) && onRefresh != null)
     }
     var retainedAvailability by remember { mutableStateOf(availability) }
     SideEffect {
-        if (liveCallLabel != null) retainedCallLabel = liveCallLabel
+        if (active) retainedCall = ready
         if (availability != null) retainedAvailability = availability
     }
     val historyOwner = historySnapshot?.owners?.singleOrNull { it.selected }?.owner
-        ?: (confirmedHistory as? CallHistoryState.Ready)?.owner
+        ?: (displayedHistory as? CallHistoryState.Ready)?.owner
     var searching by rememberSaveable { mutableStateOf(false) }
     var query by rememberSaveable { mutableStateOf("") }
     OnConfirmedManagerOwnerChange(historyOwner) { searching = false; query = "" }
     val search = query.filterNot { it.isWhitespace() || it == '-' }
-    val selection = Triple(historyOwner, query, historySnapshot?.change?.scope)
+    val selection = Triple(historyOwner, query, displayedChange?.scope)
     var deletion by remember(selection, routeActive) { mutableStateOf<Set<CallHistoryRecordId>?>(null) }
     LaunchedEffect(confirmedHistory, routeActive) { deletion = null }
     val deletionUi = rememberCallsHistoryDeleteUi(selection, routeActive, onDeleteRecordsAndAwait, onDeleteRecords)
-    val groups = remember(confirmedHistory, search) {
-        (confirmedHistory as? CallHistoryState.Ready)?.let(::callHistoryGroups).orEmpty()
+    val groups = remember(displayedHistory, search) {
+        (displayedHistory as? CallHistoryState.Ready)?.let(::callHistoryGroups).orEmpty()
             .filter { search.isEmpty() || it.peer?.digits()?.contains(search.removePrefix("+")) == true }
     }
-    val rows = rememberCallsHistoryRows(groups, historySnapshot?.change, selection, routeActive,
+    val rows = rememberCallsHistoryRows(groups, displayedChange, selection, routeActive,
         key = { it.handle.value }, ids = { it.ids }, pending = historySnapshot?.deletePending.orEmpty())
     val actions = CallActions(
         onRequestMicrophonePermission,
@@ -122,8 +135,11 @@ fun CallsScreen(
         owner = historyOwner, onEntriesObscuredChange = {
             entriesObscured = it
             onEntriesObscuredChange(it)
-        }, historyChange = historySnapshot?.change) {
-             if (!active) lineContent?.let { item(key = "outgoing-line") { it() } }
+        }, historyChange = displayedChange) {
+              if (!active) lineContent?.let { item(key = "outgoing-line") { it() } }
+            unregisteredCommunicationNotice("calls-unregistered", showUnregisteredNotice && !active &&
+                availability == null && ready?.operationMessage == null && confirmedHistory != CallHistoryState.Loading,
+                "暂无已注册线路，暂时不能拨号", onGoHome)
             if (state is CallUiState.Ready && state.origin == CallOrigin.DESKTOP_FIXTURE) {
                 item(key = "fixture-disclosure") { CallsFixtureDisclosureBand() }
             }
@@ -142,7 +158,9 @@ fun CallsScreen(
                 if (onOpenCall != null) CommunicationEntryVisibility(active && !entriesObscured) { hitEnabled ->
                     Column {
                         currentLineLabel?.let { PhoneText("当前通话 · $it", size = 14, secondary = true) }
-                        OngoingCallAffordance(liveCallLabel ?: retainedCallLabel, hitEnabled = hitEnabled, onClick = onOpenCall)
+                        (ready?.takeIf { active } ?: retainedCall)?.let {
+                            OngoingCallAffordance(it, hitEnabled = hitEnabled, onClick = onOpenCall)
+                        }
                     }
                 } else if (state is CallUiState.Ready && active) {
                     Column {
@@ -165,13 +183,14 @@ fun CallsScreen(
                 }
             }
              if (!active) {
-                   if (search.isNotEmpty() && confirmedHistory is CallHistoryState.Ready && rows.rows.isEmpty()) {
+                    if (historyEnabled && search.isNotEmpty() && displayedHistory is CallHistoryState.Ready && rows.rows.isEmpty()) {
                      item(key = "calls-search-empty") { CommunicationListState(StatePanelSpec(CommunicationSearch,
                          StatePanelTone.NEUTRAL, "没有匹配的通话记录", "试试其他号码，或清空搜索")) }
-                   } else callsHistoryContent(confirmedHistory, onOpenHistory, callbackEnabled, onCallback,
+                    } else callsHistoryContent(displayedHistory, onOpenHistory, callbackEnabled, onCallback,
                       { deletionUi.clearMessage(); deletion = it }, rows = rows,
                        pending = historySnapshot?.deletePending.orEmpty(), deletionUi = deletionUi,
-                       rootCustomActionsBlocked = deletion != null)
+                        rootCustomActionsBlocked = deletion != null, loading = loading, historyEnabled = historyEnabled,
+                        onRetry = onRetryHistory)
              }
     }
     deletion?.takeIf { routeActive }?.let { ids -> (confirmedHistory as? CallHistoryState.Ready)?.let { ready ->

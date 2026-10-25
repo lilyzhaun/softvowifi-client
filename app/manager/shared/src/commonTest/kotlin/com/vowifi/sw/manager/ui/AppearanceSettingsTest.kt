@@ -6,6 +6,28 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class AppearanceSettingsTest {
+    @Test fun liquidGlassRequiresEffectiveBlurButPreservesTheUsersStoredRequest() {
+        val source = InMemoryAppearanceSettingsSource(AppearanceSettings.Default.copy(liquidGlassRequested = true))
+        for (supported in listOf(false, true)) {
+            source.setBlurRequested(false)
+            val settings = source.state.value
+            assertTrue(settings.liquidGlassRequested)
+            assertFalse(effectiveLiquidGlass(settings, supported))
+            assertFalse(appChromeSpec(settings, supported).communicationLiquidGlass)
+            val row = appearanceSpecToTogglePreference(appearancePreferenceSpecs(settings, supported)
+                .single { it.key == AppearancePreferenceKey.LIQUID_GLASS_ENABLED })
+            assertTrue(row.checked)
+            assertFalse(row.actionable)
+            assertTrue(row.visibleSummary.contains("需先开启模糊效果"))
+        }
+        source.setBlurRequested(true)
+        assertTrue(source.state.value.liquidGlassRequested)
+        assertTrue(effectiveLiquidGlass(source.state.value, true))
+        assertTrue(appChromeSpec(source.state.value, true).communicationLiquidGlass)
+        assertEquals("通信操作使用液态折射", appearanceLiquidGlassSummary(
+            source.state.value.copy(floatingNavigation = false), true).text)
+    }
+
     @Test
     fun predictiveBackDefaultsOnWithoutWritingButRetainsAnExplicitPersistedOptOut() {
         val values = mutableMapOf<String, Boolean>()

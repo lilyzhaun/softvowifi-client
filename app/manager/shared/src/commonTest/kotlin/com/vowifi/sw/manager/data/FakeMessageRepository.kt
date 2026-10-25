@@ -31,6 +31,26 @@ internal class FakeMessageRepository : MessageRepository {
     private var lastOwnerValue: SimOwnerId? = null
     private var probe: ByteArray? = null
 
+    override suspend fun changeConversation(identity: StoredMessageConversation, action: MessageConversationAction): Boolean {
+        checkOpen()
+        val rows = messages.values.filter { it.ownerId == identity.owner && it.conversationKey == identity.key }
+        if (rows.isEmpty()) return false
+        when (action) {
+            MessageConversationAction.MARK_UNREAD -> if (rows.none { it.incoming && !it.isRead }) {
+                val anchor = rows.maxWith(compareBy<FakeStoredMessage> { it.messageAtMs }.thenBy { it.id }).id
+                rows.forEach { messages[it.id] = it.copy(manualUnread = it.id == anchor) }
+            }
+            MessageConversationAction.MARK_READ -> {
+                val now = kotlin.time.Clock.System.now().toEpochMilliseconds()
+                rows.forEach { messages[it.id] = it.copy(manualUnread = false,
+                    isRead = if (it.incoming) true else it.isRead,
+                    readAtMs = if (it.incoming && !it.isRead) now else it.readAtMs) }
+            }
+            MessageConversationAction.DELETE -> rows.forEach { messages.remove(it.id) }
+        }
+        return true
+    }
+
     override suspend fun listConversations(): List<StoredMessageConversation> = messages.values.map {
         StoredMessageConversation(it.ownerId, it.conversationKey)
     }.distinct()
@@ -161,15 +181,17 @@ internal class FakeMessageRepository : MessageRepository {
         }
         if (request.observedMessageIds.isEmpty()) return IncomingReadUpdate.of(emptyList())
         val updated = ArrayList<String>()
+        var clearedManual = false
         request.observedMessageIds.forEach { id ->
             val current = messages[id] ?: return@forEach
             if (current.ownerId != request.ownerId) return@forEach
             if (current.conversationKey != request.conversationKey) return@forEach
+            if (current.manualUnread) { messages[id] = current.copy(manualUnread = false); clearedManual = true }
             if (!current.incoming || current.isRead) return@forEach
-            messages[id] = current.copy(isRead = true, readAtMs = nowMs)
+            messages[id] = current.copy(isRead = true, readAtMs = nowMs, manualUnread = false)
             updated += id
         }
-        return IncomingReadUpdate.of(updated)
+        return IncomingReadUpdate.of(updated, clearedManual)
     }
 
     override suspend fun markFailed(ownerId: SimOwnerId, messageId: String, nowMs: Long) {
@@ -230,13 +252,15 @@ internal class FakeMessageRepository : MessageRepository {
             .map(FakeStoredMessage::toRecord)
     }
 
-    override suspend fun countUnreadIncoming(): Long {
+    override suspend fun countUnreadIncoming(): Long = countUnreadByOwner().values.sum()
+
+    override suspend fun countUnreadByOwner(): Map<SimOwnerId, Long> {
         checkOpen()
         if (failNextUnreadCount) {
             failNextUnreadCount = false
             throw MessageStorageException()
         }
-        return messages.values.count { it.incoming && !it.isRead }.toLong()
+        return messages.values.filter { it.countsAsUnread }.groupingBy { it.ownerId }.eachCount().mapValues { it.value.toLong() }
     }
 
     override suspend fun lastOwner(): SimOwnerId? {

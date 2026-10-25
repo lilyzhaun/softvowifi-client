@@ -8,6 +8,8 @@ import com.vowifi.sw.manager.model.*
 
 object CallOngoingNotification {
     const val ID = 101
+    // Never reuse the FGS key: its asynchronous REMOVE may arrive after this plain post.
+    const val WITHOUT_MICROPHONE_ID = 102
     const val CHANNEL = "ongoing_calls"
     const val END_ACTION = "com.vowifi.sw.END_CURRENT_CALL"
     /**

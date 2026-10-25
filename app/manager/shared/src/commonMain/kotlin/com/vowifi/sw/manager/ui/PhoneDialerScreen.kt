@@ -26,8 +26,21 @@ import com.vowifi.sw.manager.data.CallProtocolCodec
 import androidx.compose.ui.platform.LocalDensity
 import top.yukonga.miuix.kmp.blur.layerBackdrop
 
-internal fun acceptPhoneDraft(previous: String, next: String): String =
-    if (next.length <= 21 && next.matches(Regex("\\+?[0-9*#]{0,20}"))) next else previous
+private fun phoneDraftSeparator(char: Char): Boolean = char in " \u00a0-()./"
+
+private fun normalizedPhoneDraft(text: String): String? = text.filterNot(::phoneDraftSeparator)
+    .takeIf { it.matches(Regex("\\+?[0-9*#]{0,20}")) }
+
+internal fun acceptPhoneDraft(previous: String, next: String): String = normalizedPhoneDraft(next) ?: previous
+
+/** Map both selection endpoints through exactly the characters removed by normalization. */
+internal fun normalizePhoneEditor(value: TextFieldValue): TextFieldValue? {
+    val text = normalizedPhoneDraft(value.text) ?: return null
+    fun offset(index: Int): Int = value.text.take(index).count { !phoneDraftSeparator(it) }
+    fun range(range: TextRange) = TextRange(offset(range.start), offset(range.end))
+    return value.copy(text = text, selection = range(value.selection),
+        composition = value.composition?.let(::range)?.takeUnless { it.collapsed })
+}
 
 internal val LocalPhoneBack = staticCompositionLocalOf<() -> Unit> { error("Phone route navigation is not provided") }
 
@@ -45,6 +58,7 @@ internal val LocalPhoneBack = staticCompositionLocalOf<() -> Unit> { error("Phon
         CompositionLocalProvider(LocalCommunicationBackdrop provides backdrop) {
         CommunicationNavigation("拨号", leading = { PhoneNavigation("返回", onBack, CallPhoneIcons.Back, false) },
             trailing = {})
+        SubpageOngoingCallBar(canvas = palette.canvas)
         }
         BoxWithConstraints(Modifier.weight(1f).fillMaxWidth().padding(horizontal = 16.dp)) {
             val contentHeight = maxHeight
@@ -64,10 +78,16 @@ internal val LocalPhoneBack = staticCompositionLocalOf<() -> Unit> { error("Phon
     val active = LocalAppRouteActive.current
     val editingEnabled = active && !busy
     var editor by remember { mutableStateOf(TextFieldValue(number, TextRange(number.length))) }
+    var invalidInput by remember { mutableStateOf(false) }
     val feedbackNumber = remember(message) { number }
-    LaunchedEffect(number) { if (editor.text != number) editor = TextFieldValue(number, TextRange(number.length)) }
+    LaunchedEffect(number) { if (editor.text != number) {
+        editor = TextFieldValue(number, TextRange(number.length)); invalidInput = false
+    } }
     fun update(value: TextFieldValue) {
-        if (editingEnabled && acceptPhoneDraft(number, value.text) == value.text) { editor = value; onNumber(value.text) }
+        if (!editingEnabled) return
+        val accepted = normalizePhoneEditor(value)
+        invalidInput = accepted == null
+        if (accepted != null) { editor = accepted; onNumber(accepted.text) }
     }
     fun insert(value: String) {
         val start = editor.selection.min
@@ -109,7 +129,7 @@ internal val LocalPhoneBack = staticCompositionLocalOf<() -> Unit> { error("Phon
                 message?.let { PhoneText(it, secondary = true) }
             }
             Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                if (number.isNotEmpty() && !CallProtocolCodec.isValidDialNumber(number)) PhoneText("请输入电话号码，暂不支持 USSD", secondary = true, size = 14)
+                if (invalidInput || number.isNotEmpty() && !CallProtocolCodec.isValidDialNumber(number)) PhoneText("请输入电话号码，暂不支持 USSD", secondary = true, size = 14)
                 message?.takeIf { !enabled || feedbackNumber == number }?.let { PhoneText(it, secondary = true) }
             }
         }

@@ -92,6 +92,7 @@ internal class CallHistoryRecorder(
 
     fun enqueue(effect: CallHistoryEffect) = store.write(effect)
     fun refreshOwner(owner: SimOwnerId) = store.select(owner)
+    fun refreshHistory() = store.refresh()
     fun selectOutgoingOwner(owner: SimOwnerId) = store.select(owner, outgoingSelection = true)
     fun clear(expected: CallHistoryState.Ready) {
         if (canClear()) store.clear(expected)

@@ -43,6 +43,7 @@ class CallSourceAggregate(
 
     init { refresh() }
     override fun refresh() { launch { updateRoster(refreshChildren = true) } }
+    override fun refreshHistory() = recorder.refreshHistory()
     internal fun refreshRoster() { launch { updateRoster(refreshChildren = false) } }
     private fun launch(block: suspend () -> Unit) { if (!closed) scope.launch { block() } }
 

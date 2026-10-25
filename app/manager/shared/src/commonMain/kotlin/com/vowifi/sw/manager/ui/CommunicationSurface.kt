@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyListScope
@@ -108,6 +109,15 @@ private fun CommunicationUnreadBadge(badge: MessageUnreadBadge?, description: St
 }
 
 internal data class CommunicationNoticeSpec(val title: String, val summary: String? = null)
+
+internal fun LazyListScope.unregisteredCommunicationNotice(key: String, visible: Boolean, title: String, onGoHome: (() -> Unit)?) {
+    communicationNoticeItem(key, if (visible && onGoHome != null) CommunicationNoticeSpec(title) else null) { notice, interactive ->
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.weight(1f)) { CommunicationNotice(notice.title) }
+            CommunicationTextAction("前往首页", { if (interactive) onGoHome?.invoke() }, enabled = interactive)
+        }
+    }
+}
 
 /** Keep the lazy owner even at null; custom content preserves existing notice/action styling. */
 internal fun LazyListScope.communicationNoticeItem(key: String, notice: CommunicationNoticeSpec?, onRetry: (() -> Unit)? = null,

@@ -91,7 +91,7 @@ class CommunicationListHierarchyTest {
             settle(scene)
             assertTrue(has(scene, "消息读取失败"))
             assertFalse(has(scene, "暂无会话"), "读取失败不能声称没有数据")
-            val retry = nodes(scene).single { it.config.getOrNull(SemanticsProperties.Text)?.any { t -> t.text == "刷新短信历史" } == true && it.config.contains(SemanticsActions.OnClick) }
+            val retry = nodes(scene).single { it.config.getOrNull(SemanticsProperties.Text)?.any { t -> t.text == "重试" } == true && it.config.contains(SemanticsActions.OnClick) }
             requireNotNull(retry.config[SemanticsActions.OnClick].action).invoke()
             assertEquals(1, retries)
             assertFalse(nodes(scene).any { it.config.contains(SemanticsProperties.ProgressBarRangeInfo) })
@@ -114,19 +114,21 @@ class CommunicationListHierarchyTest {
     }
 
     @Test fun inboxLoadingIsRealProgressAndAppendFailurePreservesExistingRows() = smsOnEdt {
+        val scheduler = kotlinx.coroutines.test.TestCoroutineScheduler()
         var state by mutableStateOf(inbox(emptyList(), loading = true))
         var retries = 0
-        val scene = ImageComposeScene(width = 390, height = 844) {
+        val scene = ImageComposeScene(width = 390, height = 844, coroutineContext = kotlinx.coroutines.test.UnconfinedTestDispatcher(scheduler)) {
             SoftVoWiFiTheme(false) { AppShell(AppNavigationState.initial(AppRoute.Messages), {},
                 appearanceSettings = AppearanceSettings.Default, blurSupported = false) { route ->
                 if (route == AppRoute.Messages) MessagesScreen(state, {}, {}, onLoadMore = { retries++ })
             } }
         }
+        fun loadingFrame() { repeat(24) { scheduler.advanceTimeBy(50); scheduler.runCurrent(); time += 50_000_000L; scene.render(time).close(); scheduler.runCurrent() } }
         try {
-            settle(scene)
+            loadingFrame()
             assertTrue(nodes(scene).any { it.config.contains(SemanticsProperties.ProgressBarRangeInfo) }, "真读取状态需要进度语义")
             assertFalse(has(scene, "暂无会话"))
-            state = inbox(listOf(summary()), failed = true); settle(scene)
+            state = inbox(listOf(summary()), failed = true); loadingFrame()
             assertTrue(has(scene, "合成列表预览"))
             assertFalse(has(scene, "暂无会话"))
             assertFalse(nodes(scene).any { it.config.contains(SemanticsProperties.ProgressBarRangeInfo) })
@@ -135,7 +137,7 @@ class CommunicationListHierarchyTest {
         } finally { scene.close() }
     }
 
-    @Test fun loadedEmptyCallHistoryHasAnEmptyStateAndLoadingIsNotTheSamePlaceholder() = smsOnEdt {
+    @Test fun loadedEmptyCallHistoryRemainsReadOnlyWhileTheNextSelectionLoads() = smsOnEdt {
         var history: CallHistoryState by mutableStateOf(CallHistoryState.Ready(emptyList(), owner))
         val scene = ImageComposeScene(width = 390, height = 844) {
             SoftVoWiFiTheme(false) { AppShell(AppNavigationState.initial(AppRoute.Calls), {},
@@ -150,9 +152,9 @@ class CommunicationListHierarchyTest {
             capture(scene, "calls-empty")
             assertFalse(nodes(scene).any { it.config.contains(SemanticsProperties.ProgressBarRangeInfo) })
             history = CallHistoryState.Loading; settle(scene)
-            assertTrue(has(scene, "正在读取通话记录"))
-            assertTrue(nodes(scene).any { it.config.contains(SemanticsProperties.ProgressBarRangeInfo) })
-            assertFalse(has(scene, "暂无通话记录"))
+            assertFalse(has(scene, "正在读取通话记录"), "B1：有已确认结果的切线不闪加载面板")
+            assertFalse(nodes(scene).any { it.config.contains(SemanticsProperties.ProgressBarRangeInfo) })
+            assertTrue(has(scene, "暂无通话记录"), "只保留既有空态绘制，不能声称新线路已读取完成")
             history = CallHistoryState.Failure("合成存储错误"); settle(scene)
             assertTrue(has(scene, "无法读取通话记录"))
             assertFalse(nodes(scene).any { it.config.contains(SemanticsProperties.ProgressBarRangeInfo) })

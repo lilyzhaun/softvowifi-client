@@ -53,6 +53,11 @@ internal class CallDualBackendFixture {
     private fun peer(owner: String) = if (owner == ICCID_A) first else second
     fun ready() = source.state.value as? CallUiState.Ready
     suspend fun connected() = await { source.lines.value.choices.count { it.syncReady } == 2 }
+    // Audio starts before the versioned IN_CALL clock query completes; do not advance the peer early.
+    suspend fun connectedAudioSnapshot() = await {
+        val current = ready()
+        starts.size == 1 && current?.phase == CallPhase.InCall && current.clock != null
+    }
     fun close() { lifecycle.close(); source.close(); first.close(); second.close(); repository.close() }
     companion object {
         const val ICCID_A = "8900000000000000001"
@@ -67,6 +72,7 @@ internal class CallDualBackendFixture {
 internal class CallDualSocketPeer {
     val sockets = CopyOnWriteArrayList<CallTestSocket>()
     val commands = CopyOnWriteArrayList<String>()
+    @Volatile var onSnapshotReply: ((() -> Unit) -> Unit)? = null
     val dialRequest = CompletableDeferred<JsonObject>()
     @Volatile var snapshotError: Int? = null
     @Volatile var stage = "IDLE"
@@ -82,11 +88,17 @@ internal class CallDualSocketPeer {
             "getCallSnapshot" -> if (snapshotError != null) socket.send(buildJsonObject {
                 put("id", id)
                 put("error", buildJsonObject { put("code", snapshotError); put("message", "synthetic snapshot failure") })
-            }) else socket.respond(id, buildJsonObject {
-                put("epoch", "host-epoch"); put("revision", revision); put("stage", stage)
-                put("confirmedElapsedMs", 0); put("dtmfSupported", stage == "IN_CALL")
-                if (stage != "IDLE") { put("callId", token); put("direction", direction) }
-            })
+            }) else {
+                val reply = {
+                    socket.respond(id, buildJsonObject {
+                        put("epoch", "host-epoch"); put("revision", revision); put("stage", stage)
+                        put("confirmedElapsedMs", 0); put("dtmfSupported", stage == "IN_CALL")
+                        if (stage != "IDLE") { put("callId", token); put("direction", direction) }
+                    })
+                }
+                val gate = onSnapshotReply
+                if (gate == null) reply() else gate(reply)
+            }
             "dial" -> {
                 dialRequest.complete(request.getValue("params").jsonObject)
                 commands += method; stage = "IN_CALL"; direction = "OUTGOING"; revision++

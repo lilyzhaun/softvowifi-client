@@ -197,7 +197,7 @@ class WarmRootRouteTest {
                 // 返回条只取头几个自然字形；所有 patch 至多 72×64，不取整行/正文。
                 return Rect(floor(b.left), floor(b.top), minOf(ceil(b.right), floor(b.left) + 72), ceil(b.bottom))
             }
-            val regions = listOf("首页", "设置", "返回当前通话").map(::naturalRegion)
+            val regions = listOf("首页", "设置", " · 返回通话").map(::naturalRegion)
             val root = regions.map(d::overlayPatch)
             var placedBack: SemanticsNode? = null
             fun sample(entering: Boolean): Pair<Float, List<S3SmallPatch>> {
@@ -221,6 +221,17 @@ class WarmRootRouteTest {
             val push = List(73) { index -> if (index != 0) d.overlayFrame(); sample(true) }
             d.assertVisible("关于")
             val covered = regions.map(d::overlayPatch)
+            // 新的真实信息卡会覆盖底部区域；移动时须比较子页自身坐标，而非把终态同屏x当成同一内容。
+            // 只采原三个文字高度带，每块84×至多64，保持真实像素与同一时刻，不造空白子页或整图。
+            val referenceClock = d.overlayClock()
+            val pageBands = regions.map { region ->
+                val strips = List(5) { part -> d.overlayPatch(Rect(part * 84f, region.top, (part + 1) * 84f, region.bottom)) }
+                S3SmallPatch(420, strips.first().height, IntArray(420 * strips.first().height) { i ->
+                    val x = i % 420
+                    strips[x / 84].pixels[(i / 420) * 84 + x % 84]
+                })
+            }
+            assertEquals(referenceClock, d.overlayClock(), "空间参照采集不能推进动画/业务时钟")
             d.overlayBackStart(); d.overlayFrame(0)
             val pop = List(73) { index -> if (index != 0) d.overlayFrame(); sample(false) }
             d.assertSelected(3)
@@ -242,10 +253,14 @@ class WarmRootRouteTest {
                                 uncovered++
                                 assertTrue(s3RgbDistance(patches[r].pixels[i], base.pixels[i]) <= 8,
                                     "S5：边界未到时根字形须原位保留，不能先卸载/淡出/平移；$phase frame=$frame edge=$edge region=${regions[r]}")
-                            } else if (x > edge + 2) {
-                                occluded++
-                                assertTrue(s3RgbDistance(patches[r].pixels[i], end.pixels[i]) <= 8,
-                                    "S5：真正子页边界经过后须遮住根字形，不能把底栏/返回条画在子页之上；$phase frame=$frame edge=$edge")
+                             } else if (x > edge + 2) {
+                                 occluded++
+                                 assertEquals(edge.toInt().toFloat(), edge, "前提：真实IntOffset边界必须为整像素，不猜测亚像素插值")
+                                 val localX = floor(x - edge).toInt()
+                                 assertTrue(localX in 0 until 420)
+                                 val expected = pageBands[r].pixels[(i / base.width) * 420 + localX]
+                                 assertTrue(s3RgbDistance(patches[r].pixels[i], expected) <= 8,
+                                     "S5：真正子页边界经过后须遮住根字形，不能把底栏/返回条画在子页之上；$phase frame=$frame edge=$edge")
                             }
                         }
                     }
@@ -253,6 +268,7 @@ class WarmRootRouteTest {
                 assertTrue(uncovered > 0 && occluded > 0, "前提：必须实际观测边界两侧，不能只比终态")
                 assertTrue(samples.any { (edge, _) -> regions.any { edge > it.left + 2 && edge < it.right - 2 } },
                     "前提：真实子页边界须穿过至少一个自然小字形区域，不能拿整块消失冒充渐次遮挡")
+                println("S5_ABOUT_BOUNDARY|floating=$floating|phase=$phase|uncovered=$uncovered|occluded=$occluded|samples=${samples.size}")
             }
             assertTrue(push.first().first > regions.first().right + 2, "前提：首帧左侧根字形尚未被真实子页遮盖")
             assertTrue(push.last().first < 1f && pop.last().first >= 419f, "前提：实际进入/回退均已到终态")
@@ -274,24 +290,47 @@ class WarmRootRouteTest {
             val stale = d.nodes().single { it.config.getOrNull(SemanticsProperties.Selected) == true &&
                 it.config.contains(SemanticsActions.OnClick) }.config[SemanticsActions.OnClick].action!!
             val ongoing = d.nodes().single { it.config.contains(SemanticsActions.OnClick) &&
-                it.config.getOrNull(SemanticsProperties.ContentDescription)?.contains("返回当前通话") == true }
-            val oldPoints = listOf(home.boundsInRoot.center, ongoing.boundsInRoot.center)
+                it.config.getOrNull(SemanticsProperties.TestTag) == "ongoing-call-action" }
+            assertTrue(ongoing.config[SemanticsProperties.ContentDescription].single().contains("通话中"))
+            val staleCall = ongoing.config[SemanticsActions.OnClick].action!!
+            val oldTargets = listOf(home.boundsInRoot, ongoing.boundsInRoot)
             fun assertRootActionsWithdrawn() {
                 assertTrue(d.nodes().none { n -> n.config.contains(SemanticsActions.OnClick) &&
-                    (n.config.getOrNull(SemanticsProperties.ContentDescription)?.contains("返回当前通话") == true ||
+                    ((n.config.getOrNull(SemanticsProperties.TestTag) == "ongoing-call-action" &&
+                        (n.id == ongoing.id || n.boundsInRoot.contains(ongoing.boundsInRoot.center))) ||
                         n.config.getOrNull(SemanticsProperties.Text)?.any { it.text in listOf("首页", "通话", "短信", "设置") } == true) },
-                    "覆盖首帧起撤根动作语义，但呈现是否保留由另一测试的真实像素判定")
+                    "覆盖首帧起撤原根条/底栏动作；新的子页顶部条不属于被遮挡根层")
             }
             d.enqueue(AppRoute.SettingsAbout); d.overlayFrame(0)
             assertRootActionsWithdrawn()
             repeat(73) { d.overlayFrame() }
             d.assertVisible("关于")
-            oldPoints.forEach { p ->
+            val subpageCall = d.nodes().single { it.config.contains(SemanticsActions.OnClick) &&
+                it.config.getOrNull(SemanticsProperties.TestTag) == "ongoing-call-action" }
+            assertTrue(subpageCall.id != ongoing.id && subpageCall.boundsInRoot.bottom < 200f,
+                "新合同：About自己的顶栏下通话条可用，原根条仍遮挡/撤权")
+            staleCall(); d.overlayFrame(0)
+            assertEquals(0, d.ongoingOpens, "新的子页条不能复活旧根条的回调权限")
+            oldTargets.forEach { target ->
+                // 新增只读文字可以画到旧中心，但不能借子控件吞事件；只在原根目标内部找真正9×9空白。
+                val xs = listOf(target.center.x, target.left + 6, target.right - 6,
+                    (target.left + target.center.x) / 2, (target.right + target.center.x) / 2)
+                val ys = listOf(target.center.y, target.top + 6, target.bottom - 6,
+                    (target.top + target.center.y) / 2, (target.bottom + target.center.y) / 2)
+                val p = assertNotNull(xs.flatMap { x -> ys.map { y -> Offset(x, y) } }.firstOrNull { candidate ->
+                    val region = Rect(floor(candidate.x) - 4, floor(candidate.y) - 4, floor(candidate.x) + 5, floor(candidate.y) + 5)
+                    region.left >= target.left && region.right <= target.right && region.top >= target.top && region.bottom <= target.bottom &&
+                        d.nodes().none { n -> n.boundsInRoot.contains(candidate) &&
+                            (n.config.contains(SemanticsActions.OnClick) || n.config.contains(SemanticsActions.SetText)) } &&
+                        d.overlayPatch(region).pixels.distinct().size == 1
+                }, "前提：原根命中区域内必须有真实无动作/无字形的9×9空白，不能换到目标外避开穿透")
+                assertTrue(target.contains(p))
                 assertTrue(d.nodes().none { n -> n.boundsInRoot.contains(p) &&
                     (n.config.contains(SemanticsActions.OnClick) || n.config.contains(SemanticsActions.SetText)) },
                     "前提：原根命中点当前确为真实子页空白，而非借子控件消费防穿透")
                 val blank = d.overlayPatch(Rect(floor(p.x) - 4, floor(p.y) - 4, floor(p.x) + 5, floor(p.y) + 5))
                 assertEquals(1, blank.pixels.distinct().size, "前提：只取 9×9 子页空白，不存整图")
+                println("S5_ABOUT_BLANK|point=$p|oldTarget=$target|colors=${blank.pixels.distinct().size}")
                 d.overlayTap(p); repeat(12) { d.overlayFrame() }
                 d.assertVisible("关于"); assertRootActionsWithdrawn()
                 assertEquals(0, d.ongoingOpens, "真实空白 Press/Up 不能穿透给旧返回条")

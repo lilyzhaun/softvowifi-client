@@ -15,6 +15,9 @@ import com.vowifi.sw.manager.model.SimPresence
 import com.vowifi.sw.manager.ui.navigation.AppRoute
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 class HomeNoticeDestinationTest {
     @Test
@@ -54,7 +57,7 @@ class HomeNoticeDestinationTest {
     }
 
     @Test
-    fun simControlNoticesRouteToSettingsConfiguration() {
+    fun simControlRecoveryStaysOnHomeButOtherControlNoticesKeepTheirDestination() {
         val failurePresentation = homeDashboardPresentation(
             registrationState = RegistrationUiState.Loading,
             engineState = SimControlUiState.Failure("raw sim failure"),
@@ -63,7 +66,7 @@ class HomeNoticeDestinationTest {
             localDateLabel = { "8月25日" },
         )
         val failureNotice: HomeNoticePresentation = failurePresentation.notices.single { it.title == "无法读取 SIM 与引擎状态" }
-        assertEquals(AppRoute.SettingsConfiguration, failureNotice.destination)
+        assertNull(failureNotice.destination, "读取失败应在卡内重试，不能跳配置页")
 
         val permissionPresentation = homeDashboardPresentation(
             registrationState = RegistrationUiState.Loading,
@@ -73,7 +76,8 @@ class HomeNoticeDestinationTest {
             localDateLabel = { "8月25日" },
         )
         val permissionNotice: HomeNoticePresentation = permissionPresentation.notices.single { it.title == "SIM 控制权限不足" }
-        assertEquals(AppRoute.SettingsConfiguration, permissionNotice.destination)
+        assertNull(permissionNotice.destination, "权限不足不能导航或代替用户授权")
+        assertEquals(ROOT_INSTRUCTION, permissionNotice.summary)
 
         val readyMessagePresentation = homeDashboardPresentation(
             registrationState = RegistrationUiState.Loading,
@@ -123,7 +127,8 @@ class HomeNoticeDestinationTest {
             localDateLabel = { "8月25日" },
         )
         val permissionNotice: HomeNoticePresentation = permissionPresentation.notices.single { it.title == "环境检查权限不足" }
-        assertEquals(AppRoute.SettingsDiagnostics, permissionNotice.destination)
+        assertNull(permissionNotice.destination, "环境检查权限不足只在首页说明授权步骤并刷新")
+        assertEquals(ROOT_INSTRUCTION, permissionNotice.summary)
 
         val unavailablePresentation = homeDashboardPresentation(
             registrationState = RegistrationUiState.Loading,
@@ -166,7 +171,33 @@ class HomeNoticeDestinationTest {
         assertEquals(AppRoute.SettingsDiagnostics, failNotice.destination)
     }
 
+    @Test fun provisionableSimKeepsItsRealRowActionWithoutARepeatedNotice() {
+        val result = homeDashboardPresentation(RegistrationUiState.Empty,
+            SimControlUiState.Ready(listOf(unconfigured(0, true), unconfigured(1, true))),
+            EnvironmentDiagnosticsUiState.Ready(com.vowifi.sw.manager.model.DiagnosticCheckStatus.PASS, emptyList()), NOW_MS)
+        assertEquals(2, result.actions.count { it.action.id == HomeActionId.PROVISION && it.action.enabled })
+        assertTrue(result.notices.isEmpty(), "已有可用创建配置操作，不再重复未配置告警")
+        assertEquals("需要创建 SIM 配置", result.hero.title)
+    }
+
+    @Test fun onlyTheSimWithoutAutomaticProvisioningGetsItsOwnConfigurationNotice() {
+        val result = homeDashboardPresentation(RegistrationUiState.Empty,
+            SimControlUiState.Ready(listOf(unconfigured(0, true), unconfigured(1, false))),
+            EnvironmentDiagnosticsUiState.Loading, NOW_MS)
+        val notice = result.notices.single()
+        assertEquals("SIM 2 无法自动创建配置", notice.title)
+        assertEquals(AppRoute.SettingsConfiguration, notice.destination)
+        assertFalse(notice.summary.contains("SIM 1"))
+        assertFalse(result.actions.single { it.action.handle == SimHandle("sim-2") }.action.enabled)
+    }
+
+    private fun unconfigured(slot: Int, canProvision: Boolean) = SimControlInstance(
+        SimHandle("sim-${slot + 1}"), "SIM ${slot + 1}", SimPresence.ACTIVE_UNCONFIGURED, slot,
+        "合成运营商", "001", "01", com.vowifi.sw.manager.model.EngineLifecycle.CONFIG_MISSING,
+        canStart = false, canStop = false, canApply = false, canProvision = canProvision)
+
     private companion object {
         const val NOW_MS = 1_800_000_000_000L
+        const val ROOT_INSTRUCTION = "在 KernelSU Manager 中为 SoftVoWiFi 授予 Root 权限后返回刷新"
     }
 }

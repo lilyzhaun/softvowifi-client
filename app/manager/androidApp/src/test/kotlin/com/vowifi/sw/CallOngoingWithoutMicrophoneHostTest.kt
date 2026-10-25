@@ -21,11 +21,13 @@ class CallOngoingWithoutMicrophoneHostTest {
 
     @Test fun stoppedMicrophoneServiceReplacesCallStyleInsteadOfCrashing() = inCall { fixture, coordinator ->
         coordinator.setMicrophoneRunning(true)
-        assertEquals(CALL_STYLE, ongoing()?.extras?.getString(Notification.EXTRA_TEMPLATE))
+        assertNull(ongoing())
+        assertEquals(CALL_STYLE, shadowOf(manager).getNotification(CallOngoingNotification.ID)?.extras?.getString(Notification.EXTRA_TEMPLATE))
         // The service has stopped foreground while the observed call is still in progress (remote BYE, audio loss).
         CallAdmissionManagerShadow.rejection = ADMISSION_ERROR
         coordinator.setMicrophoneRunning(false)
         val plain = requireNotNull(ongoing())
+        assertNull(shadowOf(manager).getNotification(CallOngoingNotification.ID))
         assertNotEquals(CALL_STYLE, plain.extras.getString(Notification.EXTRA_TEMPLATE))
         assertEquals("挂断", plain.actions.single().title)
         fixture.stage = "IDLE"
@@ -33,6 +35,7 @@ class CallOngoingWithoutMicrophoneHostTest {
         fixture.source.refresh()
         shadowOf(Looper.getMainLooper()).idle()
         assertNull(ongoing())
+        assertNull(shadowOf(manager).getNotification(CallOngoingNotification.ID))
     }
 
     @Test fun inCallObservedWithoutMicrophoneServiceNeverPostsUnbackedCallStyle() = inCall(rejected = true) { _, _ ->
@@ -41,7 +44,23 @@ class CallOngoingWithoutMicrophoneHostTest {
         assertEquals(Notification.CATEGORY_CALL, plain.category)
     }
 
-    private fun ongoing(): Notification? = shadowOf(manager).getNotification(CallOngoingNotification.ID)
+    @Test fun microphoneRecoverySwitchesKeysWithoutDuplicatingNotificationsAndStopClearsBoth() = inCall { _, coordinator ->
+        repeat(3) {
+            assertNotNull(ongoing())
+            assertNull(shadowOf(manager).getNotification(CallOngoingNotification.ID))
+            coordinator.setMicrophoneRunning(true)
+            assertNull(ongoing())
+            assertEquals(CALL_STYLE, shadowOf(manager).getNotification(CallOngoingNotification.ID)?.extras?.getString(Notification.EXTRA_TEMPLATE))
+            coordinator.setMicrophoneRunning(false)
+            assertNotNull(ongoing())
+            assertNull(shadowOf(manager).getNotification(CallOngoingNotification.ID))
+        }
+        coordinator.stop()
+        assertNull(ongoing())
+        assertNull(shadowOf(manager).getNotification(CallOngoingNotification.ID))
+    }
+
+    private fun ongoing(): Notification? = shadowOf(manager).getNotification(CallOngoingNotification.WITHOUT_MICROPHONE_ID)
 
     private fun inCall(rejected: Boolean = false,
                        block: (CallPlatformFixture, com.vowifi.sw.manager.data.AndroidIncomingCallNotificationCoordinator) -> Unit) {

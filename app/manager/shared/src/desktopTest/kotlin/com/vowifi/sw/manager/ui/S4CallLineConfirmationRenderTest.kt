@@ -275,6 +275,8 @@ internal fun s4Nodes(environment: MotionTestEnvironment, unmerged: Boolean = tru
     return environment.scene.semanticsOwners.flatMap { visit(if (unmerged) it.unmergedRootSemanticsNode else it.rootSemanticsNode) }
 }
 internal fun s4Matches(node: SemanticsNode, label: String): Boolean =
+    if (label == "返回通话") node.config.getOrNull(SemanticsProperties.TestTag) == "ongoing-call-action"
+    else
     node.config.getOrNull(SemanticsProperties.Text)?.any { it.text == label } == true ||
         node.config.getOrNull(SemanticsProperties.ContentDescription)?.contains(label) == true || node.children.any { s4Matches(it, label) }
 internal fun s4Actions(environment: MotionTestEnvironment, label: String) = s4Nodes(environment, false).filter {

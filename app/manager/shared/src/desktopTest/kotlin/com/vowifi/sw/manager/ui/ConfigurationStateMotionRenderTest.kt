@@ -264,6 +264,7 @@ class ConfigurationStateMotionRenderTest {
         private val completeWith: ConfigurationApplyOutcome? = null,
         val width: Int = 440,
         val height: Int = 900,
+        callWarning: String? = null,
     ) : AutoCloseable {
         val instance = ConfigurationInstance(
             ConfigurationInstanceId("sim-1"), TITLE, lifecycle,
@@ -286,7 +287,7 @@ class ConfigurationStateMotionRenderTest {
         private val recorder = object : HapticFeedback {
             override fun performHapticFeedback(hapticFeedbackType: HapticFeedbackType) { haptics += hapticFeedbackType }
         }
-        private val model = ConfigurationEditorModel(instance, ConfigurationUiState.Ready(listOf(instance)), true, null)
+        private val model = ConfigurationEditorModel(instance, ConfigurationUiState.Ready(listOf(instance)), true, null, callWarning)
         val environment = MotionTestEnvironment(scheduler, width = width, height = height, durationScale = durationScale) {
             SoftVoWiFiTheme(false) {
                 CompositionLocalProvider(LocalDensity provides Density(1f), LocalHapticFeedback provides recorder,

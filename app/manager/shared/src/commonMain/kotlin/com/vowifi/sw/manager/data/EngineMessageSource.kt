@@ -31,6 +31,15 @@ class EngineMessageSource(
     override val state: StateFlow<MessageUiState> = session.state
     override val unreadSummary = session.unreadSummary.state
     override val historyChoices = session.selection.historyChoices
+    override suspend fun findConversation(owner: SimOwnerId, recipient: String): com.vowifi.sw.manager.ui.navigation.ConversationHandle? {
+        if (session.closed) return null
+        val identity = StoredMessageConversation(owner, PeerNumberNormalizer.normalize(recipient))
+        return try {
+            identity.handle.takeIf { session.repository.history.thread(identity).records.isNotEmpty() }
+        } catch (_: MessageStorageException) {
+            null // A failed optional suggestion must not select a thread or claim that no history exists.
+        }
+    }
     override suspend fun saveOwnerRemark(owner: SimOwnerId, input: String) = session.selection.saveOwnerRemark(owner, input)
     override fun selectHistoryOwner(owner: SimOwnerId) = session.selection.selectHistoryOwner(owner)
     override fun selectConversation(handle: String?) = session.selection.select(handle)

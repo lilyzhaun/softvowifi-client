@@ -21,6 +21,9 @@ internal class CallSocketTestServer {
     @Volatile var primary: CallTestSocket? = null
     @Volatile private var dialId = 0L
     @Volatile private var digitSocket: CallTestSocket? = null
+    @Volatile var holdSnapshot = false
+    @Volatile var heldSnapshot: Pair<CallTestSocket, Long>? = null
+        private set
     val dialPending get() = dialId != 0L
     val primaryClosed get() = primary?.closed ?: false
     fun socket(): LocalSocket = CallTestSocket(::request).also(connections::add)
@@ -29,17 +32,11 @@ internal class CallSocketTestServer {
         val data = Json.parseToJsonElement(line).jsonObject
         val id = data.getValue("id").jsonPrimitive.long
         val method = data.getValue("method").jsonPrimitive.content
+        socket.methods += method
         if (socket === primary && dialPending) return
         when (method) {
             "hello" -> socket.respond(id, buildJsonObject { put("version", 1) })
-            "getCallSnapshot" -> socket.respond(id, buildJsonObject {
-                put("epoch", "host-epoch"); put("revision", revision); put("stage", stage)
-                put("confirmedElapsedMs", if (stage == "IN_CALL") 12000 else 0)
-                put("dtmfSupported", stage == "IN_CALL")
-                if (stage != "IDLE") {
-                    put("callId", "host-call"); put("direction", "OUTGOING"); put("peer", "+12025550123")
-                }
-            })
+            "getCallSnapshot" -> if (holdSnapshot) heldSnapshot = socket to id else respondSnapshot(socket, id)
             "dial" -> {
                 primary = socket; stage = "DIALING"; revision = 1
                 dials.incrementAndGet()
@@ -69,13 +66,31 @@ internal class CallSocketTestServer {
         }
     }
 
-    fun finishCanceled() {
+    private fun respondSnapshot(socket: CallTestSocket, id: Long) = socket.respond(id, buildJsonObject {
+        put("epoch", "host-epoch"); put("revision", revision); put("stage", stage)
+        put("confirmedElapsedMs", if (stage == "IN_CALL") 12000 else 0)
+        put("dtmfSupported", stage == "IN_CALL")
+        if (stage != "IDLE") {
+            put("callId", "host-call"); put("direction", "OUTGOING"); put("peer", "+12025550123")
+        }
+    })
+
+    fun releaseSnapshot() {
+        val (socket, id) = checkNotNull(heldSnapshot)
+        holdSnapshot = false
+        respondSnapshot(socket, id)
+    }
+
+    fun finishCanceledReply() {
         stage = "IDLE"; revision = 3
         primary!!.send(buildJsonObject {
             put("id", dialId)
             put("error", buildJsonObject { put("code", 2005); put("message", "canceled") })
         })
         dialId = 0L
+    }
+
+    fun sendCanceledEvent() {
         primary!!.send(buildJsonObject {
             put("event", "callEnded")
             put("data", buildJsonObject {
@@ -87,6 +102,7 @@ internal class CallSocketTestServer {
 }
 
 internal class CallTestSocket(private val receive: (CallTestSocket, String) -> Unit) : LocalSocket() {
+    val methods = CopyOnWriteArrayList<String>()
     private val incoming = LinkedBlockingQueue<Int>()
     @Volatile var closed = false
     private val input = object : InputStream() {

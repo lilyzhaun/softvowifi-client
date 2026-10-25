@@ -138,7 +138,8 @@ class HomePresentationStateTest {
         ) { "8月25日" }
 
         assertEquals(2, presentation.actions.size)
-        assertEquals("0 / 2 张活动 SIM 已注册", presentation.facts.first().value)
+        assertEquals("0", presentation.metrics.first().value)
+        assertEquals("2 张", presentation.facts.single { it.label == "活动 SIM" }.value)
         assertEquals(SemanticTone.NEUTRAL, presentation.hero.tone)
         assertTrue(presentation.visibleStrings.none { "双卡 VoWiFi" in it || "双卡VoWiFi" in it || "已验证" in it })
     }

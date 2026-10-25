@@ -3,13 +3,14 @@ package com.vowifi.sw.manager.ui
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -25,9 +26,13 @@ import com.vowifi.sw.manager.model.OperationalLogLevel
 import com.vowifi.sw.manager.model.OperationalLogMessage
 import com.vowifi.sw.manager.model.OperationalLogOrigin
 import com.vowifi.sw.manager.model.operationalLogSafeSummary
-import top.yukonga.miuix.kmp.basic.Card
-import top.yukonga.miuix.kmp.basic.CardDefaults
 import top.yukonga.miuix.kmp.basic.Text
+import top.yukonga.miuix.kmp.basic.HorizontalDivider
+
+@Composable
+internal fun LogEntryDivider() {
+    HorizontalDivider(Modifier.padding(horizontal = 16.dp), 1.dp)
+}
 
 @Composable
 fun LogEntryRow(entry: OperationalLogEntry, modifier: Modifier = Modifier) {
@@ -35,16 +40,17 @@ fun LogEntryRow(entry: OperationalLogEntry, modifier: Modifier = Modifier) {
     var detail by remember(entry) { mutableStateOf(false) }
     val interaction = remember { MutableInteractionSource() }
     val actionable = LocalAppRouteActive.current
+    val currentActive = rememberUpdatedState(actionable)
     val feedback = managerActionFeedback(ManagerAction.ContextAction, actionable)
-    if (detail) LogDetailDialog(entry, onDismiss = { detail = false })
-    Card(
+    LaunchedEffect(actionable) { if (!actionable) detail = false }
+    if (detail && actionable) LogDetailDialog(entry, onDismiss = { detail = false })
+    Column(
         modifier = modifier.fillMaxWidth()
-            .managerKeyboardFocusRing(interaction, actionable, cornerRadius = CardDefaults.CornerRadius)
             .managerPressInputGate(actionable)
             .clickable(enabled = actionable, interactionSource = interaction,
-                indication = rememberManagerPressIndication(ManagerPressStyle.Card, actionable), onClickLabel = "查看日志详情",
-                onClick = rememberManagerActionHandler(feedback) { detail = true }),
-        insideMargin = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
+                indication = rememberManagerPressIndication(logsChromeContract().entryPressStyle, actionable), onClickLabel = "查看日志详情",
+                onClick = rememberManagerActionHandler(feedback) { if (currentActive.value) detail = true })
+            .padding(horizontal = 16.dp, vertical = 12.dp),
     ) {
         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(8.dp)) {

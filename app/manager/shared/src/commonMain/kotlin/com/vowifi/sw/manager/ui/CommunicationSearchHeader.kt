@@ -5,6 +5,8 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.Animatable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -28,6 +30,7 @@ import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigationevent.NavigationEventInfo
@@ -39,6 +42,7 @@ import kotlinx.coroutines.flow.collectLatest
 
 @Composable internal fun CommunicationSearchHeader(title: String, placeholder: String, searching: Boolean, query: String,
     onSearch: () -> Unit, onQuery: (String) -> Unit, onClose: () -> Unit, listState: LazyListState? = null,
+    keyboardOptions: KeyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
     onFocusChanged: (Boolean) -> Unit = {}) {
     val active = LocalAppRouteActive.current
     val focus = LocalFocusManager.current
@@ -86,7 +90,10 @@ import kotlinx.coroutines.flow.collectLatest
                         inputReady.value = coordinates.size.width > 0 && coordinates.size.height > 0 &&
                             bounds.width >= coordinates.size.width - .5f && bounds.height >= coordinates.size.height - .5f
                     }.onFocusChanged { publishFocus(editable && it.isFocused) }.clearFocusOnInactiveRouteAndImeHide(),
-                    enabled = editable, singleLine = true, leading = CommunicationSearch)
+                     enabled = editable, singleLine = true, leading = CommunicationSearch,
+                     keyboardOptions = keyboardOptions, keyboardActions = KeyboardActions(onSearch = {
+                         if (editable) { keyboard?.hide(); focus.clearFocus() }
+                     }))
                 CommunicationTextAction("取消", close, enabled = editable)
             }
         }

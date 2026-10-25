@@ -35,8 +35,10 @@ internal fun MessageConversationMenu(
     DisposableEffect(mounted) { onDispose { mounted.value = false } }
     val available by rememberUpdatedState(active && !pending && !removing)
     val rootBlocked by rememberUpdatedState(rootCustomActionsBlocked)
-    val markUnread by rememberUpdatedState<() -> Boolean>({
-        if (!mounted.value || !available) false else { open = false; action(MessageConversationAction.MARK_UNREAD); true }
+    val readAction = if (unreadCount > 0) MessageConversationAction.MARK_READ else MessageConversationAction.MARK_UNREAD
+    val readLabel = if (unreadCount > 0) "标为已读" else "标为未读"
+    val markReadState by rememberUpdatedState<() -> Boolean>({
+        if (!mounted.value || !available) false else { open = false; action(readAction); true }
     })
     val deleteConversation by rememberUpdatedState<() -> Boolean>({
         if (!mounted.value || !available) false else { open = false; action(MessageConversationAction.DELETE); true }
@@ -53,14 +55,14 @@ internal fun MessageConversationMenu(
         ConversationRow(spec, onOpen, Modifier.communicationContextSource(target, open, hideUnderPreview = false), unreadCount,
             onLongClick = { if (active) open = true }, contextOpen = open, enabled = enabled && !pending && !removing,
             statusFailed = statusFailed, accessibilityActions = if (!available || rootBlocked || open || target.presented) emptyList() else listOf(
-                CustomAccessibilityAction("标为未读") { mounted.value && !rootBlocked && !open && !target.presented && markUnread() },
+                CustomAccessibilityAction(readLabel) { mounted.value && !rootBlocked && !open && !target.presented && markReadState() },
                 CustomAccessibilityAction("删除") { mounted.value && !rootBlocked && !open && !target.presented && deleteConversation() }))
         CommunicationContextMenu(open && available, target, { open = false },
             alignEnd = true, stableSurface = true,
             previewContent = { progress -> CompositionLocalProvider(LocalAppRouteActive provides false) {
                 ConversationRow(spec, {}, unreadCount = unreadCount, previewInset = 12.dp * progress)
             } }) { finish ->
-            CommunicationMenuRow("标为未读", MiuixIcons.Messages, { finish { markUnread() } }, enabled = available)
+            CommunicationMenuRow(readLabel, MiuixIcons.Messages, { finish { markReadState() } }, enabled = available)
             CommunicationMenuRow("删除", CommunicationTrash, { finish { deleteConversation() } },
                 enabled = available, destructive = true, divider = false)
         }

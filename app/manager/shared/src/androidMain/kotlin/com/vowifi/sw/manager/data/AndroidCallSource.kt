@@ -66,6 +66,7 @@ class AndroidCallSource(
     override val audioControls = audio.controls
 
     override fun refresh() = delegate.refresh()
+    override fun refreshHistory() = delegate.refreshHistory()
 
     override fun answer() { lifecycle.feedback.value = "请打开来电页面接听" }
 

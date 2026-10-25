@@ -29,6 +29,7 @@ import com.vowifi.sw.manager.ui.testing.MotionTestEnvironment
 import com.vowifi.sw.manager.ui.testing.onMotionTestThread
 import kotlinx.coroutines.test.TestCoroutineScheduler
 import kotlinx.coroutines.test.runTest
+import org.jetbrains.skia.Bitmap
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -137,7 +138,67 @@ class S3HomeEngineCompletionRenderTest {
         }
     } }
 
-    private class HomeControlFixture(scheduler: TestCoroutineScheduler, initial: SimControlInstance = stopped()) : AutoCloseable {
+    @Test fun failureHeightAndInkReverseFromTheirCurrentFrameAndExitWithoutAnEmptyJump() = onMotionTestThread { runTest {
+        HomeControlFixture(testScheduler, durationScale = 1f).use { f ->
+            val baseline = f.factsTop()
+            assertEquals(0L, f.errorInk())
+            f.complete(1, EngineControlAction.Start, EngineControlOutcome.Failed, EngineLifecycle.STOPPED)
+            f.flush() // 同刻提交真实状态并建立动画首帧，再计两帧动画时间；不额外推进时钟。
+            f.frames(2)
+            val early = f.factsTop()
+            f.frames(80)
+            val expanded = f.factsTop()
+            val fullInk = f.errorInk()
+            assertTrue(expanded > baseline + 8f, "真实错误占用高度必须增加")
+            assertTrue(early > baseline + .5f && early < expanded - 1f,
+                "错误出现必须有高度中帧，不能仅淡入但整行瞬跳：$baseline/$early/$expanded")
+            assertTrue(fullInk > 0L, "真实错误字形须已绘制")
+
+            f.instance.value = f.instance.value.copy(operationPending = true)
+            f.flush()
+            f.frames(2)
+            assertFalse(f.hasText(START_FAILURE), "新请求立即撤旧错误语义，不能等退场动画")
+            val exiting = f.factsTop()
+            val exitingInk = f.errorInk()
+            println("HOME_FAILURE_MOTION|baseline=$baseline|early=$early|expanded=$expanded|exiting=$exiting|ink=$exitingInk/$fullInk")
+            assertTrue(exiting > baseline + .5f && exiting < expanded,
+                "退场必须保留收拢中帧：$baseline/$exiting/$expanded")
+            assertTrue(exitingInk > 0L && exitingInk < fullInk, "退场必须保留并淡出原字形，而非立即清空文字")
+
+            f.flush()
+            val beforeReverse = f.factsTop()
+            f.complete(2, EngineControlAction.Start, EngineControlOutcome.Failed, EngineLifecycle.STOPPED)
+            f.flush()
+            val afterReverse = f.factsTop()
+            println("HOME_FAILURE_REVERSE|before=$beforeReverse|after=$afterReverse")
+            assertEquals(beforeReverse, afterReverse, .5f, "同一时刻反向不能重启高度")
+            f.frames(80)
+            assertEquals(expanded, f.factsTop(), .5f)
+            assertTrue(f.hasText(START_FAILURE))
+            f.instance.value = f.instance.value.copy(operationPending = true)
+            f.frames(80)
+            assertEquals(baseline, f.factsTop(), .5f)
+            assertEquals(0L, f.errorInk(), "退场完成后不留错误字形或空高度")
+        }
+    } }
+
+    @Test fun zeroMotionFailureAppearsAndClearsWithNoRetainedHeightOrInk() = onMotionTestThread { runTest {
+        HomeControlFixture(testScheduler).use { f ->
+            val baseline = f.factsTop()
+            f.complete(1, EngineControlAction.Start, EngineControlOutcome.Failed, EngineLifecycle.STOPPED)
+            f.frames(2)
+            assertTrue(f.factsTop() > baseline + 8f)
+            assertTrue(f.errorInk() > 0L)
+            f.instance.value = f.instance.value.copy(operationPending = true)
+            f.frames(2)
+            assertFalse(f.hasText(START_FAILURE))
+            assertEquals(baseline, f.factsTop(), .5f)
+            assertEquals(0L, f.errorInk())
+        }
+    } }
+
+    private class HomeControlFixture(private val scheduler: TestCoroutineScheduler,
+        initial: SimControlInstance = stopped(), durationScale: Float = 0f) : AutoCloseable {
         val instance = mutableStateOf(initial)
         val active = mutableStateOf(true)
         var starts = 0
@@ -146,7 +207,7 @@ class S3HomeEngineCompletionRenderTest {
         private val recorder = object : HapticFeedback {
             override fun performHapticFeedback(hapticFeedbackType: HapticFeedbackType) { haptics += hapticFeedbackType }
         }
-        val environment = MotionTestEnvironment(scheduler, width = 390, height = 1000, durationScale = 0f) {
+        val environment = MotionTestEnvironment(scheduler, width = 390, height = 1000, durationScale = durationScale) {
             SoftVoWiFiTheme(false) {
                 CompositionLocalProvider(LocalDensity provides Density(1f, 1f), LocalHapticFeedback provides recorder,
                     LocalAppRouteActive provides active.value) {
@@ -156,18 +217,36 @@ class S3HomeEngineCompletionRenderTest {
                     LazyColumn {
                         homeDashboardItems(presentation, { starts++; instance.value = instance.value.copy(operationPending = true) },
                             { stops++; instance.value = instance.value.copy(operationPending = true) },
-                            { error("启停测试不得创建配置") }, { error("启停测试不得导航") })
+                            { error("启停测试不得创建配置") }, { error("启停测试不得导航") },
+                            onRefresh = { error("启停测试不得刷新") })
                     }
                 }
             }
         }
         init { frames(3) }
         fun frames(count: Int = 1) { repeat(count) { environment.advanceFrameBy(16) } }
+        fun flush() { repeat(2) { environment.advanceFrameBy(0) } }
         private fun nodes(merged: Boolean = false): List<SemanticsNode> = environment.scene.semanticsOwners.flatMap { owner ->
             fun visit(node: SemanticsNode): List<SemanticsNode> = listOf(node) + node.children.flatMap(::visit)
             visit(if (merged) owner.rootSemanticsNode else owner.unmergedRootSemanticsNode)
         }
         fun hasText(value: String) = nodes().any { it.config.getOrNull(SemanticsProperties.Text)?.any { text -> text.text == value } == true }
+        fun factsTop() = nodes().single {
+            it.config.getOrNull(SemanticsProperties.Text)?.any { text -> text.text == "活动 SIM" } == true
+        }.boundsInRoot.top
+        fun errorInk(): Long = environment.scene.render(scheduler.currentTime * 1_000_000L).use { image ->
+            Bitmap.makeFromImage(image).use { bitmap ->
+                var ink = 0L
+                for (y in 0 until bitmap.height) for (x in 0 until bitmap.width) {
+                    val pixel = bitmap.getColor(x, y)
+                    val red = pixel ushr 16 and 255
+                    val green = pixel ushr 8 and 255
+                    val blue = pixel and 255
+                    if (red > green + 30 && red > blue + 20) ink += red - maxOf(green, blue)
+                }
+                ink
+            }
+        }
         fun button(value: String) = nodes(merged = true).single {
             it.config.contains(SemanticsActions.OnClick) && it.config.getOrNull(SemanticsProperties.Text)?.any { text -> text.text == value } == true
         }

@@ -14,6 +14,8 @@ internal class IncomingCallVibration(context: Context) {
     private val audio = context.getSystemService(AudioManager::class.java)
     private var activeKey: String? = null
 
+    fun isActiveFor(key: String): Boolean = activeKey == key
+
     fun start(key: String) {
         val channel = notifications.getNotificationChannel(AndroidIncomingCallNotificationCoordinator.CHANNEL_ID)
         val interruptionAllowed = when (notifications.currentInterruptionFilter) {

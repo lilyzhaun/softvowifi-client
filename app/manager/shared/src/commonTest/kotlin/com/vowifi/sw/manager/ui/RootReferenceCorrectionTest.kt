@@ -8,8 +8,8 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 import top.yukonga.miuix.kmp.icon.MiuixIcons
-import top.yukonga.miuix.kmp.icon.extended.File
-import top.yukonga.miuix.kmp.icon.extended.Settings
+import top.yukonga.miuix.kmp.icon.extended.Notes
+import top.yukonga.miuix.kmp.icon.extended.Carrier
 
 class RootReferenceCorrectionTest {
     @Test
@@ -52,8 +52,8 @@ class RootReferenceCorrectionTest {
         val rows = settingsCardGroups(settingsCatalog(settingsSnapshot())).flatMap { it.rows }
         val configuration = rows.single { it.id == SettingsRowId.Root.CONFIGURATION }
         val logs = rows.single { it.id == SettingsRowId.Root.OPERATIONAL_LOGS }
-        assertEquals(MiuixIcons.Settings, settingsRowToNavigatePreference(configuration).startIcon)
-        assertEquals(MiuixIcons.File, settingsRowToNavigatePreference(logs).startIcon)
+        assertEquals(MiuixIcons.Carrier, settingsRowToNavigatePreference(configuration).startIcon)
+        assertEquals(MiuixIcons.Notes, settingsRowToNavigatePreference(logs).startIcon)
         val notification = rows.single { it.id == SettingsRowId.Root.CALL_NOTIFICATION }
         assertTrue(settingsRowToNavigatePreference(notification).actionable)
         val recovery = callNotificationPreferenceRows(

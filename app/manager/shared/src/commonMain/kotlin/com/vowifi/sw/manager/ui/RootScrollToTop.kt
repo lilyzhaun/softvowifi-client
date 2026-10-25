@@ -22,6 +22,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import kotlin.math.ceil
+import kotlin.math.abs
 
 /** Low-frequency commands only: AppShell never observes a list's offset or animation frames. */
 internal class RootScrollToTopRegistry {
@@ -101,18 +102,24 @@ internal class RootScrollToTopTarget(
             // must not leave a detached title expansion running or force it in a finally block.
             coroutineScope {
                 launch { onExpand() }
-                val layout = state.layoutInfo
-                val viewport = layout.viewportEndOffset - layout.viewportStartOffset
-                val visible = layout.visibleItemsInfo
-                val average = if (visible.isEmpty()) 0.0 else visible.sumOf { it.size }.toDouble() / visible.size
-                if (viewport > 0 && average > 0 &&
-                    state.firstVisibleItemIndex * average + state.firstVisibleItemScrollOffset > viewport * 3.0
-                ) {
-                    val nearby = ceil(viewport / average).toInt().coerceAtMost(state.firstVisibleItemIndex)
-                    state.scrollToItem(nearby)
-                }
-                state.animateScrollToItem(0)
+                state.animateScrollToItemFromNearby(0)
             }
         }
     }
+}
+
+/** R8 in either direction: teleport only beyond three viewports, then animate the last viewport. */
+internal suspend fun LazyListState.animateScrollToItemFromNearby(index: Int) {
+    val layout = layoutInfo
+    val viewport = layout.viewportEndOffset - layout.viewportStartOffset
+    val visible = layout.visibleItemsInfo
+    val average = if (visible.isEmpty()) 0.0 else visible.sumOf { it.size }.toDouble() / visible.size
+    val delta = index - firstVisibleItemIndex
+    if (viewport > 0 && average > 0 && abs(delta * average - firstVisibleItemScrollOffset) > viewport * 3.0) {
+        val screen = ceil(viewport / average).toInt()
+        val nearby = if (delta > 0) (index - screen).coerceAtLeast(firstVisibleItemIndex)
+            else (index + screen).coerceAtMost(firstVisibleItemIndex)
+        scrollToItem(nearby)
+    }
+    animateScrollToItem(index)
 }

@@ -19,8 +19,10 @@ internal data class FakeStoredMessage(
     val failureReason: String?,
     val isRead: Boolean,
     val readAtMs: Long?,
+    val manualUnread: Boolean = false,
 ) {
     override fun toString(): String = "Stored"
+    val countsAsUnread: Boolean get() = incoming && !isRead || manualUnread
 
     fun toRecord(): MessageRecord = if (incoming) {
         MessageRecord.Incoming(

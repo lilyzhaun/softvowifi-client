@@ -62,6 +62,7 @@ class AndroidMessageSource(
     override val state: StateFlow<MessageUiState> = opened?.source?.state ?: fallback
     override val unreadSummary get() = opened?.source?.unreadSummary ?: super.unreadSummary
     override val historyChoices get() = opened?.source?.historyChoices ?: super.historyChoices
+    override suspend fun findConversation(owner: SimOwnerId, recipient: String) = opened?.source?.findConversation(owner, recipient)
     override suspend fun changeConversation(handle: String, action: MessageConversationAction) =
         opened?.source?.changeConversation(handle, action) ?: MessageConversationActionResult.FAILED
     override suspend fun saveOwnerRemark(owner: SimOwnerId, input: String) =

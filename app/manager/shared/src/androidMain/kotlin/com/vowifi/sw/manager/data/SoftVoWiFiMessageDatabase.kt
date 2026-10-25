@@ -56,6 +56,8 @@ internal data class MessageMetadataEntity(
     override fun toString(): String = "MessageMetadataEntity"
 }
 
+internal data class MessageOwnerUnreadCount(val owner: String, val unreadCount: Long)
+
 @Dao
 internal interface MessageDao {
     @Query("SELECT message_id FROM messages WHERE sim_owner_id = :owner AND conversation_key = :key ORDER BY message_at_ms DESC, message_id DESC LIMIT 1")
@@ -76,13 +78,20 @@ internal interface MessageDao {
     @Query("DELETE FROM messages WHERE sim_owner_id = :owner AND conversation_key = :key")
     suspend fun deleteConversation(owner: String, key: String)
 
+    @Query("UPDATE messages SET `read` = 1, read_at_ms = COALESCE(read_at_ms, :nowMs) WHERE sim_owner_id = :owner AND conversation_key = :key AND direction = 'INCOMING' AND `read` = 0")
+    suspend fun markConversationRead(owner: String, key: String, nowMs: Long)
+
     @Transaction
-    suspend fun changeConversation(owner: String, key: String, action: MessageConversationAction): Boolean {
+    suspend fun changeConversation(owner: String, key: String, action: MessageConversationAction, nowMs: Long): Boolean {
         val anchor = latestMessageId(owner, key) ?: return false
         val marker = "conversation_unread_v1:$owner:$key"
         when (action) {
             MessageConversationAction.MARK_UNREAD -> if (conversationUnreadCount(owner, key) == 0L) {
                 putManualUnread(MessageMetadataEntity(marker, anchor))
+            }
+            MessageConversationAction.MARK_READ -> {
+                removeManualUnread(marker)
+                markConversationRead(owner, key, nowMs)
             }
             MessageConversationAction.DELETE -> {
                 removeManualUnread(marker)
@@ -178,6 +187,9 @@ internal interface MessageDao {
 
     @Query("SELECT COUNT(*) FROM messages WHERE (direction = 'INCOMING' AND `read` = 0) OR message_id IN (SELECT value FROM message_metadata WHERE `key` GLOB 'conversation_unread_v1:*')")
     suspend fun countUnreadIncoming(): Long
+
+    @Query("SELECT sim_owner_id AS owner, COUNT(*) AS unreadCount FROM messages WHERE (direction = 'INCOMING' AND `read` = 0) OR message_id IN (SELECT value FROM message_metadata WHERE `key` GLOB 'conversation_unread_v1:*') GROUP BY sim_owner_id")
+    suspend fun countUnreadByOwner(): List<MessageOwnerUnreadCount>
 
     @Query(MessageReadSql.LIST_OBSERVED_UNREAD)
     suspend fun listObservedUnread(

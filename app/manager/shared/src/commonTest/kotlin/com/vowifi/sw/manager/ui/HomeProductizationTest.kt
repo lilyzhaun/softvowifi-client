@@ -28,7 +28,9 @@ class HomeProductizationTest {
             ).facts
         }
         assertEquals(facts(firstTimestamp), facts(secondTimestamp))
-        assertEquals("暂无活动 SIM", facts(firstTimestamp).first().value)
+        assertEquals("0 张", facts(firstTimestamp).single { it.label == "活动 SIM" }.value)
+        assertEquals("暂无活动 SIM", facts(firstTimestamp).single { it.label == "隧道连接" }.value)
+        assertFalse(facts(firstTimestamp).any { it.label == "IMS 注册概况" })
         assertFalse(facts(firstTimestamp).any { it.label == "最近注册事件" || it.label == "事件质量" })
     }
 

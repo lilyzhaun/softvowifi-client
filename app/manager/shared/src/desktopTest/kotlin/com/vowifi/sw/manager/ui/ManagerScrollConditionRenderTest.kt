@@ -29,7 +29,12 @@ class ManagerScrollConditionRenderTest {
 
     private fun ownerChange(kind: Kind) = onMotionTestThread { runTest {
         Driver(testScheduler, kind).use { d ->
+            d.frames(8)
+            val initialAxis = d.axis().value()
+            val initialAnchors = d.visibleAnchorPositions()
+            assertEquals(listOf("1550000000", "1550000001"), initialAnchors.map { it.first }, "初始顶位必须真实显示首两条记录，不能空集合自证")
             d.scrollDown()
+            assertNotEquals(initialAnchors, d.visibleAnchorPositions(), "须先实际离开初始可见几何")
             println(d.diagnostics("before-confirm"))
             assertTrue(d.confirmOwner(ownerB), "此driver直接发布受控已确认Ready投影，不从Unit请求推导成功")
             assertEquals(ownerB, d.selectedOwner)
@@ -37,7 +42,10 @@ class ManagerScrollConditionRenderTest {
             d.frames(8)
             println(d.diagnostics("after-confirm-8-frames"))
             assertEquals(ownerB, d.composedInputOwner, "前提：生产Screen已消费本次已确认owner输入")
-            assertEquals(0f, d.axis().value(), "已确认的线路改变必须直接回顶")
+            println("SCROLL_TOP_BASELINE|kind=$kind|initialAxis=$initialAxis|afterAxis=${d.axis().value()}|initialAnchors=$initialAnchors|afterAnchors=${d.visibleAnchorPositions()}")
+            assertEquals(initialAnchors, d.visibleAnchorPositions(), "切线后实际首批可见记录及其几何须恢复初始顶位")
+            // Lazy's semantic axis includes zero-height notice slots; its top is not always numeric zero.
+            assertEquals(initialAxis, d.axis().value(), "已确认的线路改变必须恢复实际初始顶位，不能把语义轴估值当像素偏移")
         }
     } }
 
@@ -186,6 +194,12 @@ class ManagerScrollConditionRenderTest {
         fun queryText(): String? = nodes().firstOrNull { it.config.contains(SemanticsActions.SetText) }
             ?.config?.getOrNull(SemanticsProperties.EditableText)?.text
         fun axis(): ScrollAxisRange = list().config[SemanticsProperties.VerticalScrollAxisRange]
+        fun visibleAnchorPositions(): List<Pair<String, Float>> {
+            val viewport = list().boundsInRoot
+            return nodes().filter { node -> node.boundsInRoot.top >= viewport.top && node.boundsInRoot.bottom <= viewport.bottom }
+                .flatMap { node -> node.config.getOrNull(SemanticsProperties.Text).orEmpty().filter { it.text.startsWith("155000") }
+                    .map { it.text to node.boundsInRoot.top } }.distinct().sortedBy { it.second }.take(2)
+        }
         fun confirmOwner(target: SimOwnerId): Boolean {
             selections++
             owner = target

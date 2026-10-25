@@ -6,7 +6,6 @@ import com.vowifi.sw.manager.model.CallHistoryDeleteResult
 import com.vowifi.sw.manager.model.CallHistoryViewSnapshot
 import com.vowifi.sw.manager.model.HistoryChangeReason
 import kotlin.coroutines.CoroutineContext
-import kotlin.coroutines.cancellation.CancellationException
 import kotlin.time.Clock
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -32,6 +31,7 @@ internal class CallHistoryStore(
     private val scope = CoroutineScope(parentContext.minusKey(Job) + job)
     private val writes = Channel<CallHistoryEffect>(16)
     private val selections = Channel<Unit>(Channel.CONFLATED)
+    private val refreshes = Channel<Unit>(Channel.CONFLATED)
     private val clears = Channel<CallHistoryState.Ready>(Channel.CONFLATED)
     internal val deletions = Channel<CallHistoryDeletion>(1)
     internal val snapshot = MutableStateFlow(
@@ -49,24 +49,14 @@ internal class CallHistoryStore(
     internal var closing = false
     private var explicitHistorySelection = false
     private val recoveryTime = clock()
+    private var recovered = false
     internal val worker = scope.launch {
         try {
-            repository?.interruptOpen(recoveryTime)
-            val storedOwner = repository?.lastOwner()
-            val recoveredSelection = storedOwner?.let { CallHistorySelection(it) }
-            val selected = snapshot.updateAndGet { current ->
-                if (current.selection == null) current.copy(selection = recoveredSelection) else current
-            }.selection
-            owner = selected
-            if (selected == null) publishState(CallHistoryState.Empty, null) else {
-                repository?.selectOwner(selected.owner)
-                publish(selected)
+            try { readHistory() } catch (_: CallHistoryStorageException) { fail() }
+            while (true) {
+                try { if (!processNext()) break }
+                catch (_: CallHistoryStorageException) { fail() }
             }
-            while (processNext()) {}
-        } catch (error: CancellationException) {
-            throw error
-        } catch (_: CallHistoryStorageException) {
-            fail()
         } finally {
             synchronized(selectionLock) {
                 closing = true
@@ -76,13 +66,42 @@ internal class CallHistoryStore(
             }
             writes.cancel()
             selections.cancel()
+            refreshes.cancel()
             clears.cancel()
             deletions.cancel()
         }
     }
 
     fun write(effect: CallHistoryEffect) {
+        // Failed writes are never queued for replay; an explicit retry only reads persisted truth.
+        if (snapshot.value.view is CallHistoryState.Failure) return
         if (writes.trySend(effect).isFailure) fail()
+    }
+
+    fun refresh() {
+        if (!closing) refreshes.trySend(Unit)
+    }
+
+    private suspend fun readHistory(retry: Boolean = false) {
+        if (!recovered) {
+            repository?.interruptOpen(recoveryTime)
+            recovered = true
+        }
+        // Startup always reads/repairs persisted preference; a selection queued during that read wins.
+        val storedOwner = if (!retry) repository?.lastOwner() else null
+        val requested = snapshot.value.selection
+        val selected = requested ?: (if (retry) repository?.lastOwner() else storedOwner)?.let { CallHistorySelection(it) }
+        val current = snapshot.updateAndGet {
+            if (it.selection !== requested) it
+            else it.copy(selection = selected, view = if (retry) CallHistoryState.Loading else it.view,
+                change = if (retry) null else it.change)
+        }
+        if (current.selection !== selected) return
+        owner = selected
+        if (selected == null) publishState(CallHistoryState.Empty, null) else {
+            repository?.selectOwner(selected.owner)
+            publish(selected)
+        }
     }
 
     fun select(owner: SimOwnerId, outgoingSelection: Boolean = false) {
@@ -93,7 +112,9 @@ internal class CallHistoryStore(
             val selected = CallHistorySelection(owner)
             snapshot.update {
                 it.selection?.completion?.complete(false)
-                it.copy(selection = selected, view = CallHistoryState.Loading, change = null, deletePending = emptySet())
+                it.copy(selection = selected,
+                    view = if (it.view is CallHistoryState.Failure) it.view else CallHistoryState.Loading,
+                    change = null, deletePending = emptySet())
             }
             if (selections.trySend(Unit).isFailure) fail()
         }
@@ -120,7 +141,8 @@ internal class CallHistoryStore(
         while (true) {
             val current = snapshot.value
             if (current.owners.none { it === choice }) return@synchronized CompletableDeferred(false)
-            if (snapshot.compareAndSet(current, current.copy(selection = selected, view = CallHistoryState.Loading,
+            if (snapshot.compareAndSet(current, current.copy(selection = selected,
+                    view = if (current.view is CallHistoryState.Failure) current.view else CallHistoryState.Loading,
                     change = null, deletePending = emptySet()))) {
                 current.selection?.completion?.complete(false)
                 break
@@ -136,6 +158,7 @@ internal class CallHistoryStore(
 
     fun fail() {
         snapshot.update { current ->
+            current.selection?.completion?.complete(false)
             if (current.view is CallHistoryState.Failure) current
             else current.copy(view = CallHistoryState.Failure(CALL_HISTORY_STORAGE_NOTICE))
         }
@@ -164,6 +187,8 @@ internal class CallHistoryStore(
             val effect = received.getOrNull()
             if (effect == null) {
                 false
+            } else if (snapshot.value.view is CallHistoryState.Failure) {
+                true
             } else {
                 repository?.upsert(effect.owner, effect.write)
                 if (owner == null && snapshot.value.selection == null) {
@@ -179,7 +204,8 @@ internal class CallHistoryStore(
         }
         selections.onReceive {
             val selected = snapshot.value.selection
-            if (selected != null && owner !== selected) {
+            if (snapshot.value.view is CallHistoryState.Failure) selected?.completion?.complete(false)
+            else if (selected != null && owner !== selected) {
                 try {
                     if (owner?.owner != selected.owner) repository?.selectOwner(selected.owner)
                     owner = selected
@@ -193,6 +219,7 @@ internal class CallHistoryStore(
             }
             true
         }
+        refreshes.onReceive { readHistory(retry = true); true }
         clears.onReceive { expected ->
             val current = snapshot.value
             val selected = owner?.takeIf { current.selection === it && current.view === expected }

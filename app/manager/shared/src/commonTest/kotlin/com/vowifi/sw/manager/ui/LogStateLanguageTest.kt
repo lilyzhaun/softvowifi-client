@@ -63,13 +63,13 @@ class LogStateLanguageTest {
             assertFalse(status.summary.contains("脱敏"))
         }
 
-        val warningStatus = operationalLogWarningStatus(OperationalLogUiState.Warning(
+        val warningStatus = requireNotNull(operationalLogDataWarningSpec(OperationalLogUiState.Warning(
             emptyList(), false, listOf(OperationalLogParseIssue(1, "synthetic-private-detail")),
-        ))
-        assertEquals(ManagerStatusKind.Warning, warningStatus.kind)
+        )))
+        assertEquals(StatePanelTone.WARNING, warningStatus.tone)
         assertEquals("部分日志无法解析", warningStatus.title)
-        assertEquals("已显示可用的运行事件。有1处日志格式无法解析。", warningStatus.summary)
-        assertFalse(warningStatus.summary.contains("脱敏"))
+        assertEquals("已显示可用的运行事件。有1处日志格式无法解析。", warningStatus.description)
+        assertFalse(warningStatus.description.contains("脱敏"))
 
         val filteredEmptyStatus = operationalLogFilteredEmptyStatus()
         assertEquals(ManagerStatusKind.Empty, filteredEmptyStatus.kind)
@@ -81,13 +81,11 @@ class LogStateLanguageTest {
     @Test fun truncatedWindowUsesNeutralAtMostCopyWithoutChangingLoadMetadata() {
         val info = OperationalLogLoadInfo(reading = true, cached = true, legacy = true)
         val state = OperationalLogUiState.Warning(emptyList(), true, emptyList(), loadInfo = info)
-        val status = operationalLogWarningStatus(state)
-        assertEquals(ManagerStatusKind.Unavailable, status.kind)
-        assertEquals("最近日志窗口", status.title)
+        assertNull(operationalLogDataWarningSpec(state), "仅窗口限制不再伪装为Top告警")
         // U4 unified groups retain a bounded window per source, not a fictitious 50-row merged cap.
-        assertEquals("已显示可用的运行事件。每个来源最多显示最近50条运行记录；更早记录未在此窗口显示。", status.summary)
-        assertEquals(StatePanelTone.NEUTRAL, status.toStatePanelSpec().tone)
-        assertFalse(status.summary.contains("不可用"))
+        val note = requireNotNull(operationalLogWindowNote(state))
+        assertEquals("最近日志窗口：每个来源最多显示最近50条运行记录；更早记录未在此窗口显示。", note)
+        assertFalse(note.contains("不可用"))
         assertEquals(info, state.loadInfo)
         assertTrue(state.truncated)
         assertTrue(state.entries.isEmpty())
@@ -97,14 +95,13 @@ class LogStateLanguageTest {
         for (issues in listOf(emptyList(), listOf(OperationalLogParseIssue(1, "synthetic-private-detail")))) {
             val state = OperationalLogUiState.Warning(emptyList(), true, issues,
                 loadInfo = OperationalLogLoadInfo(cached = true, issue = "synthetic-private-read-detail"))
-            val status = operationalLogWarningStatus(state)
-            assertEquals(ManagerStatusKind.Failure, status.kind)
-            assertEquals(StatePanelTone.ERROR, status.toStatePanelSpec().tone)
+            val status = requireNotNull(operationalLogDataWarningSpec(state))
+            assertEquals(StatePanelTone.ERROR, status.tone)
             assertEquals("日志读取失败", status.title)
-            assertTrue(status.summary.contains("最多显示最近50条"))
-            assertTrue(status.summary.contains("本次日志读取未完成，请刷新重试。"))
-            assertEquals(issues.isNotEmpty(), status.summary.contains("有1处日志格式无法解析。"))
-            assertFalse(status.summary.contains("synthetic-private"))
+            assertTrue(requireNotNull(operationalLogWindowNote(state)).contains("最多显示最近50条"))
+            assertTrue(status.description.contains("本次日志读取未完成，请刷新重试。"))
+            assertEquals(issues.isNotEmpty(), status.description.contains("有1处日志格式无法解析。"))
+            assertFalse(status.description.contains("synthetic-private"))
             assertEquals(issues, state.issues)
         }
     }

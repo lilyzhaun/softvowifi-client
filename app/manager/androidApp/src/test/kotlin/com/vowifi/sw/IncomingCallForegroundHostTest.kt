@@ -3,6 +3,9 @@ package com.vowifi.sw
 import android.app.Notification
 import android.app.NotificationManager
 import android.os.Looper
+import android.os.VibratorManager
+import android.media.AudioManager
+import android.view.KeyEvent
 import com.vowifi.sw.manager.data.AndroidIncomingCallNotificationCoordinator
 import org.junit.Assert.*
 import org.junit.Test
@@ -19,6 +22,32 @@ import org.robolectric.annotation.Config
 class IncomingCallForegroundHostTest {
     private val context get() = RuntimeEnvironment.getApplication()
     private val manager get() = context.getSystemService(NotificationManager::class.java)
+
+    @Test fun silencedNativeCallStyleAlsoStaysSilentWhenTheObserverOwnsTheNotification() {
+        val vibrator = shadowOf(context.getSystemService(VibratorManager::class.java).defaultVibrator)
+        vibrator.setHasVibrator(true)
+        context.getSystemService(AudioManager::class.java).ringerMode = AudioManager.RINGER_MODE_NORMAL
+        shadowOf(manager).setNotificationPolicyAccessGranted(true)
+        manager.setInterruptionFilter(NotificationManager.INTERRUPTION_FILTER_ALL)
+        withRinging { fixture, coordinator ->
+            assertTrue(vibrator.isVibrating)
+            assertTrue(coordinator.handleRingingVolumeKey(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_VOLUME_DOWN)))
+            assertFalse(vibrator.isVibrating)
+            val published = mutableListOf<Notification>(); var restores = 0
+            coordinator.attachForegroundHost(Any(), { published += it }, { restores++ })
+            CallAdmissionManagerShadow.rejection = ADMISSION_ERROR
+            coordinator.setAppForeground(false)
+            val notification = published.single()
+            assertEquals("android.app.Notification\$CallStyle", notification.extras.getString(Notification.EXTRA_TEMPLATE))
+            assertNotNull(notification.fullScreenIntent)
+            assertEquals(Notification.GROUP_ALERT_SUMMARY, notification.groupAlertBehavior)
+            assertNotNull(notification.group)
+            assertEquals(0, notification.flags and (Notification.FLAG_INSISTENT or Notification.FLAG_GROUP_SUMMARY))
+            coordinator.setAppForeground(true)
+            assertEquals(1, restores); assertFalse(vibrator.isVibrating)
+            assertTrue(fixture.commands.isEmpty())
+        }
+    }
 
     @Test fun rejectedCallStyleRemainsNativeAndIsOwnedByAttachedForegroundService() = withRinging { fixture, coordinator ->
         val host = Any()

@@ -11,7 +11,7 @@ class CommunicationMaterialTest {
                     val settings = AppearanceSettings(floating, blur, liquid)
                     val supported = appChromeSpec(settings, true)
                     assertEquals(when {
-                        liquid -> CommunicationMaterial.LIQUID
+                        liquid && blur -> CommunicationMaterial.LIQUID
                         blur -> CommunicationMaterial.BLUR
                         else -> CommunicationMaterial.OPAQUE
                     }, communicationMaterial(supported, true))

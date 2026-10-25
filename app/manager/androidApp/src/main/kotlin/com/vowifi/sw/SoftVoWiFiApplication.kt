@@ -8,6 +8,9 @@ import com.vowifi.sw.manager.data.AndroidDiagnosticLog
 import com.vowifi.sw.manager.data.AndroidDiagnosticExport
 import com.vowifi.sw.manager.data.SoftVoWiFiRuntime
 import com.vowifi.sw.manager.data.SoftVoWiFiRuntimeHolder
+import com.vowifi.sw.manager.data.ForegroundNotificationDiagnostics
+import com.vowifi.sw.manager.data.NotificationDiagnosticOwner
+import com.vowifi.sw.manager.data.NotificationDiagnosticAction
 
 class SoftVoWiFiApplication : Application(), ProcessRuntimeStarter {
     private lateinit var holder: SoftVoWiFiRuntimeHolder
@@ -29,6 +32,10 @@ class SoftVoWiFiApplication : Application(), ProcessRuntimeStarter {
 
     fun runtime(): SoftVoWiFiRuntime = holder.requireRuntime()
     override fun startRuntime() = holder.startFromApplication()
+    override fun publishObserverForeground(service: ObserverService, id: Int, notification: android.app.Notification) {
+        ForegroundNotificationDiagnostics.trace(this, NotificationDiagnosticOwner.OBSERVER,
+            NotificationDiagnosticAction.PROMOTE, id, notification) { service.startForeground(id, notification) }
+    }
     override fun onObserverReady(service: ObserverService) {
         if (getSystemService(UserManager::class.java)?.isUserUnlocked != true || isDeviceProtectedStorage) return
         observerNotificationDefaults?.applyDefault()
@@ -36,7 +43,10 @@ class SoftVoWiFiApplication : Application(), ProcessRuntimeStarter {
         runtime().observeNetworks()
         observerNotifications = notifications
         notifications.attachForegroundHost(service,
-            publish = { service.startForeground(AndroidIncomingCallNotificationCoordinator.NOTIFICATION_ID, it) },
+            publish = { notification -> ForegroundNotificationDiagnostics.trace(this, NotificationDiagnosticOwner.INCOMING,
+                NotificationDiagnosticAction.PROMOTE, AndroidIncomingCallNotificationCoordinator.NOTIFICATION_ID, notification) {
+                service.startForeground(AndroidIncomingCallNotificationCoordinator.NOTIFICATION_ID, notification)
+            } },
             restore = service::restoreObserverNotification,
         )
     }
