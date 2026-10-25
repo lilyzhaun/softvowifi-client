@@ -10,7 +10,7 @@ import sys
 from pathlib import Path
 
 from version import parse_version
-from client_tree import BOOTSTRAP_PATHS, candidate_digest, committed_files, git
+from client_tree import candidate_digest, committed_files
 
 
 def metadata():
