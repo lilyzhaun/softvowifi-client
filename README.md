@@ -6,7 +6,7 @@
 
 This repository receives versioned **app-only source snapshots** from the SoftVoWiFi development repository. It contains the management app, privileged observer, shared models, Android integration, tests, and the source inputs needed to rebuild the client independently. The interface is a native Kotlin / Compose app with miuix components and Navigation3—not a web UI.
 
-> **A compatible SoftVoWiFi root module is required.** A standalone APK does not implement the private VoWiFi engine, install the privileged backend, or provide a working Wi-Fi Calling service by itself. The project is experimental; automated releases do not establish complete device/carrier compatibility. Do not rely on it for emergency calls.
+> **A compatible SoftVoWiFi root module is required.** A standalone APK does not implement the private VoWiFi engine, install the privileged backend, or provide a working Wi-Fi Calling service by itself. The project is experimental; published binaries do not establish complete device/carrier compatibility. Do not rely on it for emergency calls.
 
 ## Preview
 

@@ -4,7 +4,7 @@ This repository accepts **public issues and client-source pull requests**. You d
 
 The client is a versioned export, not the authoritative development tree. Maintainers review a patch here, integrate it into the development tree, update the exact content-review inventory, and re-export it. A pull request can remain open until that integration is ready. No private Git parents or engine source are brought into this repository.
 
-Direct edits to managed files are not silently overwritten: a later export stops if the edit has not been absorbed by the source tree. CI, signing helpers and issue forms are separately protected controls. Do not edit version properties to manufacture a release or request a moving release tag.
+Direct edits to managed files are not silently overwritten: a later export stops if the edit has not been absorbed by the source tree. Read-only CI and issue forms are separately protected controls. Do not edit version properties to manufacture a release or request a moving release tag.
 
 ## Before sending a patch
 

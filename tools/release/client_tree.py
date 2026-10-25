@@ -8,10 +8,10 @@ import subprocess
 ROOT_FILES = frozenset({"README.md", "README.zh-CN.md", "LICENSE", "NOTICE", ".gitignore", "KNOWN_ISSUES.md", "RELEASE.json", "SOURCE.json", "CONTRIBUTING.md", "SECURITY.md"})
 GENERATED_METADATA = frozenset({"RELEASE.json", "SOURCE.json"})
 BOOTSTRAP_PATHS = frozenset({
-    ".github/workflows/release.yml", ".github/workflows/ci.yml",
+    ".github/workflows/ci.yml",
     ".github/ISSUE_TEMPLATE/bug-report.yml", ".github/ISSUE_TEMPLATE/config.yml",
     *(f"tools/release/{name}" for name in (
-        "github.py", "version.py", "signing.py", "verify.py", "build-apk.sh",
+        "version.py", "verify.py", "build-apk.sh",
         "linux-tools.sh", "client_tree.py",
     )),
 })

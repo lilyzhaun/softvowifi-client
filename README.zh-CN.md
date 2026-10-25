@@ -6,7 +6,7 @@
 
 本仓接收主仓按版本导出的 **App-only 源码快照**，包含管理 App、特权 observer、共享模型、Android 接线、测试和独立重建客户端所需的公开输入。界面使用 Kotlin／Compose、miuix 和 Navigation3，是原生 App，不是 Web UI。
 
-> **必须配合兼容的 SoftVoWiFi Root 模块。** 单独 APK 不实现私有引擎、不安装特权后端，也不能自行提供 Wi-Fi Calling。项目仍在开发验收阶段，自动 Release 不证明完整设备／运营商兼容，请勿用于紧急呼叫。
+> **必须配合兼容的 SoftVoWiFi Root 模块。** 单独 APK 不实现私有引擎、不安装特权后端，也不能自行提供 Wi-Fi Calling。项目仍在开发验收阶段，已发布二进制不证明完整设备／运营商兼容，请勿用于紧急呼叫。
 
 ## 界面预览
 
