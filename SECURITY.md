@@ -8,7 +8,7 @@ We need the client/module version, affected component, expected versus observed 
 
 This project requires root and handles sensitive communication. Treat a root module as highly privileged software; check the release checksums and device requirements. The client source license does not license the private engine, certify a carrier, or promise emergency calling. Use the latest supported release, but do not assume that a security or compatibility claim covers older assets or every device.
 
-Maintainers coordinate fixes in the private development repository and export the client fix here. Public disclosure should wait until the affected release and remediation are identified. No response-time or security-certification guarantee is claimed.
+Coordinate disclosure privately until the affected release and remediation are identified. No response-time or security-certification guarantee is claimed.
 
 ## 简体中文
 

@@ -8,12 +8,12 @@
     [
       "CONTRIBUTING.md",
       "100644",
-      "934c6f7ee73cd1e186cfabc0d27115bb89bfcd6f"
+      "78c888a2e7ac3ec4e6cebef2f14793a0db57ca03"
     ],
     [
       "KNOWN_ISSUES.md",
       "100644",
-      "564084a0a7c61c2f9bcfa206776ed6eed55e7f4c"
+      "c292fe368734377e3f0f87ad35e7828e49d268a0"
     ],
     [
       "LICENSE",
@@ -28,17 +28,17 @@
     [
       "README.md",
       "100644",
-      "a6e2edf4b12090e2b1ecc24c8cbeb7e3ac9ca42a"
+      "1165987d17ae8a277a9d87fa5a1297f2c606c574"
     ],
     [
       "README.zh-CN.md",
       "100644",
-      "8df87dd1ee2eb366b22a3a9efc0d695d3e5ac3e7"
+      "6abfb5310c42aaa076eade2b4be1dbb5c06fac5c"
     ],
     [
       "SECURITY.md",
       "100644",
-      "2b19a6c0dc81791e715eb287ecd29ecacbb309db"
+      "9e0e54b909d5d18b68dbd4860c6e082be10c43f2"
     ],
     [
       "app/manager/androidApp/build.gradle.kts",
@@ -5407,5 +5407,5 @@
     ]
   ],
   "schema": "client-reviewed-source-snapshot-v1",
-  "tree_sha256": "b1611792eff0974d3331e4ba38c243291de0da86be5e94e25ad795cf8758e0d7"
+  "tree_sha256": "a0d90c7614b3fa0331ff4aa2112580ff61d39d645488bff666044f693184091c"
 }
