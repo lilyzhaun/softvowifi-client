@@ -10,7 +10,7 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.concurrent.thread
 import kotlinx.coroutines.*
-import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.first
 import org.junit.Assert.*
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -47,11 +47,7 @@ class CallEntryFixtureReadinessHostTest {
             assertEquals(CallFailureMessages.IMS, failed.operationMessage)
             assertEquals(CallFailureMessages.IMS, (fixture.source.state.value as CallUiState.Ready).operationMessage)
 
-            val mutableState = ReflectionHelpers.getField<MutableStateFlow<CallUiState>>(fixture.delegate, "mutableState")
-            val recovered = failed.copy(sync = CallSyncState.Ready, operationMessage = null)
-            withContext(Dispatchers.IO) {
-                mutableState.value = recovered
-            }
+            recoverDelegate(fixture)
 
             // Preconditions: legitimate delegate update has queued the native MainLooper projection tasks,
             // while the public wrapper state still holds the stale Unregistered snapshot.
@@ -91,6 +87,37 @@ class CallEntryFixtureReadinessHostTest {
         } finally {
             repostJob?.cancelAndJoin()
             fixture.close()
+        }
+    }
+
+    @Test
+    fun recoveryStaysReadyWhenTheAggregateRepublishesItsSelectedChild() = runBlocking {
+        val fixture = CallEntryFixture()
+        try {
+            fixture.connected()
+            fixture.source.selectLine(fixture.ownerB)
+            fixture.second.snapshotError = 3002
+            fixture.source.refresh()
+            fixture.ready { it.sync == CallSyncState.Unregistered }
+            recoverDelegate(fixture)
+            val recovered = fixture.delegate.state.value as CallUiState.Ready
+            assertEquals(CallSyncState.Ready, recovered.sync)
+            fixture.source.selectLine(fixture.ownerB)
+            assertEquals("恢复必须来自实际子源，不能只写聚合投影后被下一次publish覆盖",
+                CallSyncState.Ready, (fixture.delegate.state.value as CallUiState.Ready).sync)
+            val projected = fixture.ready { it.sync == CallSyncState.Ready }
+            assertNull(projected.operationMessage)
+            assertSame(recovered.binding, projected.binding)
+        } finally { fixture.close() }
+    }
+
+    private suspend fun recoverDelegate(fixture: CallEntryFixture) {
+        fixture.second.snapshotError = null
+        fixture.source.refresh()
+        withTimeout(3000) {
+            fixture.delegate.state.first {
+                it is CallUiState.Ready && it.sync == CallSyncState.Ready && it.operationMessage == null
+            }
         }
     }
 

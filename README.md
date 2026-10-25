@@ -47,7 +47,7 @@ Each [GitHub Release](https://github.com/lilyzhaun/softvowifi-client/releases) c
 
 The module ZIP is a separately distributed binary asset with a **private-source Go engine**. The client source is GPL-3.0-only, with retained third-party and earlier grants described below; this does not make the complete backend open source. Repository visibility and binary redistribution clearance are separate from automation.
 
-The source/notice-aware packaging route includes `APP-SOURCE.json`, the client GPL/NOTICE and actual linked-engine dependency licenses/NOTICE files in new module ZIPs. It binds the embedded App to the exported client source. **The existing v0.3.40–v0.3.43 assets predate that route:** their embedded App differs from this filtered client, and legacy corresponding-source/OEM redistribution review remains pending. A new package does not retroactively fix an old asset; consult the release-specific materials rather than assuming the current tree covers every ZIP.
+Module releases from v0.3.44 include `APP-SOURCE.json`, the client GPL/NOTICE and linked-engine dependency licenses/NOTICE files. Check the release-specific materials for the embedded App's source. Earlier module assets are not offered as public downloads pending source and license review.
 
 ### Installation
 
@@ -57,7 +57,7 @@ The source/notice-aware packaging route includes `APP-SOURCE.json`, the client G
 4. Grant root access manually in the root manager as needed. KernelSU authorization must be completed by the user in KernelSU Manager; do not assume a changed signature/UID inherits an old grant.
 5. Open Home and Settings, inspect diagnostics and SIM configuration, and start the intended line. Test registration, actual SMS delivery, and voice separately.
 
-The independently built APK and the APK embedded in the module use the same version and approved signing certificate, but may differ byte-for-byte. Preserve configuration and history when troubleshooting. Normal module rollback/uninstall preserves configuration and logs; only explicitly authorized `purge` deletes module data.
+The independently built APK and the APK embedded in the module use the same version and approved signing certificate, but may differ byte-for-byte. **Uninstalling the module deletes its configuration and logs**; the management App and its private data are not deleted with it. Back up any module data you need before uninstalling. Module `rollback` only cleans up runtime resources and preserves data; deleting module data while installed requires an explicitly authorized `purge`.
 
 For checksum verification on Linux, download the assets listed in `SHA256SUMS` into the same directory, then run:
 
@@ -73,7 +73,7 @@ Building the client does **not** require upstream engine source, private Go depe
 
 - JDK **21** and the checked-in Gradle wrapper; do not substitute a system Gradle version.
 - Android SDK Platform **37.0**, Build Tools **36.0.0**, and SDK command-line tools. Set `ANDROID_HOME` or `ANDROID_SDK_ROOT`.
-- Bash, XML utilities (`libxml2-utils` on Ubuntu), and CJK fonts (`fonts-noto-cjk`) for host rendering tests.
+- Git, GitHub CLI (for the clone example), Bash, Python 3, `sqlite3`, XML utilities (`libxml2-utils` on Ubuntu), and CJK fonts (`fonts-noto-cjk`) for host tests.
 - Sufficient memory for the single-worker Gradle build; the checked-in helper bounds JVM heap and parallelism.
 
 ```bash
@@ -91,11 +91,13 @@ The helper runs shared desktop tests, Android host tests, and the unsigned Andro
 app/manager/androidApp/build/outputs/apk/release/androidApp-release-unsigned.apk
 ```
 
-This output is **unsigned** and cannot replace the installed official app as-is. Release signing is performed separately in trusted CI. Keep private keys, passwords, `local.properties`, and build output out of Git.
+This output is **unsigned** and cannot replace the installed official app as-is. Keep private keys, passwords, `local.properties`, and build output out of Git.
 
 The generated app version is read from `app/manager/version.properties`; it is synchronized from the upstream module version. Do not edit that file independently to create a mismatched client release.
 
 The working branch can contain reviewed source changes ahead of a release tag. `RELEASE.json` describes its immutable release tag, not every later working-branch snapshot. Check out that tag when inspecting a published APK's source. A preparation-only source refresh does not move tags, change versions, sign an APK or replace release assets.
+
+Historical exception: the current v0.3.47 attachments correspond to client commit [05be12c9](https://github.com/lilyzhaun/softvowifi-client/tree/05be12c98b88d87e75732dc1090092a797db3b38), not the earlier snapshot at the immutable v0.3.47 tag. Use that commit when rebuilding those attachments' client source.
 
 ## Source layout
 
@@ -105,27 +107,13 @@ app/observer/src/    Privileged observer source compiled by the Android app
 app/observer/res/    Observer resources
 export/country-source/  Pinned public AOSP MCC-to-country inputs and attribution
 tools/export/        Public country-table regeneration helpers
-tools/release/       Separately maintained build, signing, and verification controls
-.github/workflows/   Read-only checks and trusted release workflow
+tools/release/       Build and verification helpers
+.github/workflows/   Read-only source checks
 ```
 
 The public country table supplies MCC-to-ISO country/flag lookup, **not carrier policy or ePDG configuration**. Its inputs, generation helpers, original notices, and the app's third-party license assets are retained.
 
 No private engine source, OEM/operator catalog, upstream Git history, device evidence, SIM configuration, signing material, or module binaries are committed into the exported source tree.
-
-## How releases stay synchronized
-
-The upstream maintainer increments **both** `version` and `versionCode` in `module/module.prop` and merges the change into upstream `master`. The normal successful path is fully automatic:
-
-1. Upstream CI builds and checks the signed module ZIP and validates the app-only export.
-2. A filtered app-only snapshot is committed into this repository using its **own parent history**, with matching version metadata and tag.
-3. The same ZIP is attached to this repository's draft release and verified by size and SHA-256.
-4. Upstream publishes its module release and automatically dispatches this repository's trusted release workflow. The client APK is built **from this repository's tagged source**, not copied out of the module.
-5. The independently signed APK, original ZIP, metadata, and checksums are published together.
-
-No manual source copying, tagging, APK upload, or ZIP mirroring is needed in that path. Failed tests, mismatched versions/checksums, or changed protected controls stop publication. Existing release tags and published assets are not overwritten; a matching completed release is not dispatched for another APK build by the upstream publisher.
-
-Ordinary source synchronization includes the README, contribution/security guidance and source notices, but preserves separately managed CI, release helpers and issue forms. Unabsorbed community edits stop an export instead of being silently replaced. The client stores no upstream cross-repository credential. Builds have no signing secrets; a fresh runner signs using the trusted dispatch control commit, and a separate job publishes. Manual dispatch exists for controlled recovery, not as a normal release step.
 
 ## Contributing and reporting problems
 

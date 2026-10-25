@@ -47,7 +47,7 @@ desktop 仅用于测试和预览，不是桌面电话客户端。eSIM profile �
 
 模块 ZIP 是单独分发的二进制资产，**Go 引擎源码保持私有**。客户端源码采用 GPL-3.0-only，并保留下文列出的第三方和早前授权；这不使整个后端开源。仓库可见性、二进制再分发资格和自动化分别判断。
 
-新打包路线在模块内附 `APP-SOURCE.json`、客户端 GPL／NOTICE 和实际链接引擎依赖的完整许可／NOTICE，并绑定模块 App 与导出源码。**既有 v0.3.40–v0.3.43 资产早于该路线**，其内置 App 不同于净化客户端，旧对应源码／OEM 再分发审查仍待；不能靠新包追认旧资产，也不能假设当前源码覆盖所有 ZIP，请查各版本自己的材料。
+v0.3.44 起的模块附有 `APP-SOURCE.json`、客户端 GPL／NOTICE 和链接引擎依赖的许可／NOTICE；请按各版本材料查找内置 App 的对应源码。更早的模块资产尚待源码与许可审查，不作为公开下载提供。
 
 1. 准备 Root ARM64 Android 13+、兼容 KernelSU / Magisk、Qualcomm QMI / QRTR 与合适的 XFRM/IPsec、活动 SIM 和运营商 ePDG 访问。满足 Android 版本不代表适配完成。
 2. 下载同版本模块 ZIP 并核对摘要，经 Root 管理器安装和必要重启。模块内已有特权管理 App 与后端。
@@ -55,7 +55,7 @@ desktop 仅用于测试和预览，不是桌面电话客户端。eSIM profile �
 4. 按需由用户在 Root 管理器手动授权；KernelSU 须在 KernelSU Manager 完成，不假设新签名／UID 继承旧权限。
 5. 在首页／设置检查诊断和 SIM 配置，只启动目标线路，分别验证注册、实际短信投递和语音。
 
-独立 APK 与模块内 APK 使用相同版本／批准签名证书，不保证字节一致。排查时保留配置和历史；正常模块 rollback／卸载保留配置／日志，只有明确授权的 `purge` 才删除模块数据。
+独立 APK 与模块内 APK 使用相同版本／批准签名证书，不保证字节一致。**卸载模块会删除模块配置和日志**；管理 App 及其私有数据不会随模块卸载删除。卸载前请备份需要保留的模块数据。`rollback` 只清理运行态并保留数据；模块安装期间删除模块数据须显式授权执行 `purge`。
 
 Linux 下，将 `SHA256SUMS` 中列出的资产放在同一目录，运行：
 
@@ -69,7 +69,7 @@ timeout 30s sha256sum --check SHA256SUMS
 
 - JDK **21** 和本仓 Gradle wrapper，不替换为系统 Gradle。
 - Android SDK Platform **37.0**、Build Tools **36.0.0**、命令行工具；设置 `ANDROID_HOME` 或 `ANDROID_SDK_ROOT`。
-- Bash、XML 工具（Ubuntu 的 `libxml2-utils`）、CJK 字体（`fonts-noto-cjk`）。
+- Git、GitHub CLI（用于下方克隆示例）、Bash、Python 3、`sqlite3`、XML 工具（Ubuntu 的 `libxml2-utils`）和主机测试所需 CJK 字体（`fonts-noto-cjk`）。
 - 单 worker Gradle 所需内存；helper 已限制堆和并行。
 
 ```bash
@@ -87,11 +87,13 @@ helper 运行共享 desktop 测试、Android host 测试和 unsigned release 构
 app/manager/androidApp/build/outputs/apk/release/androidApp-release-unsigned.apk
 ```
 
-该文件**未签名**，不能直接覆盖官方安装版本。正式签名由受信任 CI 单独完成；密钥、密码、`local.properties` 和构建输出不得提交。
+该文件**未签名**，不能直接覆盖官方安装版本。密钥、密码、`local.properties` 和构建输出不得提交。
 
 App 版本读取 `app/manager/version.properties`，由主仓模块版本同步，不独立修改成不匹配的客户端版本。
 
 工作分支可以包含尚未发版的已审源码变化。`RELEASE.json`描述其不可变版本标签，而非其后所有工作分支快照；检查某次已发布APK的源码请切到对应tag。准备阶段的纯源码刷新不移动tag、不改版本、不签名，也不替换发布资产。
+
+历史例外：v0.3.47 现有附件对应客户端提交 [05be12c9](https://github.com/lilyzhaun/softvowifi-client/tree/05be12c98b88d87e75732dc1090092a797db3b38)，不是不可变 v0.3.47 标签上的更早快照。重建这些附件的客户端源码时请使用该提交。
 
 ## 源码结构与边界
 
@@ -101,27 +103,13 @@ app/observer/src/    App 编译的特权 observer 源码
 app/observer/res/    observer 资源
 export/country-source/  固定 AOSP MCC-to-country 输入和归属
 tools/export/        公开国家表再生 helper
-tools/release/       单独维护的构建／签名／验证控制文件
-.github/workflows/   只读检查和受信任发版 workflow
+tools/release/       构建与验证 helper
+.github/workflows/   只读源码检查
 ```
 
 公开国家表只提供 MCC-to-ISO 国家／旗帜查询，**不是运营商策略或 ePDG 配置**。保留原输入、再生工具、NOTICE 和 App 第三方许可资产。
 
 导出源码树不包含私有引擎、OEM／运营商目录、主仓 Git 历史、设备证据、SIM 配置、签名材料或模块二进制。
-
-## 全自动同步与发版
-
-主仓维护者同时递增 `module/module.prop` 的 `version`／`versionCode` 并合入主仓 `master`。正常成功路径：
-
-1. 主仓 CI 构建／检查签名模块 ZIP，并验证 App-only 导出。
-2. 过滤后的 App-only 快照以**客户端自己的 parent 历史**提交到本仓，版本元数据和 tag 一致。
-3. 同 ZIP 进入客户端 draft Release，核对大小／SHA-256。
-4. 主仓正式发布模块 Release 并自动 dispatch 本仓 release workflow；APK **从本仓不可变 tag 源码独立构建**，不从模块中提取。
-5. 独立签名 APK、原 ZIP、元数据和摘要一起正式发布。
-
-无需手工复制源码、打 tag、上传 APK 或镜像 ZIP。测试失败、版本／摘要不匹配、控制文件漂移时停止；不覆盖既有 tag／资产，相同已完成版本不会由主仓发布器再次 dispatch APK 构建。
-
-普通同步包含 README、贡献／安全说明和源归属，CI、发布 helper、issue 表单单独受保护。未回流的人工修改会阻止导出，而不是静默覆盖。本仓不存主仓跨仓库凭据；构建不接签名秘密，新 runner 使用可信 dispatch 控制码签名，另一个 job 发布。手动 dispatch 只用于受控失败恢复。
 
 ## 贡献与问题反馈
 
