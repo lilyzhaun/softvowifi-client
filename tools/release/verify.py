@@ -11,7 +11,6 @@ from pathlib import Path
 
 from version import parse_version
 from client_tree import BOOTSTRAP_PATHS, candidate_digest, committed_files, git
-from github import GitHub
 
 
 def metadata():
@@ -32,39 +31,6 @@ def metadata():
     return result
 
 
-def trusted_tag(tag, recovery=False):
-    """Bind tag ancestry and bootstrap to the immutable master dispatch control commit."""
-    github = GitHub("lilyzhaun/softvowifi-client")
-    github.check_repo(1373788867)
-    trusted = os.environ["GITHUB_SHA"]
-    if re.fullmatch(r"[0-9a-f]{40}", trusted) is None or re.fullmatch(r"v[0-9A-Za-z.+-]+", tag) is None:
-        raise ValueError("invalid trusted release reference")
-    if git(["rev-parse", "HEAD"]).decode().strip() != trusted:
-        raise ValueError("control checkout differs from dispatch commit")
-    ref = github.api(f"git/ref/tags/{tag}")
-    if ref["object"]["type"] != "commit":
-        raise ValueError("release tag must be a lightweight commit reference")
-    commit = ref["object"]["sha"]
-    comparison = github.api(f"compare/{commit}...{trusted}")
-    if comparison["status"] not in {"ahead", "identical"}:
-        raise ValueError("release source is not in trusted master history")
-    if not recovery:
-        control = github.api(f"git/trees/{trusted}?recursive=1")
-        source = github.api(f"git/trees/{commit}?recursive=1")
-        if control.get("truncated") or source.get("truncated"):
-            raise ValueError("trusted release tree is truncated")
-        expected = {entry["path"]: (entry["mode"], entry["sha"]) for entry in control["tree"]
-                    if entry["path"] in BOOTSTRAP_PATHS and entry["type"] == "blob"}
-        actual = {entry["path"]: (entry["mode"], entry["sha"]) for entry in source["tree"]
-                  if entry["path"] in BOOTSTRAP_PATHS and entry["type"] == "blob"}
-        if set(expected) != BOOTSTRAP_PATHS or actual != expected:
-            raise ValueError("release tag bootstrap differs from trusted control plane")
-    if os.environ.get("GITHUB_OUTPUT"):
-        with open(os.environ["GITHUB_OUTPUT"], "a") as output:
-            output.write(f"client_commit={commit}\n")
-    print("Trusted client release tag verified")
-
-
 def verify_apk(path, data):
     sdk = Path(os.environ.get("ANDROID_SDK_ROOT") or os.environ["ANDROID_HOME"])
     analyzer = sdk / "cmdline-tools/latest/bin/apkanalyzer"
@@ -79,9 +45,6 @@ def verify_apk(path, data):
 
 def main():
     command, value = sys.argv[1:]
-    if command in {"trusted-tag", "trusted-recovery-tag"}:
-        trusted_tag(value, recovery=command == "trusted-recovery-tag")
-        return
     data = metadata()
     if command == "metadata":
         if value != data["tag"]:
