@@ -135,6 +135,8 @@ class CallActivity : ComponentActivity() {
         setShowWhenLocked(false); setTurnScreenOn(false)
         if (key.isNullOrEmpty()) finish() else { runtime.calls.refresh(); authorizeIfReady() }
     }
+    // Public Activity/Window.Callback entry; AndroidX annotates its inherited implementation.
+    @android.annotation.SuppressLint("RestrictedApi")
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
         if (::runtime.isInitialized && runtime.notifications.handleRingingVolumeKey(event)) return true
         return super.dispatchKeyEvent(event)

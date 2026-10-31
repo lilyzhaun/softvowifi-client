@@ -23,7 +23,7 @@ class SettingsIconGrammarTest {
         val rows = settingsCatalog(settingsSnapshot()).groups.flatMap { it.rows }
         val icons = rows.associate { it.id to settingsRowToNavigatePreference(it).startIcon }
         assertEquals(MiuixIcons.Theme, icons[SettingsRowId.Root.APPEARANCE])
-        assertEquals(MiuixIcons.Carrier, icons[SettingsRowId.Root.CONFIGURATION])
+        assertEquals(MiuixIcons.Phone, icons[SettingsRowId.Root.CONFIGURATION])
         assertEquals(MiuixIcons.SearchDevice, icons[SettingsRowId.Root.DIAGNOSTICS])
         assertEquals(MiuixIcons.Notes, icons[SettingsRowId.Root.OPERATIONAL_LOGS])
         assertEquals(MiuixIcons.Answer, icons[SettingsRowId.Root.CALL_NOTIFICATION])

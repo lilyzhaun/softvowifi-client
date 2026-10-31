@@ -9,6 +9,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.MotionDurationScale
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.platform.LocalInputModeManager
 import androidx.compose.ui.input.InputMode
 import androidx.compose.ui.input.InputModeManager
@@ -40,6 +41,7 @@ class S7ReducedMotionRenderTest {
             var factor by mutableFloatStateOf(1f)
             val scale = object : MotionDurationScale { override val scaleFactor get() = factor }
             val back = object : NavigationEventDispatcherOwner { override val navigationEventDispatcher = NavigationEventDispatcher() }
+            val window = miuixConfirmationTestWindow(390, 844)
             val release = CompletableDeferred<Unit>(); val entered = CompletableDeferred<Unit>()
             var requested by mutableStateOf(false); var busy by mutableStateOf(false)
             var pressClicks = 0; var confirms = 0; var cancels = 0; var starts = 0; var completions = 0
@@ -47,7 +49,7 @@ class S7ReducedMotionRenderTest {
             var observedScale: MotionDurationScale? = null
             try {
                 MotionTestEnvironment(testScheduler, 390, 844, dispatcher = dispatcher, motionScale = scale) {
-                    CompositionLocalProvider(LocalNavigationEventDispatcherOwner provides back,
+                    CompositionLocalProvider(LocalNavigationEventDispatcherOwner provides back, LocalWindowInfo provides window,
                         LocalDensity provides Density(1f, 1f)) {
                         s4SmsHost {
                             val platformMode = LocalInputModeManager.current
@@ -71,7 +73,7 @@ class S7ReducedMotionRenderTest {
                 }.use { e ->
                     fun consumeNow() {
                         val at = testScheduler.currentTime
-                        repeat(6) {
+                        repeat(12) {
                             androidx.compose.runtime.snapshots.Snapshot.sendApplyNotifications()
                             testScheduler.runCurrent(); e.advanceFrameBy(0)
                         }
@@ -105,36 +107,41 @@ class S7ReducedMotionRenderTest {
                     factor = 1f; consumeNow()
                     val pendingPoint = s4Action(e, "原挂起请求").boundsInRoot.center
                     val dimRegion = Rect(8f, 400f, 24f, 416f)
-                    val panelRegion = Rect(187f, 414f, 203f, 430f)
+                    val panelRegion = Rect(187f, 780f, 203f, 796f)
                     val clear = patch(dimRegion); val clearPanel = patch(panelRegion)
                     s4Tap(e, s4Action(e, "打开动态确认").boundsInRoot.center); consumeNow()
-                    e.advanceFrameBy(MotionTokens.DurBase.toLong()); consumeNow()
-                    val initial = assertNotNull(dialog(), "前提：真实DialogLayout须已呈现").boundsInRoot
+                    s4Frames(e, 60); consumeNow()
+                    val initial = assertNotNull(dialog(), "前提：官方OverlayDialog须已呈现").boundsInRoot
+                    fun titlePosition() = s4Nodes(e).single {
+                        it.config.getOrNull(SemanticsProperties.Text)?.singleOrNull()?.text == "动态缩放确认"
+                    }.positionInRoot
+                    val initialTitle = titlePosition()
                     val dimmed = patch(dimRegion)
-                    assertTrue(initial.left > dimRegion.right && initial.right < 390f)
+                    assertTrue(initial.left > 0f && initial.right < 390f && initial.top > 422f)
                     assertTrue(s4Difference(clear, dimmed) >= 4, "正向前提：原宿主确实绘出遮罩")
                     val confirmPoint = s4Action(e, "确认原请求").boundsInRoot.center
                     s4Tap(e, confirmPoint); consumeNow()
                     val exitAt = testScheduler.currentTime
                     assertEquals(0, confirms); assertEquals(0, starts); assertFalse(entered.isCompleted)
-                    e.advanceFrameBy(MotionTokens.DurFast / 2L); consumeNow()
+                    e.advanceFrameBy(16); consumeNow()
                     val exiting = assertNotNull(dialog(), "scale1的原退出宿主必须仍在").boundsInRoot
-                    assertTrue(exiting.width < initial.width && exiting.width > initial.width * MotionTokens.ScaleEnterFrom,
-                        "正向前提：T7真实scale1退出已到可见中帧，不是只改requested状态")
+                    val movingTitle = titlePosition()
+                    assertTrue(movingTitle.y > initialTitle.y && movingTitle.y < 844f && movingTitle.x == initialTitle.x,
+                        "正向前提：官方手机退出有可见向下位移，不测layer外的固定语义壳：initial=$initialTitle moving=$movingTitle host=$exiting")
                     val middle = patch(dimRegion)
                     assertTrue(s4Difference(clear, middle) >= 4 && s4Difference(dimmed, middle) >= 4,
                         "正向前提：遮罩退出须有真实中间像素")
                     assertEquals(0, confirms); assertEquals(0, starts)
-                    assertEquals(exitAt + MotionTokens.DurFast / 2L, testScheduler.currentTime)
+                    assertEquals(exitAt + 16L, testScheduler.currentTime)
 
                     val zeroAt = testScheduler.currentTime
                     factor = 0f; consumeNow()
                     assertEquals(0f, assertNotNull(observedScale, "实际popup调用组合必须收到平台尺度").scaleFactor)
-                    assertEquals(zeroAt, testScheduler.currentTime, "动态0须在下一有效同刻帧序列收敛，不等剩余150ms")
+                    assertEquals(zeroAt, testScheduler.currentTime, "动态0须在下一有效同刻帧序列收敛，不等剩余官方退场")
                     assertNull(dialog(), "动态0后原T7宿主须真正卸载，不只透明化")
                     assertTrue(s4Actions(e, "确认原请求").isEmpty(), "旧确认入口不得残留命中语义")
                     assertContentEquals(clear.pixels, patch(dimRegion).pixels, "动态0后无遮罩残留")
-                    assertContentEquals(clearPanel.pixels, patch(panelRegion).pixels, "动态0后中央原宿主绘制完全回收")
+                    assertContentEquals(clearPanel.pixels, patch(panelRegion).pixels, "动态0后底部原宿主绘制完全回收")
                     assertEquals(1, confirms); assertEquals(0, cancels); assertEquals(1, starts)
                     assertTrue(entered.isCompleted, "确认完成须实际进入原挂起handler")
                     assertFalse(release.isCompleted); assertTrue(busy); assertEquals(0, completions,

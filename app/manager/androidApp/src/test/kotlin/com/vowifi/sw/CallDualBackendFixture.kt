@@ -79,7 +79,7 @@ internal class CallDualSocketPeer {
     @Volatile var direction = "INCOMING"
     @Volatile var revision = 0
     val token = "host-shared-token"
-    fun socket(): LocalSocket = CallTestSocket(::receive).also(sockets::add)
+    fun socket(@Suppress("UNUSED_PARAMETER") path: String = ""): LocalSocket = CallTestSocket(::receive).also(sockets::add)
     private fun receive(socket: CallTestSocket, line: String) {
         val request = Json.parseToJsonElement(line).jsonObject
         val id = request.getValue("id").jsonPrimitive.long

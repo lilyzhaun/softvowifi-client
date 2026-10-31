@@ -76,6 +76,9 @@ internal interface AndroidMessageHistoryDao {
     """)
     suspend fun thread(owner: String, key: String, beforeTime: Long?, beforeId: String?): List<MessageEntity>
 
+    @Query("SELECT message_id FROM messages WHERE sim_owner_id = :owner AND conversation_key = :key LIMIT 1")
+    suspend fun conversationMessageId(owner: String, key: String): String?
+
     @Query("""
         SELECT message_id FROM messages WHERE sim_owner_id = :owner AND conversation_key = :key
             AND direction = 'INCOMING' AND `read` = 0 ORDER BY message_at_ms ASC, message_id ASC

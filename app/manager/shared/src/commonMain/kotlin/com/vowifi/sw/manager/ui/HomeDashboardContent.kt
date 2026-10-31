@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
@@ -21,7 +22,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -42,7 +42,6 @@ import com.vowifi.sw.manager.model.EngineControlOutcome
 import com.vowifi.sw.manager.model.EngineLifecycle
 import com.vowifi.sw.manager.model.SimHandle
 import com.vowifi.sw.manager.ui.navigation.AppRoute
-import top.yukonga.miuix.kmp.basic.BasicComponent
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.CardDefaults
 import top.yukonga.miuix.kmp.basic.SmallTitle
@@ -76,13 +75,10 @@ internal fun LazyListScope.homeDashboardItems(
             }
             HomeSectionId.ACTIONS -> if (presentation.actions.isNotEmpty()) {
                 item("home-actions-title") { SmallTitle("SIM 引擎") }
-                item("home-sim-controls") {
-                    Card(Modifier.fillMaxWidth(), insideMargin = PaddingValues(vertical = 4.dp)) {
-                        presentation.actions.forEach { row ->
-                             key(row.action.handle) {
-                                  HomeEngineRow(row, provisioning, callProtection) { dispatchHomeAction(row.action, onStart, onStop, onProvision) }
-                            }
-                        }
+                items(presentation.actions, key = { "home-sim-control-${it.action.handle.value}" }) { row ->
+                    Card(Modifier.fillMaxWidth().padding(bottom = homeLayoutContract.cardGapDp.dp),
+                        insideMargin = PaddingValues(0.dp)) {
+                        HomeEngineRow(row, provisioning, callProtection) { dispatchHomeAction(row.action, onStart, onStop, onProvision) }
                     }
                 }
             }
@@ -163,25 +159,29 @@ private fun HomeEngineRow(row: HomeSimActionPresentation, provisioning: Configur
     val space = MotionTokens.SpringSpatialFast
     val heightSpec = spring<IntSize>(dampingRatio = space.dampingRatio, stiffness = space.stiffness)
     Column {
-        BoxWithConstraints(Modifier.fillMaxWidth()) {
-            val stacked = homeTopGridLayout(HomeTopGridSpec(), HomeTopGridEnvironment(maxWidth.value, LocalDensity.current.fontScale)) == HomeTopGridLayout.STACKED
+        BoxWithConstraints(Modifier.fillMaxWidth().padding(16.dp)) {
+            val colors = LocalSoftVoWiFiColors.current
+            val stacked = creating && (maxWidth < 328.dp || LocalDensity.current.fontScale >= 1.5f)
             val action: @Composable () -> Unit = {
-                ManagerTextAction(row.action.label, if (callProtected) ManagerAction.Navigate else homeManagerAction(row.action.id), requestAction,
-                    enabled = row.action.enabled, busy = if (creating) provisionPending else row.action.busy,
-                    busyLabel = if (creating) "正在创建" else "正在处理",
-                    labelCandidates = if (creating) listOf(row.action.label, "正在创建")
-                        else listOf("启动引擎", "停止引擎", "正在处理"))
+                if (creating) ManagerTextAction(row.action.label, homeManagerAction(row.action.id), requestAction,
+                    modifier = if (stacked) Modifier.fillMaxWidth() else Modifier,
+                    enabled = row.action.enabled, busy = provisionPending, primary = true,
+                    busyLabel = "正在创建", labelCandidates = listOf(row.action.label, "正在创建"))
+                else HomeEngineSwitch(row.action, callProtected, stopWarning != null, requestAction)
             }
-            if (stacked) {
-                val colors = LocalSoftVoWiFiColors.current
-                Column(
-                    Modifier.fillMaxWidth().heightIn(min = row.geometry.minimumRowDp.dp)
-                        .padding(horizontal = 16.dp, vertical = 12.dp),
-                ) {
-                    Text(row.title, modifier = Modifier.fillMaxWidth(), fontSize = MiuixTheme.textStyles.headline1.fontSize,
+            Column(Modifier.fillMaxWidth().heightIn(min = row.geometry.minimumRowDp.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text(row.title, modifier = Modifier.weight(1f).padding(start = 8.dp), fontSize = MiuixTheme.textStyles.headline1.fontSize,
                         fontWeight = FontWeight.Medium, color = colors.textPrimary)
-                    row.summary.split('\n').forEach { line ->
-                        FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    if (!stacked) action()
+                }
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    row.summary.lines().forEachIndexed { index, line ->
+                        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp), itemVerticalAlignment = Alignment.CenterVertically) {
+                            if (index == 0) HomeStatusChip(if (row.action.busy && !creating) "正在处理" else row.statusText, row.tone)
                             val segments = line.split(" · ")
                             segments.forEachIndexed { index, segment ->
                                 Text(segment + if (index < segments.lastIndex) " ·" else "",
@@ -189,24 +189,9 @@ private fun HomeEngineRow(row: HomeSimActionPresentation, provisioning: Configur
                             }
                         }
                     }
-                    Column(Modifier.padding(top = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        HomeStatusChip(row.statusText, row.tone)
-                        action()
-                    }
                 }
-            } else BasicComponent(
-                modifier = Modifier.fillMaxWidth().heightIn(min = row.geometry.minimumRowDp.dp),
-                insideMargin = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
-                title = row.title,
-                summary = row.summary,
-                bottomAction = {
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        HomeStatusChip(row.statusText, row.tone)
-                        if (stacked) action()
-                    }
-                },
-                endActions = { if (!stacked) action() },
-            )
+                if (stacked) action()
+            }
         }
         AnimatedVisibility(failure != null,
             enter = expandVertically(heightSpec, expandFrom = Alignment.Top) +

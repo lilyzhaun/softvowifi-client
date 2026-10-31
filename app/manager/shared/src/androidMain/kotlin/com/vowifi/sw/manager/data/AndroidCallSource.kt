@@ -125,7 +125,7 @@ class AndroidCallSource(
     catch (_: IllegalArgumentException) { emptyList() }
 
     private companion object {
-        const val CONTROL_SCRIPT = "/data/adb/modules/vowifi_sw/control.sh"
+        const val CONTROL_SCRIPT = "/data/adb/softvowifi/runtime/control.sh"
     }
 }
 

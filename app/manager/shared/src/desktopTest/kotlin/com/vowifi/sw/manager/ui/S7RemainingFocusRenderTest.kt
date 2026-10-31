@@ -43,7 +43,7 @@ class S7RemainingFocusRenderTest {
                 s4SmsHost {
                     val manager = LocalInputModeManager.current
                     // Emphasized filled faces need their on-accent ink; accent on accent is invisible.
-                    val ink = when (kind) { 1 -> LocalSoftVoWiFiColors.current.surface; 3 -> communicationColors().onAccent; 4 -> phoneColors().accent
+                    val ink = when (kind) { 1 -> top.yukonga.miuix.kmp.theme.MiuixTheme.colorScheme.onPrimary; 3 -> communicationColors().onAccent; 4 -> phoneColors().accent
                         else -> LocalSoftVoWiFiColors.current.interactive }
                     SideEffect { mode = manager; accent = ink.toArgb() }
                     CompositionLocalProvider(LocalDensity provides Density(1f), LocalAppRouteActive provides active,

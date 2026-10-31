@@ -29,7 +29,7 @@ class AndroidEnvironmentDiagnosticsSource internal constructor(
     private val readStockWfc: () -> StockWfcDiagnostics,
 ) : EnvironmentDiagnosticsSource {
     constructor(context: Context) : this(
-        { command -> ProcessBuilder("su", "-c", command).redirectErrorStream(true).start() },
+        { command -> com.vowifi.sw.root.RootBridge.startCommand(command) },
         Dispatchers.IO,
         { readStockWfc(context.applicationContext) },
     )
@@ -132,25 +132,20 @@ class AndroidEnvironmentDiagnosticsSource internal constructor(
     }
 
     private companion object {
-        const val DIAGNOSE_COMMAND = "/data/adb/modules/vowifi_sw/control.sh diagnose"
+        const val DIAGNOSE_COMMAND = "/data/adb/softvowifi/runtime/control.sh diagnose"
         const val TIMEOUT_SECONDS = 20L
     }
 }
 
-/** Same per-subscription setting as ITelephony.isVoWiFiSettingEnabled, via the public IMS API. */
+/** Per-subscription settings read by the authorized Root backend. */
 private fun readStockWfc(context: Context): StockWfcDiagnostics = try {
-    val subscriptions = context.getSystemService(SubscriptionManager::class.java)
-    val ims = context.getSystemService(ImsManager::class.java)
-    if (subscriptions == null || ims == null) {
-        StockWfcDiagnostics.Unreadable
-    } else {
-        StockWfcDiagnostics.Readable(subscriptions.activeSubscriptionInfoList.orEmpty().map { info ->
-            StockWfcCard(
-                slot = info.simSlotIndex,
-                enabled = ims.getImsMmTelManager(info.subscriptionId).isVoWiFiSettingEnabled,
-            )
-        })
-    }
+    val snapshot = com.vowifi.sw.root.RootBridge.nativeStatus()
+    StockWfcDiagnostics.Readable((0 until snapshot.length()).map { index ->
+        val card = snapshot.getJSONObject(index)
+        StockWfcCard(slot = card.getInt("slot"), enabled = card.getBoolean("enabled"))
+    })
+} catch (_: org.json.JSONException) {
+    StockWfcDiagnostics.Unreadable
 } catch (_: RuntimeException) {
     // SecurityException, IllegalArgumentException for a vanished subscription, or framework failure.
     StockWfcDiagnostics.Unreadable

@@ -14,7 +14,7 @@ import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 
 internal class CancelLogShellRun(
-    private val start: (String) -> Process = { ProcessBuilder("su", "-c", it).redirectErrorStream(true).start() },
+    private val start: (String) -> Process = { com.vowifi.sw.root.RootBridge.startCommand(it) },
     private val timeoutSeconds: Long = 20,
 ) : LogCommand {
     override suspend fun run(command: String): AndroidSuResult = withContext(Dispatchers.IO) {
@@ -104,6 +104,6 @@ internal class CancelLogShellRun(
 
     private companion object {
         const val MAX_BYTES = 262_144
-        val allowed = Regex("/data/adb/modules/vowifi_sw/control\\.sh logs (?:catalog|list|read [0-9a-f]{64}|tail f(?:[1-9]|[12][0-9]|3[0-2]))")
+        val allowed = Regex("/data/adb/softvowifi/runtime/control\\.sh logs (?:catalog|list|read [0-9a-f]{64}|tail f(?:[1-9]|[12][0-9]|3[0-2]))")
     }
 }

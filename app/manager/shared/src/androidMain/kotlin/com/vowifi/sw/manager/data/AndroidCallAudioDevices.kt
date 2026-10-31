@@ -195,11 +195,10 @@ internal class AndroidCallAudioDevices(
         }
 
         private fun canCoexistWithMedia(context: Context, manager: AudioManager): Boolean {
-            if (context.checkSelfPermission(android.Manifest.permission.READ_PHONE_STATE) != PackageManager.PERMISSION_GRANTED ||
-                context.checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) return false
+            if (context.checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) return false
             return try {
-                val telecom = context.getSystemService(TelecomManager::class.java) ?: return false
-                !telecom.isInCall && (manager.mode == AudioManager.MODE_NORMAL || manager.mode == AudioManager.MODE_IN_COMMUNICATION)
+                com.vowifi.sw.root.RootBridge.nativeCallsIdle() &&
+                    (manager.mode == AudioManager.MODE_NORMAL || manager.mode == AudioManager.MODE_IN_COMMUNICATION)
             } catch (_: SecurityException) { false }
               catch (_: IllegalStateException) { false }
         }

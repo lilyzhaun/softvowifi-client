@@ -5,7 +5,9 @@ import com.vowifi.sw.manager.model.ConfigurationSnapshot
 import com.vowifi.sw.manager.model.ConfigurationUiState
 import com.vowifi.sw.manager.model.ConfigurationNetworkOutlets
 import com.vowifi.sw.manager.model.ConfigurationLifecycle
+import com.vowifi.sw.manager.model.ConfigurationRuntimeFacts
 import com.vowifi.sw.manager.model.SubscriptionDiscovery
+import com.vowifi.sw.manager.model.SimHandle
 
 internal class AndroidConfigurationCatalog(
     private val commands: AndroidConfigurationCommands,
@@ -14,12 +16,13 @@ internal class AndroidConfigurationCatalog(
     private val ownerFor: (String) -> SimOwnerId? = { null },
     private val networkOutlets: () -> ConfigurationNetworkOutlets = { ConfigurationNetworkOutlets() },
     private val readAutomaticSmsc: suspend (String) -> String? = { null },
+    private val readRuntimeFacts: suspend (String) -> ConfigurationRuntimeFacts? = { null },
 ) {
     private val lock = Any()
     private val iccidByHandle = linkedMapOf<String, String>()
 
     fun iccidFor(instanceId: ConfigurationInstanceId): String? =
-        synchronized(lock) { iccidByHandle[instanceId.value] }
+        synchronized(lock) { iccidByHandle[instanceId.value]?.takeIf { handles.keyFor(SimHandle(instanceId.value)) == it } }
 
     fun existingKeys(): Set<String> = synchronized(lock) { iccidByHandle.values.toSet() }
 
@@ -40,11 +43,17 @@ internal class AndroidConfigurationCatalog(
             is CommandRead.Listed -> listed.iccids
         }
         if (listed.isEmpty()) {
+            discovery.discover(emptyList())
             replaceHandles(emptyList())
             return ConfigurationCatalogSnapshot(ConfigurationUiState.Empty, emptySet())
         }
-        val snapshots = ArrayList<ConfigurationSnapshot>(listed.size)
-        listed.forEach { item ->
+        val discoveries = discovery.discover(listed.map { it.iccid })
+        // Only a positively absent subscription can be skipped; unavailable
+        // inventory must not silently classify an unreadable card as inactive.
+        val included = listed.indices.filter { discoveries[it] !is SubscriptionDiscovery.Missing }
+        val snapshots = ArrayList<ConfigurationSnapshot>(included.size)
+        included.forEach { index ->
+            val item = listed[index]
             if (item.missing || !ConfigurationControlCommand.digitsOnly(item.iccid)) {
                 replaceHandles(emptyList())
                 return ConfigurationCatalogSnapshot(ConfigurationEvaluator.failure(), emptySet())
@@ -61,13 +70,29 @@ internal class AndroidConfigurationCatalog(
                 is CommandRead.Snapshot -> snapshots += shown.snapshot
             }
         }
-        val discoveries = discovery.discover(listed.map { it.iccid })
         val instanceIds = replaceHandles(listed)
-        val instances = snapshots.mapIndexed { index, snapshot ->
-            val automaticSmsc = if (snapshot.smsc.isEmpty() && snapshot.lifecycle == ConfigurationLifecycle.RUNNING &&
-                discoveries[index] is SubscriptionDiscovery.Matched) readAutomaticSmsc(listed[index].iccid).orEmpty() else ""
+        val instances = snapshots.mapIndexed { selectedIndex, snapshot ->
+            val index = included[selectedIndex]
+            val key = listed[index].iccid
+            val owner = ownerFor(key)
+            val running = snapshot.lifecycle == ConfigurationLifecycle.RUNNING && discoveries[index] is SubscriptionDiscovery.Matched
+            val runtime = if (running) readRuntimeFacts(key) else null
+            val automaticSmsc = if (snapshot.smsc.isEmpty() && running) {
+                if (runtime != null) runtime.loaded.fields.firstOrNull { it.field == "smsc" && it.source == "sim" }?.value.orEmpty()
+                else readAutomaticSmsc(key).orEmpty()
+            } else ""
+            val stillMatched = !running || owner == ownerFor(key)
             ConfigurationEvaluator.instance(instanceIds[index], snapshot, discoveries[index])
-                .copy(draftOwnerId = ownerFor(listed[index].iccid), resolvedSmsc = automaticSmsc)
+                .copy(draftOwnerId = owner, resolvedSmsc = automaticSmsc.takeIf { stillMatched }.orEmpty(),
+                    runtimeFacts = runtime.takeIf { stillMatched })
+        }
+        val currentDiscoveries = discovery.discover(listed.map { it.iccid })
+        if (included.any { index ->
+            currentDiscoveries[index] != discoveries[index] ||
+                handles.keyFor(SimHandle(instanceIds[index].value)) != listed[index].iccid
+        }) {
+            clear()
+            return ConfigurationCatalogSnapshot(ConfigurationEvaluator.failure("配置已变化，请刷新核对并处理原草稿"), listed.map { it.iccid }.toSet())
         }
         return ConfigurationCatalogSnapshot(
             state = ConfigurationEvaluator.ready(instances, networkOutlets = networkOutlets()),

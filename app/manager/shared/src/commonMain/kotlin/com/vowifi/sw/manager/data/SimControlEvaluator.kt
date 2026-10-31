@@ -160,6 +160,8 @@ private fun unsafeInstance(instance: SimControlInstance, rawKeys: Collection<Str
         instance.runtime?.let { runtime ->
             add(runtime.tunnel)
             add(runtime.tunnelDesc)
+            add(runtime.tunnelProgress)
+            add(runtime.imsProgress)
             add(runtime.ims)
             add(runtime.call)
             add(runtime.transport)

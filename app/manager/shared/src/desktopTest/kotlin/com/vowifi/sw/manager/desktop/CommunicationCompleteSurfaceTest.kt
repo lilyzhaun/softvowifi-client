@@ -71,23 +71,26 @@ class CommunicationCompleteSurfaceTest {
     }
 
     @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
-    @Test fun destructiveAlertIsCenteredAndCancellationNeverClearsHistory() = onMotionTestThread { runTest {
+    @Test fun destructiveAlertUsesOfficialPhonePlacementAndCancellationNeverClearsHistory() = onMotionTestThread { runTest {
         for (scale in listOf(1f, 0f)) {
             var cancelled = 0
             var cleared = 0
             var requested by mutableStateOf(true)
+            val window = miuixConfirmationTestWindow(390, 844)
             val environment = MotionTestEnvironment(testScheduler, 390, 844, scale) {
+                CompositionLocalProvider(androidx.compose.ui.platform.LocalWindowInfo provides window) {
                 SoftVoWiFiTheme(false) { Scaffold(Modifier.fillMaxSize()) {
                     if (requested) ClearCallHistoryConfirmation({ cancelled++; requested = false }, { cleared++ })
                 } }
+                }
             }
             val scene = environment.scene
             fun consumeNow() { repeat(6) { environment.advanceFrameBy(0) } }
             fun hasDialog() = merged(scene).any { it.config.contains(SemanticsProperties.IsDialog) }
             try {
-                repeat(16) { environment.advanceFrameBy() }
+                repeat(60) { environment.advanceFrameBy() }
                 val title = leaves(scene).single { it.config.getOrNull(SemanticsProperties.Text)?.singleOrNull()?.text == "清除通话记录？" }
-                assertTrue(title.boundsInRoot.top in 250f..460f, "危险确认不是底部管理器卡片")
+                assertTrue(title.boundsInRoot.top in 640f..760f, "官方手机确认从底部出现，不再自绘居中")
                 val cancel = merged(scene).single { it.config.getOrNull(SemanticsProperties.Text)?.singleOrNull()?.text == "取消" && it.config.contains(SemanticsActions.OnClick) }
                 assertTrue(cancel.boundsInRoot.height >= 48f)
                 assertTrue(hasDialog(), "前提：原危险确认宿主已真实呈现")
@@ -97,11 +100,11 @@ class CommunicationCompleteSurfaceTest {
                 if (scale != 0f) {
                     assertEquals(0, cancelled, "§5.4 T7：取消先退出原宿主，不能点击即交接")
                     assertTrue(hasDialog()); assertEquals(0, cleared)
-                    environment.advanceFrameBy(MotionTokens.DurFast.toLong() - 1); consumeNow()
+                    environment.advanceFrameBy(MIUIX_CONFIRMATION_EXIT_MILLIS - 1); consumeNow()
                     assertEquals(0, cancelled); assertTrue(hasDialog()); assertEquals(0, cleared)
                     environment.advanceFrameBy(1); consumeNow()
                 }
-                assertEquals(exitAt + if (scale == 0f) 0L else MotionTokens.DurFast.toLong(), testScheduler.currentTime)
+                assertEquals(exitAt + if (scale == 0f) 0L else MIUIX_CONFIRMATION_EXIT_MILLIS, testScheduler.currentTime)
                 assertFalse(hasDialog(), "原宿主必须真实退场完成，不以未触发取消冒充通过")
                 assertFalse(requested, "父请求只由原onCancel完成回调移除，不重建另一scene")
                 assertEquals(1, cancelled)

@@ -27,6 +27,7 @@ class SubpageBackStateTest {
 
     @Test fun liveSettingToggleRestoresGestureOnlyWhenEnabled() = withStates { gesture, resting, _, _ ->
         val source = InMemoryAppearanceSettingsSource()
+        assertSame(resting, subpageBackRenderState(source.state.value.predictiveBackRequested, gesture, resting))
         source.setPredictiveBackRequested(true)
         assertSame(gesture, subpageBackRenderState(source.state.value.predictiveBackRequested, gesture, resting))
         source.setPredictiveBackRequested(false)

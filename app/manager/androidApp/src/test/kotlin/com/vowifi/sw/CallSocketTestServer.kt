@@ -26,7 +26,7 @@ internal class CallSocketTestServer {
         private set
     val dialPending get() = dialId != 0L
     val primaryClosed get() = primary?.closed ?: false
-    fun socket(): LocalSocket = CallTestSocket(::request).also(connections::add)
+    fun socket(@Suppress("UNUSED_PARAMETER") path: String = ""): LocalSocket = CallTestSocket(::request).also(connections::add)
 
     private fun request(socket: CallTestSocket, line: String) {
         val data = Json.parseToJsonElement(line).jsonObject

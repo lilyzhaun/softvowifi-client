@@ -25,6 +25,7 @@ dependencyResolutionManagement {
             }
         }
         mavenCentral()
+        maven("https://jitpack.io") { content { includeGroup("com.github.topjohnwu.libsu") } }
     }
 }
 
@@ -34,3 +35,4 @@ plugins {
 
 include(":shared")
 include(":androidApp")
+include(":rootbridge")

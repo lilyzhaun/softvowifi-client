@@ -41,14 +41,8 @@ internal class AndroidCallAudioSocket(
 
     companion object {
         fun connect(iccid: String): AndroidCallAudioSocket {
-            val connected = LocalSocket()
+            val connected = com.vowifi.sw.root.RootBridge.openSocket("/data/local/tmp/softvowifi/$iccid.audio.sock")
             try {
-                connected.connect(
-                    LocalSocketAddress(
-                        "/data/local/tmp/vowifi/$iccid.audio.sock",
-                        LocalSocketAddress.Namespace.FILESYSTEM,
-                    ),
-                )
                 connected.setSoTimeout(0)
                 return AndroidCallAudioSocket(connected)
             } catch (error: CancellationException) {

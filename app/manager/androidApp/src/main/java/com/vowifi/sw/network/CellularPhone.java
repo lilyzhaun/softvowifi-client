@@ -86,7 +86,7 @@ final class CellularPhone implements CellularController.Phone {
     }
 
     private static boolean softwareCallIdle(String key) throws Exception {
-        String path = "/data/local/tmp/vowifi/" + key + ".sock";
+        String path = "/data/local/tmp/softvowifi/" + key + ".sock";
         if (!Files.exists(Paths.get(path))) return true;
         try (LocalSocket socket = new LocalSocket()) {
             socket.connect(new LocalSocketAddress(path, LocalSocketAddress.Namespace.FILESYSTEM));

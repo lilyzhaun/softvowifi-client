@@ -110,7 +110,8 @@ class EngineCallStopConfirmationRenderTest {
     } }
 
     private fun stopAction(e: MotionTestEnvironment, label: String) = s4Actions(e, label).single {
-        it.config.getOrNull(SemanticsProperties.Role) == Role.Button && !it.config.contains(SemanticsProperties.Disabled)
+        it.config.getOrNull(SemanticsProperties.Role) == (if (label == "停止引擎") Role.Switch else Role.Button) &&
+            !it.config.contains(SemanticsProperties.Disabled)
     }
 
     private fun withHome(scheduler: TestCoroutineScheduler, call: String, scale: Float, officialReference: Boolean = false,

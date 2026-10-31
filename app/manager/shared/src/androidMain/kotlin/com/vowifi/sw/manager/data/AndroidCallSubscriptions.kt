@@ -4,7 +4,7 @@ import android.content.Context
 import android.telephony.SubscriptionManager
 
 internal fun activeCallIccids(context: Context): List<String?>? = try {
-    context.getSystemService(SubscriptionManager::class.java)?.activeSubscriptionInfoList
+    com.vowifi.sw.root.RootBridge.activeSubscriptions()
         ?.sortedBy { it.simSlotIndex.takeIf { slot -> slot >= 0 } ?: Int.MAX_VALUE }?.map {
         IccidNormalizer.normalize(it.iccId)
     }

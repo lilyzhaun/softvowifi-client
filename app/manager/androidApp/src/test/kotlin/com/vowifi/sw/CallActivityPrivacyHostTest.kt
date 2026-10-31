@@ -126,7 +126,8 @@ class CallActivityPrivacyHostTest {
         assertTrue("android.permission.FOREGROUND_SERVICE_MICROPHONE" in permissions)
         assertTrue("android.permission.RECORD_AUDIO" in permissions)
         assertTrue("android.permission.WAKE_LOCK" in permissions)
-        assertTrue("android.permission.READ_PRIVILEGED_PHONE_STATE" in permissions)
+        assertFalse("android.permission.READ_PRIVILEGED_PHONE_STATE" in permissions)
+        assertTrue("com.vowifi.sw.permission.ROOT_SERVICE" in permissions)
         assertTrue("android.permission.FOREGROUND_SERVICE_SPECIAL_USE" in permissions)
     }
     private fun intent(key: String) = Intent().putExtra(AndroidIncomingCallNotificationCoordinator.EXTRA_NOTIFICATION_KEY, key)

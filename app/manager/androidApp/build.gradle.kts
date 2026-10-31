@@ -36,11 +36,14 @@ android {
         targetSdk = 36
         versionCode = clientVersion.getProperty("versionCode").toInt()
         versionName = clientVersion.getProperty("versionName")
+        ndk { abiFilters += "arm64-v8a" }
     }
 
     sourceSets.getByName("main") {
         java.srcDir("../../observer/src")
         res.srcDir("../../observer/res")
+        jniLibs.srcDir("build/generated/engine/jniLibs")
+        assets.srcDir("build/generated/engine/assets")
     }
 
     buildTypes {
@@ -53,6 +56,7 @@ android {
         }
     }
 
+    packaging { jniLibs { useLegacyPackaging = true; keepDebugSymbols += "**/libvowifi_engine.so" } }
     packaging.resources.excludes += "/META-INF/{AL2.0,LGPL2.1}"
     testOptions.unitTests.isIncludeAndroidResources = true
     compileOptions {

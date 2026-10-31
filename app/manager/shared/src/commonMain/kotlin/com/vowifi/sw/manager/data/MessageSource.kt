@@ -7,6 +7,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
 interface MessageSource {
+    suspend fun lookupConversation(owner: SimOwnerId, recipient: String): MessageConversationLookup = MessageConversationLookup.Unavailable
     /** An optional existing-thread suggestion, never a negative existence claim or a selection/read action. */
     suspend fun findConversation(owner: SimOwnerId, recipient: String): com.vowifi.sw.manager.ui.navigation.ConversationHandle? = null
     suspend fun changeConversation(handle: String, action: MessageConversationAction): MessageConversationActionResult = MessageConversationActionResult.FAILED

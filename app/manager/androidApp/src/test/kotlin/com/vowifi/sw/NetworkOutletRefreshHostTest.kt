@@ -19,7 +19,7 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [33], shadows = [S3ConfigurationCommandShadow::class], instrumentedPackages = ["com.vowifi.sw.manager.data"])
+@Config(sdk = [33], shadows = [S3ConfigurationCommandShadow::class, RootFrameworkShadow::class], instrumentedPackages = ["com.vowifi.sw.manager.data"])
 class NetworkOutletRefreshHostTest {
     @Test fun manualRefreshCannotJoinSubscriptionFlightWithoutAnOutletRead() = runBlocking {
         val reads = AtomicInteger()

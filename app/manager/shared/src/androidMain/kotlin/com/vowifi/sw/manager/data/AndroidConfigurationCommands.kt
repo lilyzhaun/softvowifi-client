@@ -84,6 +84,18 @@ internal class AndroidConfigurationCommands(
         slot = slot,
     ) { CommandRead.Listed(emptyList()) }
 
+    suspend fun rebuild(iccid: String, subscriptionId: Int, slot: Int, payload: String): CommandRead = invoke(
+        commandLine = ConfigurationControlCommand.rebuildLine(iccid, subscriptionId, slot),
+        stdinText = payload,
+        timeoutSeconds = ConfigurationControlCommand.CREATE_TIMEOUT_SECONDS,
+        mapper = ConfigurationRootMapper::mapRebuild,
+        writeOperation = true,
+        stage = DiagnosticStage.CONFIG_CREATE,
+        slot = slot,
+    ) { output ->
+        if (ConfigurationCodec.result(output)?.code == "APPLIED") CommandRead.Created else CommandRead.Listed(emptyList())
+    }
+
     private suspend fun invoke(
         commandLine: String,
         stdinText: String? = null,

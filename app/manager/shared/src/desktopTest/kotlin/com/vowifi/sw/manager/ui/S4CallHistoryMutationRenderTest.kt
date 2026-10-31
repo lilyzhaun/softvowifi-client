@@ -157,7 +157,7 @@ class S4CallHistoryMutationRenderTest {
                             val point = s4Action(e, "删除").boundsInRoot.center
                             e.press(point); e.advanceFrameBy(8)
                             val releasedAt = testScheduler.currentTime
-                            val dwell = (MotionTokens.DurFast * e.durationScale).toLong()
+                            val dwell = (MIUIX_CONFIRMATION_EXIT_MILLIS * e.durationScale).toLong()
                             val deadline = releasedAt + dwell
                             fun diagnostic() = "scale=${e.durationScale} attempt=$count releasedAt=$releasedAt deadline=$deadline " +
                                 "now=${testScheduler.currentTime} hosts=${hosts().size} started=${entered[count].isCompleted} deletes=${deletes.size}"
@@ -182,7 +182,7 @@ class S4CallHistoryMutationRenderTest {
                                 }
                             }
                             consumeNow()
-                            assertTrue(testScheduler.currentTime <= deadline, "不能延长原150ms×scale：${diagnostic()}")
+                            assertTrue(testScheduler.currentTime <= deadline, "不能延长官方260ms×scale：${diagnostic()}")
                             assertTrue(hosts().isEmpty(), "T7真实宿主须已卸载：${diagnostic()}")
                             if (e.durationScale == 0f) assertEquals(releasedAt, testScheduler.currentTime, diagnostic())
                             assertTrue(entered[count].isCompleted, "确认必须真正进入 repository，未命中不能算行为 RED；${diagnostic()}")
@@ -391,17 +391,17 @@ class S4CallHistoryMutationRenderTest {
                     "前提：原确认框动作已即时撤权，不能把未接受的tap当退场开始")
                 assertEquals(0, deletes, "T7退场完成前不得把确认当作IO已开始")
                 assertFalse(entered.isCompleted)
-                println("S7_T7_EXIT|releaseAt=$releaseAt|firstExitFrameAt=$firstExitFrameAt|duration=${MotionTokens.DurFast}")
-                e.advanceFrameBy(MotionTokens.DurFast.toLong() - 1); consumeExitFrameNow()
-                assertEquals(firstExitFrameAt + MotionTokens.DurFast - 1, testScheduler.currentTime)
+                println("S7_T7_EXIT|releaseAt=$releaseAt|firstExitFrameAt=$firstExitFrameAt|duration=$MIUIX_CONFIRMATION_EXIT_MILLIS")
+                e.advanceFrameBy(MIUIX_CONFIRMATION_EXIT_MILLIS - 1); consumeExitFrameNow()
+                assertEquals(firstExitFrameAt + MIUIX_CONFIRMATION_EXIT_MILLIS - 1, testScheduler.currentTime)
                 assertNotNull(originalDialog(), "T7期限前1ms原宿主仍须在，不能提前释放")
-                assertEquals(0, deletes, "T7 149ms真实repository准入必须仍为0")
+                assertEquals(0, deletes, "官方退场259ms真实repository准入必须仍为0")
                 assertFalse(entered.isCompleted)
                 e.advanceFrameBy(1); consumeExitFrameNow(); testScheduler.runCurrent()
-                assertEquals(firstExitFrameAt + MotionTokens.DurFast, testScheduler.currentTime)
-                assertNull(originalDialog(), "T7 150ms须由原宿主完成卸载后交接")
+                assertEquals(firstExitFrameAt + MIUIX_CONFIRMATION_EXIT_MILLIS, testScheduler.currentTime)
+                assertNull(originalDialog(), "官方260ms须由原宿主完成卸载后交接")
                 assertTrue(entered.isCompleted, "前提：原宿主完成退场后必须真正到达held repository")
-                assertEquals(testScheduler.currentTime, deleteEnteredAt, "真实repository准入须在原150ms，不追加await掩盖时钟")
+                assertEquals(testScheduler.currentTime, deleteEnteredAt, "真实repository准入须在官方260ms，不追加await掩盖时钟")
                 assertEquals(1, deletes); assertEquals(setOf(id), snapshot.value.deletePending)
                 assertSame(before, snapshot.value.view); assertEquals(before.records, saved.listByOwner(OWNER_A))
                 val label = s4Nodes(e).single { it.config.getOrNull(SemanticsProperties.Text)?.singleOrNull()?.text == target }

@@ -12,13 +12,12 @@ internal data class RootDiagnosticReceipt(val complete: Boolean, val records: Lo
 
 /** Unlike AndroidSuCommand, this path never materializes stdout as one String. */
 internal class AndroidRootDiagnosticStream(
-    private val start: (String) -> Process = { ProcessBuilder("su", "-c", it)
-        .redirectError(ProcessBuilder.Redirect.to(File("/dev/null"))).start() },
+    private val start: (String) -> Process = { com.vowifi.sw.root.RootBridge.startCommand("$it 2>/dev/null") },
     private val seconds: Long = 35,
 ) {
     fun read(from: Long, to: Long, consume: (DiagnosticRecord) -> Unit): RootDiagnosticReceipt {
         require(from in 0..to && to <= 9_999_999_999_999L)
-        val process = start("/data/adb/modules/vowifi_sw/control.sh logs diagnostics $from $to")
+        val process = start("/data/adb/softvowifi/runtime/control.sh logs diagnostics $from $to")
         val result = AtomicReference<RootDiagnosticReceipt?>()
         val error = AtomicReference<Throwable?>()
         val worker = Thread({

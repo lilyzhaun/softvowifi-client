@@ -20,7 +20,7 @@ public final class CellularControlMain {
                 throw new CellularController.Failure("INVALID_REQUEST");
             }
             String output;
-            try (CellularFileStore store = new CellularFileStore(Paths.get("/data/adb/vowifi/network/cellular"))) {
+            try (CellularFileStore store = new CellularFileStore(Paths.get("/data/adb/softvowifi/network/cellular"))) {
                 CellularController controller = new CellularController(store, new CellularPhone());
                 if (all) {
                     List<String> keys = store.keys();

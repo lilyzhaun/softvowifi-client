@@ -28,7 +28,7 @@ class RegistrationOperationalLogHostTest {
         val context = RuntimeEnvironment.getApplication()
         val file = File(context.filesDir, "logs/ims-registration.jsonl").apply { parentFile!!.mkdirs() }
         file.delete()
-        val writer = RegistrationObserver(77, 1, null, { it.run() }, file)
+        val writer = RegistrationObserver(77, 1, null, { it.run() }) { RegistrationObserver.writeEvent(file, it) }
         val callback = RegistrationObserver::class.java.getDeclaredField("callback").apply { isAccessible = true }
             .get(writer) as RegistrationManager.RegistrationCallback
         // The public compile SDK exposes callback attributes, but not their system-only builder.

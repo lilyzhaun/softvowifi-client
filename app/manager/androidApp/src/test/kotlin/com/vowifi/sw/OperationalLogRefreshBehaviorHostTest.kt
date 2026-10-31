@@ -100,7 +100,7 @@ internal class S3LogRefreshFixture(private val lateReplies: Boolean = false) : A
 
     fun drain() = dispatcher.runCurrent()
     fun next(suffix: String): S3LogPending = queue.removeFirst().also {
-        assertEquals("/data/adb/modules/vowifi_sw/control.sh logs $suffix", it.command)
+        assertEquals("/data/adb/softvowifi/runtime/control.sh logs $suffix", it.command)
     }
     fun reply(pending: S3LogPending, output: String, exit: Int = 0) {
         assertTrue(pending.response.complete(AndroidSuResult(false, exit, output, false)))

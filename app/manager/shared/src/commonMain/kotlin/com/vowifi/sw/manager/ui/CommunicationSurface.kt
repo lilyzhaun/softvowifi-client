@@ -126,8 +126,8 @@ internal fun LazyListScope.communicationNoticeItem(key: String, notice: Communic
 }
 
 @Composable
-private fun CommunicationNoticeSlot(notice: CommunicationNoticeSpec?, onRetry: (() -> Unit)?,
-    content: (@Composable (CommunicationNoticeSpec, Boolean) -> Unit)?) {
+internal fun CommunicationNoticeSlot(notice: CommunicationNoticeSpec?, onRetry: (() -> Unit)? = null,
+    content: (@Composable (CommunicationNoticeSpec, Boolean) -> Unit)? = null) {
     var retained by remember { mutableStateOf(notice) }
     SideEffect { if (notice != null) retained = notice }
     val active = LocalAppRouteActive.current

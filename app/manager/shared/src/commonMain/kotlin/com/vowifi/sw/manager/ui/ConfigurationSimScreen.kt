@@ -70,7 +70,8 @@ internal fun SettingsConfigurationSimScreen(
     activeCallSims: Map<SimHandle, Int?> = emptyMap(),
 ) {
     val presentation = configurationPresentation(state, simState)
-    val row = presentation.rows.firstOrNull { it.key == handle.value && it.kind == ConfigurationRowKind.CONFIGURED }
+    val selectedRow = presentation.rows.firstOrNull { it.key == handle.value }
+    val row = selectedRow?.takeIf { it.kind == ConfigurationRowKind.CONFIGURED }
     val ready = state as? ConfigurationUiState.Ready
     val instance = row?.instance.takeIf { ready != null }
     val draft = instance?.let(drafts::draftFor)
@@ -88,7 +89,11 @@ internal fun SettingsConfigurationSimScreen(
             refreshController = refresh, refreshRotation = rotation) {
             managerRefreshResultItem(refresh, "configuration-sim-refresh-result")
             item(key = "configuration-sim-missing") {
-                StatePanel(configurationSimMissingPanel(state), onRetry = if (refresh.enabled) ({ refresh.request() }) else null)
+                val panel = if (selectedRow?.kind == ConfigurationRowKind.REBUILD_REQUIRED) {
+                    StatePanelSpec(MiuixIcons.Info, StatePanelTone.WARNING, "旧配置需重建",
+                        "请返回 SIM 与网络配置页，确认清除旧自定义值后重建。原草稿不会自动提交。")
+                } else configurationSimMissingPanel(state)
+                StatePanel(panel, onRetry = if (refresh.enabled) ({ refresh.request() }) else null)
             }
         }
         return
@@ -162,6 +167,31 @@ internal fun LazyListScope.configurationSimSections(
         ConfigurationSectionCard(bottomGap = 0.dp) { ConfigurationImsAdvancedRows(instance, draft, enabled, onEdit) }
     }
     item(key = "configuration-sim-ims-note") { ConfigurationFootnote("仅在运营商要求时修改；选择不会立即应用，保存前可放弃。") }
+    item(key = "configuration-sim-facts-title") { SmallTitle("解析与运行") }
+    item(key = "configuration-sim-facts") {
+        ConfigurationSectionCard {
+            if (instance.facts == null && instance.runtimeFacts == null) {
+                BasicComponent(title = "参数快照未知", summary = "当前后端未提供参数快照，可刷新核对。")
+            } else configurationFactLabels.forEach { (field, label) ->
+                BasicComponent(title = "$label · 快照", summary = configurationFactsSummary(instance, field))
+            }
+        }
+    }
+    item(key = "configuration-sim-negotiated-title") { SmallTitle("注册协商快照") }
+    item(key = "configuration-sim-negotiated") {
+        ConfigurationSectionCard {
+            if (instance.runtimeFacts?.registrationSeconds == null) {
+                BasicComponent(title = "注册结果未知", summary = "未读取到当前连接已确认的注册期限或算法；不从本地配置推断。")
+            } else {
+                BasicComponent(title = "注册期限", summary = "${instance.runtimeFacts.registrationSeconds} 秒")
+                BasicComponent(title = "IMS 完整性算法", summary = instance.runtimeFacts.integrity ?: "未知")
+                BasicComponent(title = "IMS 加密算法", summary = instance.runtimeFacts.encryption ?: "未知")
+            }
+        }
+    }
+    item(key = "configuration-sim-facts-note") {
+        ConfigurationFootnote("以上为最近一次读取的快照，可用顶栏刷新核对。加载配置或取得注册结果，不代表短信或通话已成功。")
+    }
 }
 
 @Composable
@@ -174,6 +204,8 @@ private fun ConfigurationSimOverviewCard(instance: ConfigurationInstance, draft:
             instance.systemSubscription !is com.vowifi.sw.manager.model.SubscriptionDiscovery.Matched
         }?.let { BasicComponent(title = it.title, summary = it.summary) }
         BasicComponent(title = "参数来源", summary = configurationSourceSummary(instance))
+        BasicComponent(title = "SIM 匹配身份", summary = configurationSIMIdentitySummary(instance.simAttributeReadStatus))
+        BasicComponent(title = "配置生效", summary = configurationApplicationSummary(instance))
         if (instance.draftOwnerId == null) {
             BasicComponent(title = "草稿保留范围", summary = "身份暂无法稳定确认；重建页面数据源后不会恢复未保存修改")
         }
@@ -264,7 +296,7 @@ internal fun ConfigurationFootnote(text: String) {
 internal fun configurationSummaryColor(modified: Boolean, error: Boolean) = LocalSoftVoWiFiColors.current.let { colors ->
     when {
         error -> BasicComponentDefaults.summaryColor(color = colors.error, disabledColor = colors.error)
-        modified -> BasicComponentDefaults.summaryColor(color = colors.interactive)
+        modified -> BasicComponentDefaults.summaryColor(color = MiuixTheme.colorScheme.primary)
         else -> BasicComponentDefaults.summaryColor()
     }
 }

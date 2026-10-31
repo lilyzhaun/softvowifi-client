@@ -21,7 +21,7 @@ class CallEntryApplicationShadow : org.robolectric.shadows.ShadowApplication() {
 @Implements(className = "com.vowifi.sw.manager.data.AndroidSuCommand", isInAndroidSdk = false)
 class CallEntryShellShadow {
     @Implementation fun run(command: String): Any {
-        check(command == "/data/adb/modules/vowifi_sw/control.sh list")
+        check(command == "/data/adb/softvowifi/runtime/control.sh list")
         return Class.forName("com.vowifi.sw.manager.data.AndroidSuResult")
             .getConstructor(Boolean::class.javaPrimitiveType, Int::class.javaPrimitiveType, String::class.java,
                 Boolean::class.javaPrimitiveType, Boolean::class.javaPrimitiveType)

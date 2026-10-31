@@ -41,7 +41,7 @@ internal class EngineCapabilitiesHostFixture : AutoCloseable {
         else """[{"ok":true,"iccid":"stopped","state":"stopped"},{"ok":true,"iccid":"missing","state":"config_missing"}]"""
     }
 
-    private fun socket() = CallTestSocket { socket, line ->
+    private fun socket(@Suppress("UNUSED_PARAMETER") path: String = "") = CallTestSocket { socket, line ->
         val request = Json.parseToJsonElement(line).jsonObject
         val id = request.getValue("id").jsonPrimitive.long
         val method = request.getValue("method").jsonPrimitive.content

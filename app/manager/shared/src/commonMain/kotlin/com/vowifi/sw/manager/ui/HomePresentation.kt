@@ -159,16 +159,15 @@ private fun homeSimAction(instance: SimControlInstance): HomeSimActionPresentati
         actionId == HomeActionId.STOP -> "停止引擎"
         else -> "创建配置"
     }
-    val status = if (instance.presence == SimPresence.ACTIVE_UNCONFIGURED) "未配置" else engineLabel(instance.lifecycle)
+    val status = if (instance.presence == SimPresence.ACTIVE_UNCONFIGURED) "未配置" else homeConnectionBadge(instance.lifecycle, instance.runtime)
     val summary = when {
         instance.presence == SimPresence.ACTIVE_UNCONFIGURED && instance.canProvision -> "运营商资料已就绪，可以创建现有配置。"
         instance.presence == SimPresence.ACTIVE_UNCONFIGURED -> "当前运营商资料不足，无法自动创建配置。"
-        else -> "隧道 ${homeTunnelStatusLabel(instance.runtime?.tunnel)} · IMS ${homeImsStatusLabel(instance.runtime?.ims)}"
+        else -> homeConnectionSummary(instance.lifecycle, instance.runtime)
     }
     return HomeSimActionPresentation(
         title = simCarrierTitle(instance.slotIndex, instance.homeCarrierLabel, instance.mcc),
         summary = listOfNotNull(
-            if (instance.mcc != null && instance.mnc != null) homeSafeText("PLMN ${instance.mcc}/${instance.mnc}", "网络未知", 24) else null,
             summary,
             instance.message?.takeIf { instance.presence != SimPresence.ACTIVE_UNCONFIGURED }
                 ?.let { homeSafeText(it, "操作未完成，请前往配置查看", 80) },
@@ -220,20 +219,6 @@ private fun homeSafeText(value: String?, fallback: String, limit: Int): String {
     val lower = normalized.lowercase()
     if (HOME_SENSITIVE.any(lower::contains) || Regex("\\d{13,}").containsMatchIn(normalized)) return fallback
     return if (normalized.length <= limit) normalized else normalized.take(limit - 1) + "…"
-}
-
-private fun homeTunnelStatusLabel(tunnel: String?): String = when (tunnel) {
-    "CONNECTED" -> "已连接"
-    "CONNECTING" -> "连接中"
-    "DISCONNECTED" -> "未连接"
-    else -> "状态未知"
-}
-
-private fun homeImsStatusLabel(ims: String?): String = when {
-    ims.isNullOrBlank() || ims == "UNREGISTERED" -> homeNonBreakingPhrase("未注册")
-    ims == "REGISTERED" -> "已注册"
-    ims == "REGISTERING" -> "注册中"
-    else -> "状态未知"
 }
 
 internal fun homeCountryFlag(iso2: String?): String? = com.vowifi.sw.manager.data.countryFlagEmoji(iso2)

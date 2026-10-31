@@ -31,15 +31,18 @@ class EngineMessageSource(
     override val state: StateFlow<MessageUiState> = session.state
     override val unreadSummary = session.unreadSummary.state
     override val historyChoices = session.selection.historyChoices
-    override suspend fun findConversation(owner: SimOwnerId, recipient: String): com.vowifi.sw.manager.ui.navigation.ConversationHandle? {
-        if (session.closed) return null
+    override suspend fun lookupConversation(owner: SimOwnerId, recipient: String): MessageConversationLookup {
+        if (session.closed) return MessageConversationLookup.Unavailable
         val identity = StoredMessageConversation(owner, PeerNumberNormalizer.normalize(recipient))
         return try {
-            identity.handle.takeIf { session.repository.history.thread(identity).records.isNotEmpty() }
+            if (session.repository.history.hasConversation(identity)) MessageConversationLookup.Found(identity.handle)
+            else MessageConversationLookup.Missing
         } catch (_: MessageStorageException) {
-            null // A failed optional suggestion must not select a thread or claim that no history exists.
+            MessageConversationLookup.Unavailable
         }
     }
+    override suspend fun findConversation(owner: SimOwnerId, recipient: String): com.vowifi.sw.manager.ui.navigation.ConversationHandle? =
+        (lookupConversation(owner, recipient) as? MessageConversationLookup.Found)?.handle
     override suspend fun saveOwnerRemark(owner: SimOwnerId, input: String) = session.selection.saveOwnerRemark(owner, input)
     override fun selectHistoryOwner(owner: SimOwnerId) = session.selection.selectHistoryOwner(owner)
     override fun selectConversation(handle: String?) = session.selection.select(handle)

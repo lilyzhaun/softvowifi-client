@@ -6,6 +6,7 @@ import com.vowifi.sw.manager.model.SubscriptionDiscovery
 internal class AndroidSubscriptionDiscovery(
     context: Context,
     private val diagnostic: (DiagnosticEvent) -> Unit = { AndroidDiagnosticLog.emit(it) },
+    private val handles: OpaqueIccidHandleStore? = null,
 ) {
     // The inventory constructs an Android subscription listener. Create it with
     // the source owner, not on the IO thread used by subsequent read-only loads.
@@ -15,6 +16,7 @@ internal class AndroidSubscriptionDiscovery(
         return try {
             val active = (inventory.listActive() as? SubscriptionInventoryResult.Active)?.subscriptions
                 ?: return observed(configIccids.map { SubscriptionDiscovery.Unavailable })
+            handles?.reconcileActive(active)
             if (active.isEmpty()) {
                 return observed(configIccids.map { SubscriptionDiscovery.Missing })
             }

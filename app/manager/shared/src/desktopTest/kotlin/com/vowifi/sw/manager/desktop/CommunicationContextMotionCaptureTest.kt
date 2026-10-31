@@ -13,8 +13,9 @@ import com.vowifi.sw.manager.data.*
 import com.vowifi.sw.manager.model.*
 import com.vowifi.sw.manager.ui.*
 import com.vowifi.sw.manager.ui.navigation.*
+import com.vowifi.sw.manager.ui.testing.captureTestDiagnostics
+import com.vowifi.sw.manager.ui.testing.diagnosticCaptureDirectory
 import java.nio.file.Files
-import java.nio.file.Path
 import kotlinx.coroutines.test.*
 import org.jetbrains.skia.Bitmap
 import top.yukonga.miuix.kmp.basic.Scaffold
@@ -61,13 +62,15 @@ class CommunicationContextMotionCaptureTest {
         }
         var time = 0L
         var index = 0
-        val folder = Path.of("/tmp/opencode/context-motion-$kind-frames")
-        Files.createDirectories(folder)
+        val folder = diagnosticCaptureDirectory("context-motion-$kind-frames")
+        captureTestDiagnostics { Files.createDirectories(folder) }
         fun frame(save: Boolean = true) {
             scheduler.advanceTimeBy(16); scheduler.runCurrent(); time += 16_000_000L
             scene.render(time).use { image ->
-                if (save) requireNotNull(image.encodeToData()).use { png ->
-                    Files.write(folder.resolve("frame-${(index++).toString().padStart(3, '0')}.png"), png.bytes)
+                if (save) captureTestDiagnostics {
+                    requireNotNull(image.encodeToData()).use { png ->
+                        Files.write(folder.resolve("frame-${(index++).toString().padStart(3, '0')}.png"), png.bytes)
+                    }
                 }
             }
         }

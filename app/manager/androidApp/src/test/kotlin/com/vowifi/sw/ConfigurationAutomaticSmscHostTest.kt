@@ -23,7 +23,7 @@ import org.robolectric.annotation.Implementation
 import org.robolectric.annotation.Implements
 
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [33], shadows = [AutomaticSmscCommandShadow::class], instrumentedPackages = ["com.vowifi.sw.manager.data"])
+@Config(sdk = [33], shadows = [AutomaticSmscCommandShadow::class, RootFrameworkShadow::class], instrumentedPackages = ["com.vowifi.sw.manager.data"])
 class ConfigurationAutomaticSmscHostTest {
     @Test fun catalogReadsOnlyTheMatchedRunningSimAndNeverPersistsTheResult() = runBlocking {
         val reads = AtomicInteger()

@@ -6,9 +6,11 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
-import androidx.compose.ui.platform.LocalClipboard
 import com.vowifi.sw.manager.data.CallLineState
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.withTimeoutOrNull
+import com.vowifi.sw.manager.data.SimOwnerId
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
@@ -23,6 +25,7 @@ import top.yukonga.miuix.kmp.basic.HorizontalDivider
 import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.Refresh
 import top.yukonga.miuix.kmp.icon.extended.Close
+import top.yukonga.miuix.kmp.icon.extended.Messages
 
 @Composable internal fun CallHistoryDetailScreen(handle: CallHistoryHandle, history: CallHistoryState,
     onDelete: (CallHistoryState.Ready, Set<CallHistoryRecordId>) -> Unit) =
@@ -33,7 +36,7 @@ import top.yukonga.miuix.kmp.icon.extended.Close
     historySnapshot: CallHistoryViewSnapshot?,
     onDeleteAndAwait: (suspend (CallHistoryState.Ready, Set<CallHistoryRecordId>) -> CallHistoryDeleteResult)?,
     onCallback: ((String) -> Unit)? = null, callbackUnavailableReason: String? = null,
-    onRetry: (() -> Unit)? = null) = PhoneStyle {
+    onRetry: (() -> Unit)? = null, onMessage: (suspend (SimOwnerId, String) -> Boolean)? = null) = PhoneStyle {
     val palette = phoneColors()
     val confirmedHistory = historySnapshot?.view ?: history
     val ready = confirmedHistory as? CallHistoryState.Ready
@@ -76,8 +79,8 @@ import top.yukonga.miuix.kmp.icon.extended.Close
                     PhoneText(shownGroup.peer?.dialNumber()?.let { displayCallNumber(privateUiPhoneDisplay(it)) } ?: "未知号码",
                          Modifier.semantics { heading() }, size = 24)
                     shownGroup.peer?.dialNumber()?.let { number ->
-                        CallHistoryDetailActions(number, active && group != null && deletion == null,
-                            onCallback, callbackUnavailableReason)
+                         CallHistoryDetailActions(number, active && group != null && deletion == null,
+                             onCallback, callbackUnavailableReason, ready?.owner, onMessage)
                     }
                     PhoneText("${shownGroup.records.size} 次通话 · 当前线路本机记录", size = 14, secondary = true)
                 }
@@ -125,26 +128,41 @@ internal fun callHistoryCallbackUnavailableReason(history: CallHistoryState, lin
 }
 
 @Composable private fun CallHistoryDetailActions(number: String, enabled: Boolean, onCallback: ((String) -> Unit)?,
-    unavailableReason: String?) {
-    val clipboard = LocalClipboard.current
+    unavailableReason: String?, owner: SimOwnerId?, onMessage: (suspend (SimOwnerId, String) -> Boolean)?) {
     val scope = rememberCoroutineScope()
-    val copied = LocalCommunicationCopyFeedback.current
     val activeNow by rememberUpdatedState(enabled && LocalAppRouteActive.current)
-    val mounted = remember(number) { mutableStateOf(true) }
-    DisposableEffect(mounted) { onDispose { mounted.value = false } }
+    val messageNow by rememberUpdatedState(onMessage)
+    var messageJob by remember(number) { mutableStateOf<Job?>(null) }
+    var messagePending by remember(number) { mutableStateOf(false) }
+    var messageFailure by remember(number) { mutableStateOf(false) }
+    LaunchedEffect(enabled, LocalAppRouteActive.current) {
+        if (!activeNow) { messageJob?.cancel(); messageFailure = false }
+    }
     val reason = unavailableReason ?: if (onCallback == null) "当前入口不支持拨号。" else null
     Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterHorizontally)) {
+        Row(Modifier.widthIn(max = 240.dp).fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterHorizontally)) {
             PhoneButton("回拨", { if (activeNow) onCallback?.invoke(number) }, Modifier.weight(1f),
                 icon = CallPhoneIcons.Phone, compact = true, enabled = enabled && reason == null)
-            PhoneButton("复制号码", {
-                scope.launch {
-                    if (!activeNow || !mounted.value) return@launch
-                    clipboard.setClipEntry(messageTextClipEntry(number))
-                    if (activeNow && mounted.value) copied(CommunicationCopyFeedback.NUMBER)
+            PhoneButton("短信", {
+                if (activeNow && !messagePending && messageNow != null && owner != null) {
+                    messagePending = true
+                    messageFailure = false
+                    messageJob = scope.launch {
+                        try {
+                            val opened = withTimeoutOrNull(5_000) { messageNow?.invoke(owner, number) } == true
+                            if (activeNow) messageFailure = !opened
+                        } finally { messagePending = false }
+                    }
                 }
-            }, Modifier.weight(1f), icon = CommunicationCopy, compact = true, enabled = enabled)
+            }, Modifier.weight(1f), icon = MiuixIcons.Messages, compact = true,
+                enabled = enabled && owner != null && onMessage != null && !messagePending)
         }
         reason?.let { PhoneText(it, secondary = true, size = 14) }
+        CommunicationNoticeSlot((when {
+            messagePending -> "正在打开短信"
+            messageFailure -> "无法打开短信，请稍后重试。"
+            else -> null
+        })?.let { CommunicationNoticeSpec(it) })
     }
 }

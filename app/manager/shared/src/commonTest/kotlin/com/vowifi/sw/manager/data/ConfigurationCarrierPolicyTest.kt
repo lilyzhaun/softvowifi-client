@@ -14,7 +14,7 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class ConfigurationCarrierPolicyTest {
-    private val carrierShow = """{"ok":true,"displayLabel":"0001","lifecycle":"stopped","transport":"wifi","smsc":"+15550000001","epdgFqdn":"wlan.three.com.hk","imsRealm":"ims.mnc003.mcc454.3gppnetwork.org","dns":"","resolvedEpdgFqdn":"wlan.three.com.hk","resolvedImsRealm":"ims.mnc003.mcc454.3gppnetwork.org","mcc":"454","mnc":"03","identitySource":"legacy","epdgResolutionKind":"configured","imsSipSecurity":"swu_udp_aka","imsSipSecuritySource":"carrier","paniInitial":"wlan-node-country","paniInitialSource":"carrier","paniCountry":"HK","paniCountrySource":"carrier"}"""
+    private val carrierShow = """{"ok":true,"formatState":"current","configVersion":1,"configRevision":"r1_abcdefghijklmnopabcdefghijklmnop","displayLabel":"0001","lifecycle":"stopped","transport":"wifi","smsc":"+15550000001","epdgFqdn":"wlan.three.com.hk","imsRealm":"ims.mnc003.mcc454.3gppnetwork.org","dns":"","resolvedEpdgFqdn":"wlan.three.com.hk","resolvedImsRealm":"ims.mnc003.mcc454.3gppnetwork.org","mcc":"454","mnc":"03","identitySource":"legacy","epdgResolutionKind":"configured","imsSipSecurity":"swu_udp_aka","imsSipSecuritySource":"carrier","paniInitial":"wlan-node-country","paniInitialSource":"carrier","paniCountry":"HK","paniCountrySource":"carrier"}"""
 
     @Test fun actualShowRetainsEffectiveValuesAndPerFieldCarrierSources() {
         val policy = instance().imsPolicy

@@ -1,12 +1,15 @@
 package com.vowifi.sw.manager.data
 
 import com.vowifi.sw.manager.model.ConfigurationFormatException
+import com.vowifi.sw.manager.model.ConfigurationFormatState
 import com.vowifi.sw.manager.model.ConfigurationIdentitySource
 import com.vowifi.sw.manager.model.ConfigurationImsPolicy
 import com.vowifi.sw.manager.model.ConfigurationLifecycle
 import com.vowifi.sw.manager.model.ConfigurationOverrides
 import com.vowifi.sw.manager.model.ConfigurationSnapshot
 import com.vowifi.sw.manager.model.ConfigurationTransport
+import com.vowifi.sw.manager.model.SIMAttributeReadState
+import com.vowifi.sw.manager.model.SIMAttributeReadStatus
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.encodeToString
@@ -15,6 +18,8 @@ import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.booleanOrNull
+import kotlinx.serialization.json.intOrNull
 
 object ConfigurationCodec {
     private val json = Json {
@@ -25,7 +30,33 @@ object ConfigurationCodec {
     fun show(output: String): ConfigurationSnapshot {
         val obj = parseObject(output)
         rejectForbiddenKeys(obj)
-        rejectIdentityLeaks(obj)
+        // The optional facts object has its own narrow per-field decoder, which
+        // recognizes service-centre numbers without allowing subscriber fields.
+        rejectIdentityLeaks(JsonObject(obj - "configuration"))
+        val format = when ((obj["formatState"] as? JsonPrimitive)?.content) {
+            null, "legacy" -> ConfigurationFormatState.LEGACY
+            "current" -> ConfigurationFormatState.CURRENT
+            "unsupported" -> ConfigurationFormatState.UNSUPPORTED
+            else -> throw ConfigurationFormatException.Unparseable()
+        }
+        val version = (obj["configVersion"] as? JsonPrimitive)?.takeUnless { it.isString }?.intOrNull
+        val revision = (obj["configRevision"] as? JsonPrimitive)?.takeIf { it.isString }?.content
+        if (format == ConfigurationFormatState.CURRENT && (version != 1 || !validConfigRevision(revision))) {
+            throw ConfigurationFormatException.Unparseable()
+        }
+        if (format != ConfigurationFormatState.CURRENT) {
+            if ((obj["ok"] as? JsonPrimitive)?.booleanOrNull != true) throw ConfigurationFormatException.Unsuccessful()
+            val lifecycle = (obj["lifecycle"] as? JsonPrimitive)?.takeIf { it.isString }?.content
+                ?: throw ConfigurationFormatException.InvalidLifecycle()
+            // A retired file is manageable, but no old override is interpreted
+            // or exposed as an inherited/current connection setting.
+            return ConfigurationSnapshot(
+                displayLabel = "实例 ••••", lifecycle = lifecycleOf(lifecycle),
+                transport = ConfigurationTransport.WIFI, smsc = "", epdgFqdn = "", imsRealm = "", dns = "",
+                resolvedEpdgFqdn = "", resolvedImsRealm = "", mcc = "", mnc = "",
+                formatState = format, configVersion = version,
+            )
+        }
         val wire = try {
             json.decodeFromJsonElement(WireShow.serializer(), obj)
         } catch (_: SerializationException) {
@@ -59,6 +90,11 @@ object ConfigurationCodec {
             identitySource = ConfigurationIdentitySource.entries.firstOrNull { it.wireValue == wire.identitySource }
                 ?: ConfigurationIdentitySource.UNKNOWN,
             dnsOverrides = wire.dnsOverrides,
+            formatState = format,
+            configVersion = version,
+            configRevision = revision,
+            facts = ConfigurationFactsCodec.local(obj["configuration"], revision),
+            simAttributeReadStatus = simAttributeReadStatus(obj["simAttributeReadStatus"]),
             imsPolicy = ConfigurationImsPolicy(
                 security = sipSecurityValue(wire.imsSipSecurity).ifEmpty { "tcp_ipsec_3gpp" },
                 securitySource = policySource(wire.imsSipSecuritySource, setOf("user", "carrier", "catalog", "default"), "default"),
@@ -111,6 +147,17 @@ object ConfigurationCodec {
         return payload
     }
 
+    fun encodeRevisionChanges(previous: ConfigurationOverrides, next: ConfigurationOverrides): String {
+        val revision = next.expectedRevision
+        if (!validConfigRevision(revision)) throw ConfigurationFormatException.Unparseable()
+        val payload = JsonObject(mapOf(
+            "expectedRevision" to JsonPrimitive(revision),
+            "overrides" to parseObject(encodeChanges(previous, next)),
+        )).toString()
+        if (payload.encodeToByteArray().size > MAX_PATCH_BYTES) throw ConfigurationFormatException.PayloadTooLarge()
+        return payload
+    }
+
     fun result(output: String): ControlScriptFailure? =
         runCatching { json.decodeFromString<ControlScriptFailure>(output) }.getOrNull()
 
@@ -126,6 +173,21 @@ object ConfigurationCodec {
         return element as? JsonObject ?: throw ConfigurationFormatException.Unparseable()
     }
 }
+
+private fun simAttributeReadStatus(value: JsonElement?): SIMAttributeReadStatus? {
+    if (value == null || value == kotlinx.serialization.json.JsonNull) return null
+    val states = value as? JsonObject ?: throw ConfigurationFormatException.Unparseable()
+    fun state(name: String): SIMAttributeReadState {
+        val raw = states[name] ?: return SIMAttributeReadState.UNKNOWN
+        val text = (raw as? JsonPrimitive)?.takeIf { it.isString }?.content
+            ?: throw ConfigurationFormatException.Unparseable()
+        return SIMAttributeReadState.entries.firstOrNull { it.wireValue == text } ?: SIMAttributeReadState.UNKNOWN
+    }
+    return SIMAttributeReadStatus(state("spn"), state("gid1"), state("gid2"))
+}
+
+internal fun validConfigRevision(revision: String?): Boolean =
+    revision != null && revision.length == 35 && revision.startsWith("r1_") && revision.drop(3).all { it in 'a'..'p' }
 
 internal fun containsIdentityDigits(text: String): Boolean = IDENTITY_DIGITS.containsMatchIn(text)
 

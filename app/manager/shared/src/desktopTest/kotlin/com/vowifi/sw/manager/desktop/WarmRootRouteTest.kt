@@ -52,6 +52,7 @@ import kotlin.math.ceil
 import kotlin.math.floor
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertContentEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
@@ -61,6 +62,33 @@ import java.lang.reflect.InvocationTargetException
 
 @OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class, kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class WarmRootRouteTest {
+    @Test fun multipleRegionsUseOneFreshReadbackWithoutAdvancingTheClock() = onEdt {
+        Driver().use { d ->
+            val regions = listOf(Rect(16f, 32f, 40f, 48f), Rect(100f, 100f, 120f, 120f))
+            val expected = regions.map(d::overlayPatch)
+            val clock = d.overlayClock()
+            val before = d.overlayReadbacks
+            val actual = d.overlayPatches(regions)
+            assertEquals(1, d.overlayReadbacks - before, "同刻多区域只读回一个场景图像")
+            expected.zip(actual).forEach { (single, batch) ->
+                assertEquals(single.width to single.height, batch.width to batch.height)
+                assertContentEquals(single.pixels, batch.pixels)
+            }
+            d.overlayPatches(regions)
+            assertEquals(2, d.overlayReadbacks - before, "下一次调用必须重新读取，不能缓存上次像素")
+            assertEquals(clock, d.overlayClock(), "读回不能推进动画或业务时钟")
+            val title = d.nodes().first { node ->
+                node.config.getOrNull(SemanticsProperties.Text)?.any { it.text == "SoftVoWiFi" } == true &&
+                    node.boundsInRoot.height > 0 && node.boundsInRoot.left >= 0 && node.boundsInRoot.right <= 420
+            }.boundsInRoot
+            val region = Rect(title.left, title.top, minOf(title.right, title.left + 72), minOf(title.bottom, title.top + 64))
+            val home = d.overlayPatches(listOf(region)).single()
+            d.route(AppRoute.Calls)
+            val calls = d.overlayPatches(listOf(region)).single()
+            assertFalse(home.pixels.contentEquals(calls.pixels), "真实导航改变后必须读到新像素，不复用前一场景")
+        }
+    }
+
     @Test fun warmSnapIsConsumedAndLaterTabSelectionsHaveIntermediateFrames() = onEdt {
         Driver().use { driver ->
             driver.route(AppRoute.Calls)
@@ -198,7 +226,7 @@ class WarmRootRouteTest {
                 return Rect(floor(b.left), floor(b.top), minOf(ceil(b.right), floor(b.left) + 72), ceil(b.bottom))
             }
             val regions = listOf("首页", "设置", " · 返回通话").map(::naturalRegion)
-            val root = regions.map(d::overlayPatch)
+            val root = d.overlayPatches(regions)
             var placedBack: SemanticsNode? = null
             fun sample(entering: Boolean): Pair<Float, List<S3SmallPatch>> {
                 val back = if (entering) pendingBackScene("push") else backNode() ?: placedBack?.takeIf {
@@ -212,7 +240,7 @@ class WarmRootRouteTest {
                     d.assertSelected(3)
                     420f // 完成 pop 后真实子页已卸载；不是动画中人为注入的边界。
                 } else back.positionInRoot.x - backRestX // 未裁剪的真实已placed节点位置，非boundsInRoot原点。
-                return edge to regions.map(d::overlayPatch)
+                return edge to d.overlayPatches(regions)
             }
             d.enqueue(AppRoute.SettingsAbout); d.overlayFrame(0)
             placedBack = pendingBackScene("push-first")
@@ -220,12 +248,14 @@ class WarmRootRouteTest {
                 "position=${placedBack?.positionInRoot}|bounds=${placedBack?.boundsInRoot}")
             val push = List(73) { index -> if (index != 0) d.overlayFrame(); sample(true) }
             d.assertVisible("关于")
-            val covered = regions.map(d::overlayPatch)
+            val covered = d.overlayPatches(regions)
             // 新的真实信息卡会覆盖底部区域；移动时须比较子页自身坐标，而非把终态同屏x当成同一内容。
             // 只采原三个文字高度带，每块84×至多64，保持真实像素与同一时刻，不造空白子页或整图。
             val referenceClock = d.overlayClock()
-            val pageBands = regions.map { region ->
-                val strips = List(5) { part -> d.overlayPatch(Rect(part * 84f, region.top, (part + 1) * 84f, region.bottom)) }
+            val pageStrips = d.overlayPatches(regions.flatMap { region ->
+                List(5) { part -> Rect(part * 84f, region.top, (part + 1) * 84f, region.bottom) }
+            })
+            val pageBands = pageStrips.chunked(5).map { strips ->
                 S3SmallPatch(420, strips.first().height, IntArray(420 * strips.first().height) { i ->
                     val x = i % 420
                     strips[x / 84].pixels[(i / 420) * 84 + x % 84]
@@ -273,8 +303,9 @@ class WarmRootRouteTest {
             assertTrue(push.first().first > regions.first().right + 2, "前提：首帧左侧根字形尚未被真实子页遮盖")
             assertTrue(push.last().first < 1f && pop.last().first >= 419f, "前提：实际进入/回退均已到终态")
             verify(push, "push"); verify(pop, "pop")
+            val restoredRegions = d.overlayPatches(regions)
             regions.indices.forEach { r ->
-                val restored = d.overlayPatch(regions[r])
+                val restored = restoredRegions[r]
                 assertEquals(0, root[r].pixels.indices.count { s3RgbDistance(root[r].pixels[it], restored.pixels[it]) > 8 },
                     "回退后公共字形在同一根位置自然恢复，不重新平移入场")
             }
@@ -566,6 +597,8 @@ class WarmRootRouteTest {
         }
         fun overlayBackStart() { assertOwner(); backInput.back() }
         fun overlayClock(): Pair<Long, Long> { assertOwner(); return time to scheduler.currentTime }
+        var overlayReadbacks = 0
+            private set
         fun overlayTap(point: Offset) {
             assertOwner()
             scene.sendPointerEvent(PointerEventType.Press, point, timeMillis = time / 1_000_000L, type = PointerType.Touch)
@@ -573,13 +606,17 @@ class WarmRootRouteTest {
             scene.sendPointerEvent(PointerEventType.Release, point, timeMillis = time / 1_000_000L, type = PointerType.Touch)
             scheduler.runCurrent(); overlayFrame(0)
         }
-        fun overlayPatch(region: Rect): S3SmallPatch = scene.render(time).use { image ->
+        fun overlayPatch(region: Rect): S3SmallPatch = overlayPatches(listOf(region)).single()
+        fun overlayPatches(regions: List<Rect>): List<S3SmallPatch> = scene.render(time).use { image ->
             Bitmap.makeFromImage(image).use { bitmap ->
-                val x = floor(region.left).toInt(); val y = floor(region.top).toInt()
-                val w = ceil(region.right).toInt() - x; val h = ceil(region.bottom).toInt() - y
-                assertTrue(w in 1..96 && h in 1..64 && x >= 0 && y >= 0 && x + w <= bitmap.width && y + h <= bitmap.height,
-                    "采样前提：仅复制完整可见的小文字/图标区域")
-                S3SmallPatch(w, h, IntArray(w * h) { i -> bitmap.getColor(x + i % w, y + i / w) })
+                overlayReadbacks++
+                regions.map { region ->
+                    val x = floor(region.left).toInt(); val y = floor(region.top).toInt()
+                    val w = ceil(region.right).toInt() - x; val h = ceil(region.bottom).toInt() - y
+                    assertTrue(w in 1..96 && h in 1..64 && x >= 0 && y >= 0 && x + w <= bitmap.width && y + h <= bitmap.height,
+                        "采样前提：仅复制完整可见的小文字/图标区域")
+                    S3SmallPatch(w, h, IntArray(w * h) { i -> bitmap.getColor(x + i % w, y + i / w) })
+                }
             }
         }
         fun enqueue(route: AppRoute) { assertTrue(routes.trySend(route).isSuccess) }

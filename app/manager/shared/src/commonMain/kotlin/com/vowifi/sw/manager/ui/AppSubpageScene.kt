@@ -74,7 +74,8 @@ internal fun appSubpageSceneContract(route: AppRoute.Subpage = AppRoute.Settings
             // R7 supplement (2026-10-15): settings use Home's collapsed top-bar material.
             AppRoute.SettingsAppearance, AppRoute.SettingsConfiguration, is AppRoute.SettingsConfigurationSim,
             AppRoute.SettingsDiagnostics, AppRoute.SettingsLogs,
-            AppRoute.SettingsCallNotifications, AppRoute.SettingsAbout -> topBarBlendAlpha(1f)
+            AppRoute.SettingsCallNotifications, AppRoute.SettingsAbout,
+            AppRoute.SettingsEngineInformation -> topBarBlendAlpha(1f)
             else -> 0f
         },
     )

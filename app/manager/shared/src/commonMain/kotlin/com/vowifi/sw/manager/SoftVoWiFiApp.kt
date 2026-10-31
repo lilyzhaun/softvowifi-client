@@ -261,6 +261,28 @@ fun SoftVoWiFiApp(
                 navigate(AppNavigator.replaceTop(navigationState, AppRoute.MessageThread(handle)))
             }
         },
+        onMessageFromCall = message@{ owner, number ->
+            val before = navigationState
+            val detail = before.topRoute as? AppRoute.CallHistoryDetail ?: return@message false
+            fun stillCurrent(): Boolean {
+                val history = sources.calls.history.value as? com.vowifi.sw.manager.model.CallHistoryState.Ready ?: return false
+                return navigationState === before && history.owner == owner &&
+                    com.vowifi.sw.manager.ui.callHistoryGroups(history).any { it.handle == detail.history && it.peer?.dialNumber() == number }
+            }
+            if (!stillCurrent()) return@message false
+            val lookup = sources.messages.lookupConversation(owner, number)
+            if (!stillCurrent()) return@message false
+            val target = when (lookup) {
+                is com.vowifi.sw.manager.data.MessageConversationLookup.Found -> AppRoute.MessageThread(lookup.handle)
+                com.vowifi.sw.manager.data.MessageConversationLookup.Missing -> {
+                    if (!messageDraft.openRecipient(owner, number)) return@message false
+                    AppRoute.NewMessage
+                }
+                com.vowifi.sw.manager.data.MessageConversationLookup.Unavailable -> return@message false
+            }
+            navigate(AppNavigator.openCallMessage(before, target))
+            true
+        },
         onCommunicationHome = { navigate(AppNavigator.selectRoot(navigationState, AppRoute.Home)) },
         onOpenHomeNotice = { subpage ->
             navigate(AppNavigator.open(navigationState, subpage))

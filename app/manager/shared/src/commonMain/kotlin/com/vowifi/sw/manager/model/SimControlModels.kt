@@ -55,6 +55,7 @@ internal data class SimActiveJoinInput(
     val mnc: String? = null,
     val lastFour: String? = null,
     val homeCarrierLabel: String? = null,
+    val subscriptionId: Int? = null,
 )
 
 internal data class SimEngineJoinInput(

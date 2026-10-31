@@ -6,8 +6,9 @@ import androidx.compose.ui.semantics.*
 import com.vowifi.sw.manager.data.CallSessionClock
 import com.vowifi.sw.manager.model.*
 import com.vowifi.sw.manager.ui.*
+import com.vowifi.sw.manager.ui.testing.captureTestDiagnostics
+import com.vowifi.sw.manager.ui.testing.diagnosticCaptureDirectory
 import java.nio.file.Files
-import java.nio.file.Path
 import org.jetbrains.skia.Bitmap
 import kotlin.test.*
 
@@ -26,7 +27,8 @@ class InCallKeypadTransitionTest {
                 onAction = actions::add, onMute = {}, onSpeaker = {}, onDigit = tones::add, onRestoreAudio = {},
                 onMinimize = {}, onKeypad = visibility::add, ticking = false) }
         }
-        val folder = Files.createDirectories(Path.of("build/reports/incall-continuous"))
+        val folder = diagnosticCaptureDirectory("incall-continuous")
+        captureTestDiagnostics { Files.createDirectories(folder) }
         try {
             frame(scene, 50)
             val original = listOf("挂断", "静音", "免提").associateWith { button(scene, it).boundsInRoot }
@@ -36,7 +38,11 @@ class InCallKeypadTransitionTest {
             fun transitionFrames(count: Int) { repeat(count) {
                 frame(scene, 1)
                 positions += original.keys.associateWith { button(scene, it).boundsInRoot }
-                scene.render(time).use { image -> image.encodeToData()!!.use { png -> Files.write(folder.resolve("frame-${index++.toString().padStart(3,'0')}.png"), png.bytes) } }
+                scene.render(time).use { image ->
+                    captureTestDiagnostics { image.encodeToData()!!.use { png ->
+                        Files.write(folder.resolve("frame-${index++.toString().padStart(3,'0')}.png"), png.bytes)
+                    } }
+                }
             } }
             click(scene, "拨号键盘");transitionFrames(50)
             val key = button(scene, "1").boundsInRoot
@@ -54,7 +60,9 @@ class InCallKeypadTransitionTest {
             assertTrue(letterInk > 10, "字母可见但不重复加入TalkBack数字标签")
             click(scene, "5");frame(scene, 5);assertEquals(listOf('5'), tones)
             val retiredTone = button(scene,"5").config[SemanticsActions.OnClick].action!!
-            click(scene, "关闭键盘");transitionFrames(1);retiredTone();transitionFrames(49)
+            click(scene, "关闭键盘");transitionFrames(1);retiredTone()
+            assertEquals(listOf('5'), tones, "关闭后首帧的旧动作不能再发数字")
+            transitionFrames(49)
             click(scene, "拨号键盘");transitionFrames(5)
             click(scene, "关闭键盘");transitionFrames(3)
             click(scene, "拨号键盘");transitionFrames(50)

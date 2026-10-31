@@ -13,7 +13,7 @@ import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.Info
 import top.yukonga.miuix.kmp.icon.extended.Settings
 import top.yukonga.miuix.kmp.icon.extended.Theme
-import top.yukonga.miuix.kmp.icon.extended.Carrier
+import top.yukonga.miuix.kmp.icon.extended.Phone
 import top.yukonga.miuix.kmp.icon.extended.SearchDevice
 import top.yukonga.miuix.kmp.icon.extended.Notes
 import top.yukonga.miuix.kmp.icon.extended.Answer
@@ -58,8 +58,7 @@ internal fun appearanceSectionSpecs(
         val availability = if (effectiveBlur(settings, blurSupported)) {
             ManagerPreferenceAvailability.Enabled
         } else {
-            ManagerPreferenceAvailability.Disabled(if (blurSupported) liquidSummary.text
-                else "需先开启模糊效果；当前设备不支持模糊")
+            ManagerPreferenceAvailability.Disabled(liquidSummary.text)
         }
         navSpecs += AppearancePreferenceSpec(
             AppearancePreferenceKey.LIQUID_GLASS_ENABLED,
@@ -173,7 +172,7 @@ internal fun SettingsScreen(
 
 private fun SettingsRowPresentation.rootIcon(): ImageVector = when (id) {
     SettingsRowId.Root.APPEARANCE -> MiuixIcons.Theme
-    SettingsRowId.Root.CONFIGURATION -> MiuixIcons.Carrier
+    SettingsRowId.Root.CONFIGURATION -> MiuixIcons.Phone
     SettingsRowId.Root.DIAGNOSTICS -> MiuixIcons.SearchDevice
     SettingsRowId.Root.OPERATIONAL_LOGS -> MiuixIcons.Notes
     SettingsRowId.Root.CALL_NOTIFICATION -> MiuixIcons.Answer

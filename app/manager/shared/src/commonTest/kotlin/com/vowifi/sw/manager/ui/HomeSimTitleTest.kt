@@ -63,7 +63,7 @@ class HomeSimTitleTest {
         assertEquals("SIM 2 · 🇺🇸 T-Mobile", project(original).title)
         assertEquals("SIM 2 · 🇺🇸 T-Mobile", project(original.copy(carrierLabel = "Another roaming label")).title)
         assertEquals("SIM 2 · 🇨🇳 T-Mobile", project(original.copy(mcc = "460", mnc = "01")).title)
-        assertEquals("PLMN 460/01\n隧道 状态未知 · IMS 未\u2060注\u2060册",
+        assertEquals("隧道 状态未知",
             project(original.copy(mcc = "460", mnc = "01")).summary)
     }
 
@@ -87,7 +87,7 @@ class HomeSimTitleTest {
             val row = project(instance)
             assertEquals("SIM 2 · 🇺🇸 归属运营商未知", row.title)
             assertEquals("Legacy", instance.carrierLabel)
-            assertEquals("PLMN 310/260\n运营商资料已就绪，可以创建现有配置。", row.summary)
+            assertEquals("运营商资料已就绪，可以创建现有配置。", row.summary)
             assertEquals("未配置", row.statusText)
             // S3 C3 also carries the real lifecycle so a completed target clears its old failure.
             assertEquals(HomeActionPresentation(HomeActionId.PROVISION, instance.handle, "创建配置", true, false,
@@ -111,7 +111,7 @@ class HomeSimTitleTest {
     @Test fun legacyCarrierIsNotTrustedAsHomeCarrier() {
         val row = project(fixture())
         assertEquals("SIM 2 · 🇺🇸 归属运营商未知", row.title)
-        assertEquals("PLMN 310/260\n隧道 状态未知 · IMS 未\u2060注\u2060册", row.summary)
+        assertEquals("隧道 状态未知", row.summary)
         assertEquals("已停止", row.statusText)
         assertEquals(SemanticTone.NEUTRAL, row.tone)
         // S3 C3: keep the full action contract, including its new confirmed lifecycle projection.

@@ -89,7 +89,7 @@ class ConfigurationPolicyRenderTest {
                 val texts = texts()
                 assertTrue("IMS 高级参数" in texts, "高级参数直接分组呈现，不再藏在折叠里")
                 val securityLabel = if (security == "swu_udp_aka") "SWu 内 UDP + AKA" else "TCP + IPsec"
-                assertTrue("当前生效：$securityLabel · ${configurationSourceLabel(source)}" in texts, "来源以中文写明：$texts")
+                assertTrue("当前解析：$securityLabel · ${configurationSourceLabel(source)}" in texts, "磁盘解析值不能冒运行生效，来源以中文写明：$texts")
                 assertFalse(texts.any { it.contains("来源：$source") }, "不再直接显示 wire 来源值")
                 val selectedLabel = if (source == "user") "TCP + IPsec" else "自动"
                 assertTrue(selectedLabel in texts, "Missing selected label: $selectedLabel")

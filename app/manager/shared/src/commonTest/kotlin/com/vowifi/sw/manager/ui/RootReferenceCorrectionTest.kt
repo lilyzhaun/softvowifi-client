@@ -9,7 +9,7 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.Notes
-import top.yukonga.miuix.kmp.icon.extended.Carrier
+import top.yukonga.miuix.kmp.icon.extended.Phone
 
 class RootReferenceCorrectionTest {
     @Test
@@ -52,7 +52,7 @@ class RootReferenceCorrectionTest {
         val rows = settingsCardGroups(settingsCatalog(settingsSnapshot())).flatMap { it.rows }
         val configuration = rows.single { it.id == SettingsRowId.Root.CONFIGURATION }
         val logs = rows.single { it.id == SettingsRowId.Root.OPERATIONAL_LOGS }
-        assertEquals(MiuixIcons.Carrier, settingsRowToNavigatePreference(configuration).startIcon)
+        assertEquals(MiuixIcons.Phone, settingsRowToNavigatePreference(configuration).startIcon)
         assertEquals(MiuixIcons.Notes, settingsRowToNavigatePreference(logs).startIcon)
         val notification = rows.single { it.id == SettingsRowId.Root.CALL_NOTIFICATION }
         assertTrue(settingsRowToNavigatePreference(notification).actionable)

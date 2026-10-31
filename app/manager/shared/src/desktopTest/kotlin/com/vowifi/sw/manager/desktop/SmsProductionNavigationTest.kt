@@ -113,7 +113,7 @@ class SmsProductionNavigationTest {
         } } finally { backend.close(); runCurrent(); stored.close() }
     } }
 
-    @Test fun existingConversationOutsideTheInboxPageCanOpenWithoutSendingOrDiscardingBody() = onMotionTestThread { runTest(timeout = 20.seconds) {
+    @Test fun existingConversationOutsideTheInboxPageCanOpenAfterPauseWithoutSendingOrDiscardingBody() = onMotionTestThread { runTest(timeout = 20.seconds) {
         val stored = FakeMessageRepository()
         val epoch = 1_700_000_000_000L
         stored.insertIncomingIfAbsent(owner, "old-peer", "old-engine", peer, "synthetic old conversation", epoch, epoch)
@@ -132,7 +132,7 @@ class SmsProductionNavigationTest {
             assertTrue(inbox.page.items.none { it.identity == identity }, "前提：目标真实记录不在已加载首页")
             assertTrue(transport.statusRequests > 0)
             driver.edit(0, peer)
-            assertTrue(driver.hasText("此线路已有与该号码的会话"), "存在提示必须查真实owner历史，不能只看首页summary")
+            assertTrue(driver.hasText("此线路已有与该号码的会话"), "输入停顿后须查真实owner历史，不能只看首页summary")
             assertTrue(driver.hasText("打开会话"))
             driver.edit(1, "synthetic unsent body")
             assertTrue(driver.hasText("此线路已有与该号码的会话"))

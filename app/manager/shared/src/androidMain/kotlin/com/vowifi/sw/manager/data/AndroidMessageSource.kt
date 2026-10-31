@@ -63,6 +63,8 @@ class AndroidMessageSource(
     override val unreadSummary get() = opened?.source?.unreadSummary ?: super.unreadSummary
     override val historyChoices get() = opened?.source?.historyChoices ?: super.historyChoices
     override suspend fun findConversation(owner: SimOwnerId, recipient: String) = opened?.source?.findConversation(owner, recipient)
+    override suspend fun lookupConversation(owner: SimOwnerId, recipient: String) =
+        opened?.source?.lookupConversation(owner, recipient) ?: MessageConversationLookup.Unavailable
     override suspend fun changeConversation(handle: String, action: MessageConversationAction) =
         opened?.source?.changeConversation(handle, action) ?: MessageConversationActionResult.FAILED
     override suspend fun saveOwnerRemark(owner: SimOwnerId, input: String) =
@@ -136,7 +138,7 @@ class AndroidMessageSource(
     )
 
     private companion object {
-        const val CONTROL_SCRIPT = "/data/adb/modules/vowifi_sw/control.sh"
+        const val CONTROL_SCRIPT = "/data/adb/softvowifi/runtime/control.sh"
         const val LIST_FAILURE = "无法读取短信会话"
         const val PERMISSION_MESSAGE = "请在 KernelSU 中授予 SoftVoWiFi root 权限"
     }
@@ -148,7 +150,7 @@ private fun String?.isPermissionDenied(): Boolean =
         this.orEmpty().contains("error=13", ignoreCase = true)
 
 internal fun activeMessageIccids(context: Context): List<String?>? = try {
-    context.getSystemService(SubscriptionManager::class.java)?.activeSubscriptionInfoList
+    com.vowifi.sw.root.RootBridge.activeSubscriptions()
         ?.sortedBy { it.simSlotIndex.takeIf { slot -> slot >= 0 } ?: Int.MAX_VALUE }?.map {
         IccidNormalizer.normalize(it.iccId)
     }

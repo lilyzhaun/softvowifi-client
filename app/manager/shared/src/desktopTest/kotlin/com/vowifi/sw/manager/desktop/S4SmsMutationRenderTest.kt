@@ -424,11 +424,11 @@ class S4SmsMutationRenderTest {
                         assertNotNull(s4Visible(e, "删除会话？"), "前提：必须经过真实确认，不能直接调后端")
                         // T7取代旧32ms即时交接前提：真实原宿主退出完成才交接；E2仍从真实写门/写回计时。
                         val confirmHost = s4Nodes(e).single { it.config.contains(SemanticsProperties.IsDialog) }
-                        assertTrue(confirmHost.layoutInfo.isAttached, "前提：必须跟踪原DialogLayout实际宿主")
+                        assertTrue(confirmHost.layoutInfo.isAttached, "前提：必须跟踪官方OverlayDialog实际宿主")
                         val callsBeforeConfirm = deleteCalls
                         s4Tap(e, "删除") // 原helper仅持有8ms后真实Release；返回后未推进下一帧。
                         val releasedAt = testScheduler.currentTime
-                        val exitMillis = (MotionTokens.DurFast * e.durationScale).toLong()
+                        val exitMillis = (MIUIX_CONFIRMATION_EXIT_MILLIS * e.durationScale).toLong()
                         val deadline = releasedAt + exitMillis
                         fun consumeConfirmationNow() {
                             val at = testScheduler.currentTime
@@ -460,10 +460,10 @@ class S4SmsMutationRenderTest {
                             "ioStarted=${entered.isCompleted}|beforeCalls=$callsBeforeConfirm|calls=$deleteCalls|" +
                             "ownerMatches=${inbox().ownerId == rig.owner}|targetPresent=${inbox().page.items.any { it.identity == target }}|" +
                             "result=${results.lastOrNull()}")
-                        assertTrue(testScheduler.currentTime <= deadline, "T7：只允许原scale下DurFast，不套500ms等待")
+                        assertTrue(testScheduler.currentTime <= deadline, "T7：只允许原scale下官方260ms，不套500ms等待")
                         if (e.durationScale == 0f) assertEquals(releasedAt, testScheduler.currentTime,
                             "零动画同刻完成真实宿主退出及交接，不推迟到后继帧")
-                        assertFalse(confirmHost.layoutInfo.isAttached, "T7：必须是原DialogLayout实际卸载，不是标题裁掉")
+                        assertFalse(confirmHost.layoutInfo.isAttached, "T7：必须是官方OverlayDialog实际卸载，不是标题裁掉")
                         assertTrue(s4Nodes(e).none { it.config.contains(SemanticsProperties.IsDialog) }, "不得残留确认宿主")
                         assertTrue(entered.isCompleted, "前提：确认必须进入真实repository写门")
                     }

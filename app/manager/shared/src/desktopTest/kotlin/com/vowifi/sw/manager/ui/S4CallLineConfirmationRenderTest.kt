@@ -280,7 +280,8 @@ internal fun s4Matches(node: SemanticsNode, label: String): Boolean =
     node.config.getOrNull(SemanticsProperties.Text)?.any { it.text == label } == true ||
         node.config.getOrNull(SemanticsProperties.ContentDescription)?.contains(label) == true || node.children.any { s4Matches(it, label) }
 internal fun s4Actions(environment: MotionTestEnvironment, label: String) = s4Nodes(environment, false).filter {
-    it.config.contains(SemanticsActions.OnClick) && s4Matches(it, label)
+    // Official OverlayDialog's scrim has its own Dismiss action. It is not a descendant button.
+    it.config.contains(SemanticsActions.OnClick) && it.config[SemanticsActions.OnClick].label != "Dismiss" && s4Matches(it, label)
 }
 internal fun s4Action(environment: MotionTestEnvironment, label: String) = s4Actions(environment, label).single {
     !it.config.contains(SemanticsProperties.Disabled)

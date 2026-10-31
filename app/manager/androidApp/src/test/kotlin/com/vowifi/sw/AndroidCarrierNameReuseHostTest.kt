@@ -18,7 +18,7 @@ import org.robolectric.shadow.api.Shadow
 import org.robolectric.shadows.ShadowSubscriptionManager.SubscriptionInfoBuilder
 
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [33], application = Application::class, shadows = [HomeCarrierTelephonyShadow::class])
+@Config(sdk = [33], application = Application::class, shadows = [HomeCarrierTelephonyShadow::class, RootFrameworkShadow::class])
 class AndroidCarrierNameReuseHostTest {
     private val context get() = RuntimeEnvironment.getApplication()
     private val key = "89" + "0".repeat(15) + "22"

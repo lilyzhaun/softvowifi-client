@@ -65,6 +65,7 @@ internal class ManagerPressRenderFixture(
     val haptics = mutableListOf<HapticFeedbackType>()
     lateinit var palette: SoftVoWiFiColors
     var communicationAccent = Color.Unspecified
+    var managerAccent = Color.Unspecified
     var preferenceTitleColor = Color.Unspecified
     private val recorder = object : HapticFeedback {
         override fun performHapticFeedback(hapticFeedbackType: HapticFeedbackType) { haptics += hapticFeedbackType }
@@ -74,7 +75,8 @@ internal class ManagerPressRenderFixture(
             val colors = LocalSoftVoWiFiColors.current
             val accent = communicationColors().accent
             val titleColor = MiuixTheme.colorScheme.onBackground
-            SideEffect { palette = colors; communicationAccent = accent; preferenceTitleColor = titleColor }
+            val primary = MiuixTheme.colorScheme.primary
+            SideEffect { palette = colors; communicationAccent = accent; preferenceTitleColor = titleColor; managerAccent = primary }
             CompositionLocalProvider(LocalHapticFeedback provides recorder, LocalDensity provides Density(1f, fontScale)) {
                 val container = Modifier.fillMaxSize().background(colors.canvas).padding(24.dp)
                 Column(if (scroll == null) container else container.verticalScroll(scroll)) {

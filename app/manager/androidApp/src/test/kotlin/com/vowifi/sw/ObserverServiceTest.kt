@@ -6,6 +6,8 @@ import android.content.Context
 import android.content.Intent
 import android.telephony.SubscriptionManager
 import android.telephony.ims.ImsReasonInfo
+import com.vowifi.sw.root.ObserverRootBridgeShadow
+import com.vowifi.sw.root.ObserverRootTelephonyShadow
 import java.util.concurrent.ExecutorService
 import org.junit.After
 import org.junit.Assert.*
@@ -29,17 +31,18 @@ import org.robolectric.util.ReflectionHelpers
     RuntimeApplicationShadow::class, ObserverPermissionShadow::class,
     ObserverImsManagerShadow::class, ObserverMmTelShadow::class,
     ObserverCallsShadow::class, ObserverMessagesShadow::class,
+    ObserverRootBridgeShadow::class, ObserverRootTelephonyShadow::class,
 ])
 class ObserverServiceTest {
     private lateinit var controller: ServiceController<ObserverService>
     private val service get() = controller.get()
-    private val observers get() = ReflectionHelpers.getField<Map<Int, RegistrationObserver>>(service, "observers")
+    private val observers get() = ObserverRootBridgeShadow.observers
     private val executor get() = ReflectionHelpers.getField<ExecutorService>(service, "executor")
     private var destroyed = false
 
     @Before fun prepare() {
+        ObserverRootBridgeShadow.reset()
         ObserverPermissionShadow.granted.clear()
-        ObserverPermissionShadow.granted += "android.permission.READ_PRIVILEGED_PHONE_STATE"
         ObserverMmTelShadow.registered.clear()
         ObserverMmTelShadow.closed.clear()
         ObserverMmTelShadow.callbacks.clear()
@@ -57,33 +60,36 @@ class ObserverServiceTest {
         ObserverMmTelShadow.closeFailure = false
         if (!destroyed) controller.destroy()
         executor.shutdownNow()
+        ObserverRootBridgeShadow.reset()
     }
 
-    @Test fun deniedBothPermissionsKeepsRuntimeWithoutObservers() {
+    @Test fun unavailableRootKeepsRuntimeWithoutObservers() {
         ObserverPermissionShadow.granted.clear()
+        ObserverRootBridgeShadow.available = false
         controller.create()
         assertTrue(observers.isEmpty())
         assertTrue(ObserverMmTelShadow.registered.isEmpty())
         assertRuntimeContinues()
     }
 
-    @Test fun privilegedOnlyRegistersWithoutOrdinaryPermission() {
+    @Test fun rootRegistersWithoutAppPhonePermissions() {
         controller.create()
         assertEquals(setOf(1, 2), observers.keys)
         assertEquals(listOf(1, 2), ObserverMmTelShadow.registered)
         assertRuntimeContinues()
     }
 
-    @Test fun ordinaryOnlyCannotRegisterImsCallbacks() {
+    @Test fun ordinaryUidCannotRegisterRootImsCallbacks() {
         ObserverPermissionShadow.granted.clear()
         ObserverPermissionShadow.granted += READ_PHONE_STATE
+        ObserverRootBridgeShadow.rootUid = 10000
         controller.create()
         assertTrue(observers.isEmpty())
         assertTrue(ObserverMmTelShadow.registered.isEmpty())
         assertRuntimeContinues()
     }
 
-    @Test fun ordinaryAndPrecisePermissionsRegisterImsCallbacks() {
+    @Test fun appPermissionStateDoesNotReplaceRootObservation() {
         ObserverPermissionShadow.granted.clear()
         ObserverPermissionShadow.granted += READ_PHONE_STATE
         ObserverPermissionShadow.granted += android.Manifest.permission.READ_PRECISE_PHONE_STATE
@@ -188,7 +194,8 @@ class ObserverServiceTest {
     private fun assertRuntimeContinues() {
         assertFalse(shadowOf(service).isStoppedBySelf)
         assertEquals(Service.START_STICKY, service.onStartCommand(Intent(), 0, 1))
-        assertEquals(1, Shadow.extract<RuntimeApplicationShadow>(RuntimeEnvironment.getApplication()).runtimeStarts)
+        assertEquals(if (ObserverRootBridgeShadow.available) 2 else 1,
+            Shadow.extract<RuntimeApplicationShadow>(RuntimeEnvironment.getApplication()).runtimeStarts)
     }
 
     private fun assertSanitizedLogs() {

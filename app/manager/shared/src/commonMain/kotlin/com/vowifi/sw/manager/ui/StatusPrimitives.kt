@@ -42,6 +42,7 @@ import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.Refresh
+import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 enum class StatePanelTone {
     INTERACTIVE,
@@ -78,7 +79,7 @@ fun StatePanel(
 ) {
     val colors = LocalSoftVoWiFiColors.current
     val accent = when (spec.tone) {
-        StatePanelTone.INTERACTIVE -> colors.interactive
+        StatePanelTone.INTERACTIVE -> MiuixTheme.colorScheme.primary
         StatePanelTone.NEUTRAL -> colors.neutralStatus
         StatePanelTone.WARNING -> colors.warning
         StatePanelTone.ERROR -> colors.error
@@ -128,7 +129,8 @@ fun StatePanel(
                         enabled = actionable,
                         interactionSource = interaction,
                         indication = null,
-                        colors = ButtonDefaults.buttonColors().preservingPressBusinessColors(businessEnabled, routeActive),
+                        colors = ButtonDefaults.buttonColors(contentColor = MiuixTheme.colorScheme.primary)
+                            .preservingPressBusinessColors(businessEnabled, routeActive),
                         modifier = Modifier.heightIn(min = statePanelLayoutContract.retryMinimumTouchDp.dp)
                             .managerKeyboardFocusRing(interaction, actionable)
                             .managerPressInputGate(actionable).indication(interaction, indication),
@@ -136,7 +138,7 @@ fun StatePanel(
                         Icon(
                             imageVector = MiuixIcons.Refresh,
                             contentDescription = null,
-                            tint = colors.interactive,
+                            tint = MiuixTheme.colorScheme.primary,
                             modifier = Modifier.size(20.dp),
                         )
                         Text(spec.retryDescription, modifier = Modifier.padding(start = 8.dp))

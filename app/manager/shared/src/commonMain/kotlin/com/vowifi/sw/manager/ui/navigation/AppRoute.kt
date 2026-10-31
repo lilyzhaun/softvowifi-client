@@ -78,6 +78,10 @@ sealed interface AppRoute : NavKey {
     @SerialName("SettingsAbout")
     data object SettingsAbout : Subpage
 
+    @Serializable
+    @SerialName("SettingsEngineInformation")
+    data object SettingsEngineInformation : Subpage
+
     companion object {
         val rootRoutes: List<Root> = listOf(Home, Calls, Messages, Settings)
     }
@@ -151,5 +155,6 @@ internal val AppRoute.Subpage.root: AppRoute.Root
         AppRoute.SettingsLogs,
         AppRoute.SettingsCallNotifications,
         AppRoute.SettingsAbout,
+        AppRoute.SettingsEngineInformation,
         -> AppRoute.Settings
     }

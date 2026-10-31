@@ -76,9 +76,9 @@ internal fun LogExportButton(
         interactionSource = interaction,
         indication = null,
         colors = ButtonDefaults.buttonColors(
-            color = colors.interactive,
+            color = top.yukonga.miuix.kmp.theme.MiuixTheme.colorScheme.primary,
             disabledColor = colors.separator,
-            contentColor = colors.surface,
+            contentColor = top.yukonga.miuix.kmp.theme.MiuixTheme.colorScheme.onPrimary,
             disabledContentColor = colors.textDisabled,
         ).preservingPressBusinessColors(businessEnabled, routeActive),
         modifier = modifier
@@ -89,7 +89,7 @@ internal fun LogExportButton(
                     liveRegion = LiveRegionMode.Polite
                     progressBarRangeInfo = ProgressBarRangeInfo.Indeterminate
                 }
-            }.managerKeyboardFocusRing(interaction, actionable, color = colors.surface)
+            }.managerKeyboardFocusRing(interaction, actionable, color = top.yukonga.miuix.kmp.theme.MiuixTheme.colorScheme.onPrimary)
             .managerPressInputGate(actionable).indication(interaction, indication),
     ) {
         if (presentation.busy) {

@@ -176,7 +176,7 @@ internal fun diagnosticsManagerStatus(state: EnvironmentDiagnosticsUiState): Man
     EnvironmentDiagnosticsUiState.Loading -> managerStatus(
         kind = ManagerStatusKind.Loading,
         title = "正在检查运行环境",
-        summary = "完成后将显示模块、权限和运行条件检查。",
+        summary = "完成后将显示 Root 后端、权限和运行条件检查。",
     )
     is EnvironmentDiagnosticsUiState.Failure -> managerStatus(
         kind = ManagerStatusKind.Failure,

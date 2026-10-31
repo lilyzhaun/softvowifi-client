@@ -9,6 +9,8 @@ import java.io.IOException
 import java.util.concurrent.ConcurrentLinkedQueue
 import kotlin.coroutines.CoroutineContext
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.serialization.json.*
 import org.junit.Assert.*
@@ -16,11 +18,14 @@ import org.robolectric.RuntimeEnvironment
 import org.robolectric.Shadows.shadowOf
 import org.robolectric.shadows.ShadowSubscriptionManager.SubscriptionInfoBuilder
 
-internal class HomeEngineControlHostFixture(firstRunning: Boolean = true) : AutoCloseable {
+internal class HomeEngineControlHostFixture(firstRunning: Boolean = true, withProgress: Boolean = false) : AutoCloseable {
     val dispatcher = HomeControlDispatcher()
     val context = RuntimeEnvironment.getApplication()
     private val running = mutableMapOf(OWNER_A to firstRunning, OWNER_B to true)
     val requests = mutableListOf<Pair<String, String>>()
+    val statusOverrides = mutableMapOf<String, JsonObject>()
+    private val progressStreams = mutableMapOf<String, MutableSharedFlow<Any>>()
+    private val progressConnections = mutableMapOf<String, Any>()
     val commands = mutableListOf<Pair<String, String?>>()
     val removed = mutableListOf<String>()
     var backendCloses = 0
@@ -47,7 +52,11 @@ internal class HomeEngineControlHostFixture(firstRunning: Boolean = true) : Auto
         val capabilities: suspend (String) -> ClientCapabilitiesResult = {
             ClientCapabilitiesResult.Unavailable(ClientCapabilitiesFailure.Unsupported)
         }
-        engine = AndroidEngineControlSource::class.java.declaredConstructors.single { it.parameterCount == 6 }
+        engine = if (withProgress) {
+            val events: (String) -> SharedFlow<Any> = { progressStreams.getOrPut(it) { MutableSharedFlow(extraBufferCapacity = 16) } }
+            AndroidEngineControlSource::class.java.declaredConstructors.single { it.parameterCount == 7 }
+                .apply { isAccessible = true }.newInstance(shell, rpc, retire, close, capabilities, events, dispatcher) as AndroidEngineControlSource
+        } else AndroidEngineControlSource::class.java.declaredConstructors.single { it.parameterCount == 6 }
             .apply { isAccessible = true }.newInstance(shell, rpc, retire, close, capabilities, dispatcher) as AndroidEngineControlSource
         val inventoryType = Class.forName("com.vowifi.sw.manager.data.AndroidSubscriptionInventory")
         val inventory = inventoryType.getConstructor(Context::class.java).newInstance(context)
@@ -62,6 +71,21 @@ internal class HomeEngineControlHostFixture(firstRunning: Boolean = true) : Auto
 
     fun ready() = sims.state.value as SimControlUiState.Ready
     fun row(slot: Int) = ready().instances.single { it.slotIndex == slot }
+
+    fun progressConnection(owner: String) = progressConnections.getOrPut(owner) { Any() }
+    fun replaceProgressConnection(owner: String): Any = Any().also { progressConnections[owner] = it }
+    fun emitProgress(owner: String, sequence: Long, tunnel: String, ims: String, tunnelStep: String = "", imsStep: String = "",
+        connection: Any = progressConnection(owner)) {
+        val frame = EngineProtocolFrame.Event("connectionProgress", buildJsonObject {
+            put("sequence", sequence); put("tunnel", tunnel); put("ims", ims)
+            put("tunnelProgress", tunnelStep); put("imsProgress", imsStep)
+        })
+        val current: () -> Boolean = { progressConnections[owner] === connection }
+        val event = Class.forName("com.vowifi.sw.manager.data.EngineConnectionProgressEvent").declaredConstructors
+            .single { it.parameterCount == 3 }.apply { isAccessible = true }.newInstance(frame, connection, current)
+        assertTrue(progressStreams.getValue(owner).tryEmit(event))
+        dispatcher.runCurrent()
+    }
 
     fun homeAction(slot: Int) {
         val type = Class.forName("com.vowifi.sw.manager.ui.HomePresentationKt")
@@ -126,7 +150,7 @@ internal class HomeEngineControlHostFixture(firstRunning: Boolean = true) : Auto
         when (method) {
             "getStatus" -> {
                 statusGate?.also { statusGate = null; statusEntered.complete(Unit) }?.await()
-                EngineProtocolFrame.Response(1, buildJsonObject {
+                EngineProtocolFrame.Response(1, statusOverrides[owner] ?: buildJsonObject {
                     put("tunnel", "CONNECTED"); put("reconnects", 0); put("ims", "REGISTERED")
                     put("call", "IDLE"); put("transport", "tcp"); put("pcscf", buildJsonArray {})
                 }, null)

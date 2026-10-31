@@ -13,9 +13,7 @@ internal class AndroidSubscriptionIdentityReader(
     fun read(iccid: String): SubscriptionIdentityRead = try {
         val requested = IccidNormalizer.normalize(iccid) ?: return SubscriptionIdentityRead.NotActive(NOT_ACTIVE)
         if (!hasTelephonyFeatures()) return SubscriptionIdentityRead.Unsupported(UNSUPPORTED)
-        val manager = context.getSystemService(SubscriptionManager::class.java)
-            ?: return SubscriptionIdentityRead.Unreadable(UNREADABLE)
-        val info = manager.activeSubscriptionInfoList.orEmpty()
+        val info = com.vowifi.sw.root.RootBridge.activeSubscriptions()
             .firstOrNull { IccidNormalizer.normalize(it.iccId) == requested }
             ?: return SubscriptionIdentityRead.NotActive(NOT_ACTIVE)
         val subId = info.subscriptionId
@@ -26,6 +24,7 @@ internal class AndroidSubscriptionIdentityReader(
         if (slot != SLOT_ZERO && slot != SLOT_ONE) {
             return SubscriptionIdentityRead.Unsupported(UNSUPPORTED)
         }
+        val extra = com.vowifi.sw.root.RootBridge.subscriptionExtras(subId)
         SubscriptionIdentityRead.Complete(
             RawSubscriptionIdentity(
                 iccid = requested,
@@ -33,8 +32,8 @@ internal class AndroidSubscriptionIdentityReader(
                 subscriptionId = subId,
                 mcc = info.mccString,
                 mnc = info.mncString,
-                line1 = optionalRead { manager.getPhoneNumber(subId) },
-                smsc = optionalRead { readSmsc(subId) },
+                line1 = extra.optString("line1").takeIf(String::isNotBlank),
+                smsc = extra.optString("smsc").takeIf(String::isNotBlank),
                 carrierId = AndroidCarrierId.project(info.carrierId),
             ),
         )

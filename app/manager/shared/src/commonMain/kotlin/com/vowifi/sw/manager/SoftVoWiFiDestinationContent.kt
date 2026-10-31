@@ -24,6 +24,7 @@ import com.vowifi.sw.manager.ui.SettingsLogsActions
 import com.vowifi.sw.manager.ui.SettingsLogsScreen
 import com.vowifi.sw.manager.ui.SettingsCallNotificationsScreen
 import com.vowifi.sw.manager.ui.SettingsAboutScreen
+import com.vowifi.sw.manager.ui.SettingsEngineInformationScreen
 import com.vowifi.sw.manager.ui.SettingsCatalogSnapshot
 import com.vowifi.sw.manager.ui.settingsCatalog
 import com.vowifi.sw.manager.ui.navigation.AppRoute
@@ -56,6 +57,7 @@ internal data class SoftVoWiFiContentActions(
     val onEntriesObscuredChange: (AppRoute.Root, Boolean) -> Unit = { _, _ -> },
     val onConfirmMessageOwner: suspend (com.vowifi.sw.manager.data.SimOwnerId) -> Boolean,
     val appVersionCode: Int? = null,
+    val onMessageFromCall: (suspend (com.vowifi.sw.manager.data.SimOwnerId, String) -> Boolean)? = null,
 ) {
     override fun toString(): String = "SoftVoWiFiContentActions"
 }
@@ -140,11 +142,11 @@ internal fun SoftVoWiFiDestinationContent(
             state.callHistory, sources.calls::deleteHistory, historySnapshot = state.callHistorySnapshot,
             onDeleteAndAwait = if (state.callHistorySnapshot != null) sources.calls::deleteHistoryAndAwait else null,
             onCallback = callback, callbackUnavailableReason = callbackReason,
-            onRetry = sources.calls::refreshHistory)
+            onRetry = sources.calls::refreshHistory, onMessage = actions.onMessageFromCall)
         AppRoute.Messages -> MessagesScreen(
             state = state.messages,
             onOpenThread = { handle -> actions.onNavigate(AppRoute.MessageThread(handle)) },
-            onNewMessage = { actions.onNavigate(AppRoute.NewMessage) },
+            onNewMessage = { actions.messageDraft.openNew(); actions.onNavigate(AppRoute.NewMessage) },
             notificationsEnabled = sources.messages.notificationsEnabled.collectAsState().value,
             onNotificationSettings = sources.messages::openNotificationSettings,
             historyChoices = sources.messages.historyChoices.collectAsState().value,
@@ -217,6 +219,7 @@ internal fun SoftVoWiFiDestinationContent(
                 onSubmit = sources.configuration::submit,
                 onRefresh = sources.configuration::refreshIdentitiesAndAwait,
                 onOpenSim = { actions.onOpenSubpage(AppRoute.SettingsConfigurationSim(it)) },
+                onRebuild = sources.configuration.takeIf { it.supportsRebuild }?.let { it::rebuild },
             ),
         )
         is AppRoute.SettingsConfigurationSim -> SettingsConfigurationSimScreen(
@@ -230,6 +233,7 @@ internal fun SoftVoWiFiDestinationContent(
                 onProvision = sources::provisionSim,
                 onSubmit = sources.configuration::submit,
                 onRefresh = sources.configuration::refreshIdentitiesAndAwait,
+                onRebuild = sources.configuration.takeIf { it.supportsRebuild }?.let { it::rebuild },
             ),
         )
         AppRoute.SettingsDiagnostics -> SettingsDiagnosticsScreen(state.diagnostics, onRefresh = sources.diagnostics::refreshAndAwait,
@@ -262,7 +266,9 @@ internal fun SoftVoWiFiDestinationContent(
         }
         AppRoute.SettingsCallNotifications -> SettingsCallNotificationsScreen(sources.callNotificationSettings)
         AppRoute.SettingsAbout -> SettingsAboutScreen(actions.appVersion, appVersionCode = actions.appVersionCode,
-            diagnosticsState = state.diagnostics, readEngineIntegrity = sources.readEngineIntegrity)
+            diagnosticsState = state.diagnostics,
+            onOpenEngineInformation = { actions.onOpenSubpage(AppRoute.SettingsEngineInformation) })
+        AppRoute.SettingsEngineInformation -> SettingsEngineInformationScreen(sources.readEngineIntegrity)
         AppRoute.Dialpad -> {
         val outgoingBinding = actions.callDraft.binding(state.callLines)
         CallsDialpadScreen(

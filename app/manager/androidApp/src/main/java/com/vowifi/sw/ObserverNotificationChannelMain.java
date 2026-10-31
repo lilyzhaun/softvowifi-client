@@ -6,6 +6,8 @@ import android.os.IBinder;
 import java.lang.reflect.Method;
 
 /** Root-only caller of the platform's user channel settings, not a service lifecycle change. */
+// Launched only by app_process as UID 0 (checked in main), not in the target-SDK App VM.
+@android.annotation.SuppressLint("SoonBlockedPrivateApi")
 public final class ObserverNotificationChannelMain {
     private static final String PACKAGE = "com.vowifi.sw";
     private static final String CHANNEL = "ims_observer";

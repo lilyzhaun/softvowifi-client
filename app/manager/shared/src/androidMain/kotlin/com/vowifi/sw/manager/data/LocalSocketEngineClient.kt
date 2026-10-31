@@ -17,6 +17,7 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.isActive
@@ -30,7 +31,7 @@ import kotlinx.serialization.json.buildJsonObject
 
 internal class LocalSocketEngineClient(
     private val socketPath: String,
-    private val socketFactory: () -> LocalSocket = { LocalSocket() },
+    private val socketFactory: (String) -> LocalSocket = { com.vowifi.sw.root.RootBridge.openSocket(it) },
 ) : AutoCloseable {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val connectionLock = Any()
@@ -41,6 +42,10 @@ internal class LocalSocketEngineClient(
     val events: SharedFlow<EngineProtocolFrame.Event> = mutableEvents.asSharedFlow()
     private val mutableDisconnected = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
     val disconnected: SharedFlow<Unit> = mutableDisconnected.asSharedFlow()
+    private val mutableConnectionProgress = MutableSharedFlow<EngineConnectionProgressEvent>(
+        extraBufferCapacity = 1, onBufferOverflow = BufferOverflow.DROP_OLDEST,
+    )
+    val connectionProgress: SharedFlow<EngineConnectionProgressEvent> = mutableConnectionProgress.asSharedFlow()
 
     @Volatile
     private var socket: LocalSocket? = null
@@ -65,9 +70,18 @@ internal class LocalSocketEngineClient(
         }
     }
 
+    /** No connection or handshake side effect for optional read-only facts. */
+    internal fun existingConnection(): MessageConnection? = synchronized(connectionLock) {
+        socket?.takeIf { !closed && handshaken }?.let { MessageConnection(it) }
+    }
+
     internal inner class MessageConnection internal constructor(private val connected: LocalSocket) {
         private var active = true
         private var writing = false
+
+        internal fun isCurrent(): Boolean = synchronized(connectionLock) {
+            active && !closed && handshaken && socket === connected
+        }
 
         fun retire() {
             val interrupt = synchronized(connectionLock) { active = false; writing }
@@ -179,11 +193,8 @@ internal class LocalSocketEngineClient(
         synchronized(connectionLock) {
             check(!closed) { "engine client closed" }
             if (socket != null) return
-            val connected = socketFactory()
+            val connected = socketFactory(socketPath)
             try {
-                connected.connect(
-                    LocalSocketAddress(socketPath, LocalSocketAddress.Namespace.FILESYSTEM),
-                )
                 connected.setSoTimeout(0)
             } catch (error: IOException) {
                 try { connected.close() } catch (failure: IOException) { error.addSuppressed(failure) }
@@ -202,7 +213,14 @@ internal class LocalSocketEngineClient(
                 val line = reader.readLine() ?: throw EOFException("engine socket closed")
                 when (val frame = EngineProtocolCodec.decode(line)) {
                     is EngineProtocolFrame.Response -> pending.remove(frame.id)?.complete(frame)
-                    is EngineProtocolFrame.Event -> mutableEvents.emit(frame)
+                    is EngineProtocolFrame.Event -> {
+                        if (frame.name == "connectionProgress") {
+                            mutableConnectionProgress.tryEmit(EngineConnectionProgressEvent(frame, connected) {
+                                synchronized(connectionLock) { !closed && socket === connected && handshaken }
+                            })
+                        }
+                        mutableEvents.emit(frame)
+                    }
                 }
             }
         } catch (error: Exception) {
@@ -250,6 +268,12 @@ internal class LocalSocketEngineClient(
         }
     }
 }
+
+internal data class EngineConnectionProgressEvent(
+    val frame: EngineProtocolFrame.Event,
+    val connectionToken: Any,
+    val isCurrent: () -> Boolean,
+)
 
 internal class ProtocolVersionMismatchException : Exception("协议版本不兼容，请更新应用")
 

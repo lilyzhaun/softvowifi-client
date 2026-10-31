@@ -24,7 +24,7 @@ internal data class AndroidSuResult(
 internal class AndroidSuCommand @JvmOverloads constructor(
     private val timeoutSeconds: Long = 20,
     private val maxBytes: Int = 262_144,
-    private val start: (String) -> Process = { ProcessBuilder("su", "-c", it).redirectErrorStream(true).start() },
+    private val start: (String) -> Process = { com.vowifi.sw.root.RootBridge.startCommand(it) },
 ) {
     fun run(command: String): AndroidSuResult = execute(command, stdin = null)
 

@@ -54,7 +54,7 @@ class S3HomeEngineCompletionRenderTest {
             assertEquals(0, f.stops)
             f.complete(1, EngineControlAction.Start, EngineControlOutcome.Completed, EngineLifecycle.RUNNING)
             f.frames(16)
-            assertTrue(f.hasText("停止引擎"))
+            assertFalse(f.button("停止引擎").config.contains(SemanticsProperties.Disabled), "保原语义及可操作开关，不再要求重复可见文字")
             assertEquals(initial.width, f.button("停止引擎").boundsInRoot.width, .5f)
             assertEquals(0, f.rejects())
         }
@@ -248,7 +248,9 @@ class S3HomeEngineCompletionRenderTest {
             }
         }
         fun button(value: String) = nodes(merged = true).single {
-            it.config.contains(SemanticsActions.OnClick) && it.config.getOrNull(SemanticsProperties.Text)?.any { text -> text.text == value } == true
+            it.config.contains(SemanticsActions.OnClick) &&
+                (it.config.getOrNull(SemanticsProperties.ContentDescription)?.contains(value) == true ||
+                    it.config.getOrNull(SemanticsProperties.Text)?.any { text -> text.text == value } == true)
         }
         fun tap(value: String) {
             val point = button(value).boundsInRoot.center

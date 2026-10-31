@@ -28,6 +28,7 @@ internal data class ConfigurationActions(
     val provision: (SimHandle) -> Unit,
     val refresh: () -> Unit,
     val openSim: (ConfigurationSimHandle) -> Unit = {},
+    val rebuild: ((SimHandle) -> Boolean)? = null,
 )
 
 @Composable
@@ -103,7 +104,7 @@ internal fun LazyListScope.configurationItems(
         } else {
             val pending = row.handle?.let { it in provisioning.pending } == true
             ConfigurationStatusCard(row, state, actions.provision, pending = pending,
-                completion = row.handle?.let { provisioning.completions[it] })
+                completion = row.handle?.let { provisioning.completions[it] }, onRebuild = actions.rebuild)
         }
     }
     if (state is ConfigurationUiState.Ready && presentation.rows.any { it.kind == ConfigurationRowKind.CONFIGURED }) {

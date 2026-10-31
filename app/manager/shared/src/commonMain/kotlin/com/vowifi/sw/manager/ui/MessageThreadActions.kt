@@ -43,7 +43,7 @@ internal fun MessageThreadActions(record: MessageRecord?, body: String, editingE
             LaunchedEffect(record.id) { onDismiss() }
         } else if (body.isNotBlank() && body != boundedDraftBody(record.preview)) {
             CommunicationConfirmation("替换现有草稿？", "仅回填正文，不会发送。取消将保留现有草稿。", "替换草稿",
-                onDismiss, { onReedit(boundedDraftBody(record.preview)); onDismiss() }, destructive = false)
+                onDismiss, { onReedit(boundedDraftBody(record.preview)); onDismiss() })
         } else LaunchedEffect(record.id) { onReedit(boundedDraftBody(record.preview)); onDismiss() }
         return
     }

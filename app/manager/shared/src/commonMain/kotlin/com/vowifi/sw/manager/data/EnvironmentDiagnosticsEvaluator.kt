@@ -69,17 +69,17 @@ private fun moduleCheck(module: ModuleDiagnostics): DiagnosticCheck {
         else -> DiagnosticCheckStatus.PASS
     }
     val detail = when (status) {
-        DiagnosticCheckStatus.FAIL -> "未检测到 SoftVoWiFi 模块"
-        DiagnosticCheckStatus.WARN -> "模块已安装，当前标记：${meanings.joinToString("、")}"
-        DiagnosticCheckStatus.PASS -> module.version?.let { "模块已安装，版本 $it" } ?: "模块已安装"
+        DiagnosticCheckStatus.FAIL -> "独立 Root 后端尚未就绪"
+        DiagnosticCheckStatus.WARN -> "Root 后端状态：${meanings.joinToString("、")}"
+        DiagnosticCheckStatus.PASS -> module.version?.let { "Root 后端已就绪，版本 $it" } ?: "Root 后端已就绪"
     }
     return DiagnosticCheck(
         id = DiagnosticCheckId.MODULE,
         status = status,
-        title = "模块",
+        title = "独立 Root 后端",
         detail = detail,
         guidance = when (status) {
-            DiagnosticCheckStatus.FAIL -> "请安装 SoftVoWiFi 模块后刷新。本页不会改写模块目录。"
+            DiagnosticCheckStatus.FAIL -> "请授予 Root 权限并重新打开 SoftVoWiFi。"
             DiagnosticCheckStatus.WARN -> moduleGuidance(module.markers)
             DiagnosticCheckStatus.PASS -> null
         },
@@ -152,7 +152,7 @@ private fun observerCheck(observer: ObserverDiagnostics): DiagnosticCheck {
         title = "观测服务",
         detail = detail,
         guidance = when (status) {
-            DiagnosticCheckStatus.FAIL -> "请确认模块已启用并等待开机看门狗。本页不会改写服务。"
+            DiagnosticCheckStatus.FAIL -> "请重新打开 App，确认 Root 后端与前台服务已经启动。"
             DiagnosticCheckStatus.WARN -> "打开应用重试。\n仅执行检查。"
             DiagnosticCheckStatus.PASS -> null
         },

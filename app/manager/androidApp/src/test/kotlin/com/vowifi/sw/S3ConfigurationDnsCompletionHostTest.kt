@@ -16,7 +16,7 @@ import org.robolectric.annotation.Implementation
 import org.robolectric.annotation.Implements
 
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [33], shadows = [S3NoApplyCommandShadow::class], instrumentedPackages = ["com.vowifi.sw.manager.data"])
+@Config(sdk = [33], shadows = [S3NoApplyCommandShadow::class, RootFrameworkShadow::class], instrumentedPackages = ["com.vowifi.sw.manager.data"])
 class S3ConfigurationDnsCompletionHostTest {
     @Test fun refreshLeavesBlankDnsForTheLiveNetworkWithoutApplying() = runBlocking {
         S3NoApplyCommandShadow.applies.set(0)

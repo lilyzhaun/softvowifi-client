@@ -1,4 +1,4 @@
-// T7/T11：真实DialogLayout退场、键盘输入与实际焦点；主机合同不替代Android设备证据。
+// T7/T11：官方OverlayDialog退场、键盘输入与实际焦点；主机合同不替代Android设备证据。
 // 仅两项增量，复用 MotionTestEnvironment/S4Calls helper；不改 CommunicationSheetLifecycleRenderTest 或15类保留守护。
 // T7只验UI回调交接，不代表存储成功；取消按钮/遮罩/返回沿用既有取消守护，本项另覆盖真实Press移出取消。
 // 迁入T11时：S4RootCommunicationEntryRenderTest 首段改为 withdraw(entry) { s4Tap(environment, searchButton("openSearch").boundsInRoot.center) }。
@@ -19,6 +19,7 @@ import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.hapticfeedback.*
 import androidx.compose.ui.input.key.*
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.semantics.*
@@ -110,9 +111,10 @@ class S5DialogSearchRenderTest {
                 val haptics = object : HapticFeedback {
                     override fun performHapticFeedback(hapticFeedbackType: HapticFeedbackType) { pulses += hapticFeedbackType }
                 }
+                val window = miuixConfirmationTestWindow(390, 844)
                 try { MotionTestEnvironment(testScheduler, 390, 844, scale, dispatcher) {
                     // miuix 0.9.3 Scaffold的popup是content兄弟；Provider须同时包住原DialogLayout真实宿主。
-                    CompositionLocalProvider(LocalNavigationEventDispatcherOwner provides back, LocalAppRouteActive provides active,
+                    CompositionLocalProvider(LocalNavigationEventDispatcherOwner provides back, LocalWindowInfo provides window, LocalAppRouteActive provides active,
                         LocalHapticFeedback provides haptics) {
                         s4SmsHost {
                             CommunicationTextAction("打开确认", { requested = true })
@@ -130,10 +132,14 @@ class S5DialogSearchRenderTest {
                         val now = testScheduler.currentTime
                         var previous: Triple<List<Pair<Int, Rect>>, Int, Int>? = null
                         var stable = false
-                        // 语义可能先稳定而宿主卸载/完成回调尚待下一同刻快照；不提前return，也不推进时间。
-                        repeat(6) {
+                        // Official DialogContentLayout and popup registration each apply a snapshot;
+                        // drain both in this timestamp, without extending any animation deadline.
+                        repeat(12) {
+                            androidx.compose.runtime.snapshots.Snapshot.sendApplyNotifications()
+                            testScheduler.runCurrent()
                             e.advanceFrameBy(0)
-                            val current = Triple(s4Nodes(e, false).map { it.id to it.boundsInRoot }, cancels, confirms)
+                            // Stabilize the actual confirmation, not unrelated focus-return nodes behind the popup.
+                            val current = Triple(dialogs().map { it.id to it.boundsInRoot }, cancels, confirms)
                             stable = current == previous
                             previous = current
                         }
@@ -143,9 +149,9 @@ class S5DialogSearchRenderTest {
                     val region = Rect(8f, 400f, 24f, 416f)
                     consumeNow(); val clear = s3SmallPatch(e, testScheduler, region)
                     s4Tap(e, s4Action(e, "打开确认").boundsInRoot.center); consumeNow()
-                    if (scale != 0f) { e.advanceFrameBy(MotionTokens.DurBase.toLong()); consumeNow() }
-                    val bounds = assertNotNull(dialog(), "前提：必须由原DialogLayout实际呈现：${diagnostic()}").boundsInRoot
-                    assertTrue(bounds.left > region.right && bounds.right < 390f && bounds.top >= 0f && bounds.bottom <= 844f)
+                    if (scale != 0f) { s4Frames(e, 60); consumeNow() }
+                    val bounds = assertNotNull(dialog(), "前提：必须由官方OverlayDialog实际呈现：${diagnostic()}").boundsInRoot
+                    assertTrue(bounds.left > 0f && bounds.right < 390f && bounds.top >= 0f && bounds.bottom <= 844f)
                     val dimmed = s3SmallPatch(e, testScheduler, region)
                     assertTrue(s4Difference(clear, dimmed) >= 4, "前提：已知公共空白处须确有原宿主遮罩")
                     val point = when (path) {
@@ -156,7 +162,7 @@ class S5DialogSearchRenderTest {
                     if (path != "BACK") { e.press(point); e.advanceFrameBy(8); assertEquals(0, cancels + confirms) }
                     pulses.clear()
                     exitAt = testScheduler.currentTime
-                    deadline = exitAt + if (scale == 0f) 0L else MotionTokens.DurFast.toLong()
+                    deadline = exitAt + if (scale == 0f) 0L else MIUIX_CONFIRMATION_EXIT_MILLIS
                     if (path == "BACK") input.back() else e.release(point)
                     if (path == "INVALIDATE" && scale == 0f) active = false
                     consumeNow()
@@ -165,7 +171,7 @@ class S5DialogSearchRenderTest {
                         println("T7-cancel exit ${diagnostic()} enabledCancel=$enabled rejectCount=${pulses.count { it == HapticFeedbackType.Reject }}")
                         assertEquals(listOf(HapticFeedbackType.Reject), pulses, "前提：真实dialog返回handler已接受关闭，不以root dispatch假定已处理")
                         assertEquals(0, enabled, "原时刻须实际撤销dialog动作，才能绑定本次退出首帧")
-                        assertEquals(exitAt, testScheduler.currentTime, "BACK关闭准入只消费原时刻，不延长150ms")
+                        assertEquals(exitAt, testScheduler.currentTime, "BACK关闭准入只消费原时刻，不延长官方退场")
                     }
                     if (scale != 0f) {
                         assertNotNull(dialog(), "原宿主须先退出而非直接释放：$path")
@@ -179,7 +185,7 @@ class S5DialogSearchRenderTest {
                         }
                         active = true; consumeNow() // 重入不能使已失活的旧确认复活。
                     }
-                    repeat(MotionTokens.DurFast / 16 + 2) {
+                    repeat((MIUIX_CONFIRMATION_EXIT_MILLIS / 16 + 2).toInt()) {
                         consumeNow()
                         val done = dialog() == null && cancels == 1 && confirms == 0 &&
                             clear.pixels.contentEquals(s3SmallPatch(e, testScheduler, region).pixels)
@@ -210,10 +216,11 @@ class S5DialogSearchRenderTest {
                 var requested by mutableStateOf(false)
                 val confirmedAt = mutableListOf<Long>(); var cancelled = 0
                 val back = object : NavigationEventDispatcherOwner { override val navigationEventDispatcher = NavigationEventDispatcher() }
+                val window = miuixConfirmationTestWindow(390, 844)
                 val pulses = mutableListOf<HapticFeedbackType>()
                 val haptics = object : HapticFeedback { override fun performHapticFeedback(hapticFeedbackType: HapticFeedbackType) { pulses += hapticFeedbackType } }
                 try { MotionTestEnvironment(testScheduler, 390, 844, scale, dispatcher) {
-                    CompositionLocalProvider(LocalNavigationEventDispatcherOwner provides back, LocalHapticFeedback provides haptics) {
+                    CompositionLocalProvider(LocalNavigationEventDispatcherOwner provides back, LocalWindowInfo provides window, LocalHapticFeedback provides haptics) {
                         s4SmsHost {
                             CommunicationTextAction("请求确认", { requested = true })
                             if (requested) CommunicationConfirmation("删除合成记录？", "只验证UI交接", "确认删除",
@@ -223,26 +230,34 @@ class S5DialogSearchRenderTest {
                 }.use { e ->
                     fun consumeNow() {
                         var previous: List<Triple<Int, Rect, Boolean?>>? = null
-                        repeat(6) {
+                        var stable = false
+                        repeat(12) {
+                            androidx.compose.runtime.snapshots.Snapshot.sendApplyNotifications()
+                            testScheduler.runCurrent()
                             e.advanceFrameBy(0)
                             val current = s4Nodes(e, false).map { Triple(it.id, it.boundsInRoot, it.config.getOrNull(SemanticsProperties.Focused)) }
-                            if (current == previous) return
+                            stable = current == previous
                             previous = current
                         }
-                        fail("同刻pending布局/焦点未稳定；不能靠推进deadline掩盖")
+                        assertTrue(stable, "同刻pending布局/焦点未稳定；不能靠推进deadline掩盖")
                     }
                     fun dialog() = s4Nodes(e, false).singleOrNull { it.config.contains(SemanticsProperties.IsDialog) }
                     val dimRegion = Rect(8f, 400f, 24f, 416f)
-                    val panelRegion = Rect(187f, 414f, 203f, 430f)
+                    val panelRegion = Rect(187f, 780f, 203f, 796f)
                     consumeNow(); val clear = s3SmallPatch(e, testScheduler, dimRegion)
                     val clearPanel = s3SmallPatch(e, testScheduler, panelRegion)
                     s4Tap(e, s4Action(e, "请求确认").boundsInRoot.center)
-                    s4Frames(e, (MotionTokens.DurEmphasis + 15) / 16 + 3); consumeNow()
+                    s4Frames(e, 60); consumeNow()
                     val initial = assertNotNull(dialog()).boundsInRoot
-                    assertTrue(initial.left > dimRegion.right && initial.right < 390f && initial.top >= 0f && initial.bottom <= 844f)
-                    assertEquals(195f, initial.center.x, 1f); assertEquals(422f, initial.center.y, 1f)
+                    fun titlePosition() = s4Nodes(e).single {
+                        it.config.getOrNull(SemanticsProperties.Text)?.singleOrNull()?.text == "删除合成记录？"
+                    }.positionInRoot
+                    val initialTitle = titlePosition()
+                    assertTrue(initial.left > 0f && initial.right < 390f && initial.top > 422f && initial.bottom <= 844f)
+                    assertEquals(195f, initial.center.x, 1f)
+                    assertEquals(832f, initial.bottom, 1f, "沿官方手机底部12dp外边距，不再自绘居中")
                     val dimmed = s3SmallPatch(e, testScheduler, dimRegion)
-                    assertTrue(s4Difference(clear, dimmed) >= 4, "前提：原DialogLayout必须确实绘出遮罩")
+                    assertTrue(s4Difference(clear, dimmed) >= 4, "前提：官方OverlayDialog必须确实绘出遮罩")
                     val point = s4Action(e, "确认删除").boundsInRoot.center
                     pulses.clear()
                     val outside = Offset(point.x, initial.top - 16f)
@@ -255,15 +270,17 @@ class S5DialogSearchRenderTest {
                     e.press(point); e.release(point); consumeNow()
                     if (scale != 0f) {
                         assertTrue(confirmedAt.isEmpty(), "T7：真实确认先启动原宿主退场，不能先执行外部回调")
-                        e.advanceFrameBy(32); consumeNow()
+                        e.advanceFrameBy(8); consumeNow()
                         val exiting = assertNotNull(dialog(), "原Dialog宿主必须保留实际退出绘制").boundsInRoot
-                        assertTrue(exiting.width < initial.width && exiting.width > initial.width * MotionTokens.ScaleEnterFrom)
+                        val movingTitle = titlePosition()
+                        assertTrue(movingTitle.y > initialTitle.y && movingTitle.y < 844f && movingTitle.x == initialTitle.x,
+                            "官方手机退出须有真实可见的向下位移：initial=$initialTitle moving=$movingTitle host=$exiting")
                         val middle = s3SmallPatch(e, testScheduler, dimRegion)
                         assertTrue(!middle.pixels.contentEquals(clear.pixels) && !middle.pixels.contentEquals(dimmed.pixels), "须有真实遮罩退出中间帧")
                         assertTrue(confirmedAt.isEmpty(), "原层尚在退出时不得交接")
                     }
-                    val deadline = exitAt + if (scale == 0f) 0L else MotionTokens.DurFast.toLong()
-                    repeat(MotionTokens.DurFast / 16 + 2) {
+                    val deadline = exitAt + if (scale == 0f) 0L else MIUIX_CONFIRMATION_EXIT_MILLIS
+                    repeat((MIUIX_CONFIRMATION_EXIT_MILLIS / 16 + 2).toInt()) {
                         val done = dialog() == null && confirmedAt.size == 1 && clear.pixels.contentEquals(s3SmallPatch(e, testScheduler, dimRegion).pixels)
                         if (!done && testScheduler.currentTime < deadline) {
                             e.advanceFrameBy(minOf(16L, deadline - testScheduler.currentTime)); consumeNow()
@@ -273,7 +290,7 @@ class S5DialogSearchRenderTest {
                     assertNull(dialog()); assertEquals(1, confirmedAt.size); assertEquals(0, cancelled)
                     assertTrue(confirmedAt.single() - exitAt in 0L..(deadline - exitAt))
                     assertTrue(clear.pixels.contentEquals(s3SmallPatch(e, testScheduler, dimRegion).pixels), "终态不得残留遮罩/旧宿主")
-                    assertTrue(clearPanel.pixels.contentEquals(s3SmallPatch(e, testScheduler, panelRegion).pixels), "普通/零动画均回到同一原始中央区域")
+                    assertTrue(clearPanel.pixels.contentEquals(s3SmallPatch(e, testScheduler, panelRegion).pixels), "普通/零动画均回到同一原始底部区域")
                     assertEquals(listOf(HapticFeedbackType.Confirm), pulses, "§4.9：确认事件恰一次Confirm")
                 } } finally { back.navigationEventDispatcher.dispose() }
             }

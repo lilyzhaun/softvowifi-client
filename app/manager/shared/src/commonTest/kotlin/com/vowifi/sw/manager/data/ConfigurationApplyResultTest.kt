@@ -4,6 +4,14 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 
 class ConfigurationApplyResultTest {
+
+    @kotlin.test.Test
+    fun revisionConflictIsNotCollapsedIntoAnUnexplainedWriteFailure() {
+        val outcome = ConfigurationCommandOutcome(false, false, false, 1,
+            """{"ok":false,"code":"CONFIG_REVISION_CONFLICT","message":"config changed; refresh before saving"}""")
+        kotlin.test.assertEquals("RevisionConflict", configurationApplyResult(outcome).name)
+        kotlin.test.assertEquals("Unconfirmed", configurationApplyResult(outcome.copy(timedOut = true)).name)
+    }
     @Test fun moduleUnchangedResponseIsNotUnconfirmed() {
         val result = configurationApplyResult(ConfigurationCommandOutcome(false, false, false, 0,
             "{\"ok\":true,\"code\":\"UNCHANGED\",\"message\":\"config unchanged\"}"))

@@ -37,6 +37,7 @@ class AppRouteTest {
             AppRoute.SettingsLogs,
             AppRoute.SettingsCallNotifications,
             AppRoute.SettingsAbout,
+            AppRoute.SettingsEngineInformation,
         )
 
         routes.forEach { route ->
@@ -65,5 +66,15 @@ class AppRouteTest {
 
         assertEquals("SIM 与网络配置", AppRoute.SettingsConfiguration.topBarTitle)
         assertEquals(nested, restored.state)
+    }
+
+    @Test fun engineInformationRestoresAndReturnsToItsAboutParent() {
+        val about = AppNavigator.push(AppNavigationState.initial(AppRoute.Settings), AppRoute.SettingsAbout)
+        val engine = AppNavigator.push(about, AppRoute.SettingsEngineInformation)
+        val restored = assertIs<NavigationRestoreResult.Success>(
+            AppNavigationState.restore(engine.save(), AppNavigationState.initial()))
+        assertEquals("引擎信息", AppRoute.SettingsEngineInformation.topBarTitle)
+        assertEquals(engine, restored.state)
+        assertEquals(about, AppNavigator.back(restored.state))
     }
 }

@@ -12,7 +12,7 @@ import org.robolectric.annotation.Config
 
 // 仅使用现有 API；尚未编译/执行。首个测试为行为失败候选，不是 RED 回执。
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [35], manifest = Config.NONE)
+@Config(sdk = [35], manifest = Config.NONE, shadows = [RootFrameworkShadow::class])
 class S3EngineRefreshBehaviorHostTest {
     @Test fun acceptedStartBehindHeldRefreshIsObservableBeforeExecution() {
         HomeEngineControlHostFixture(firstRunning = false).use { fixture ->

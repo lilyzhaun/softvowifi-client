@@ -47,17 +47,19 @@ internal fun ManagerIconAction(
     val interaction = remember { MutableInteractionSource() }
     val motion = rememberManagerPressMotion(interaction, actionable, ManagerPressStyle.Icon)
     val colors = LocalSoftVoWiFiColors.current
+    val accent = MiuixTheme.colorScheme.primary
     Box(
         modifier = modifier.defaultMinSize(minWidth = 48.dp, minHeight = 48.dp)
             .managerPressInputGate(actionable)
             .clickable(enabled = actionable, role = Role.Button, interactionSource = interaction, indication = null, onClick = handler)
             .semantics { contentDescription = label }
-            .managerKeyboardFocusRing(interaction, actionable, CircleShape, colors.interactive)
+            .managerKeyboardFocusRing(interaction, actionable, CircleShape, accent)
             .drawBehind { drawCircle(colors.textPrimary.copy(alpha = motion.tintAlpha.value), radius = 20.dp.toPx()) },
         contentAlignment = Alignment.Center,
     ) {
         val rotation = if (iconRotation == null) Modifier else Modifier.graphicsLayer { rotationZ = iconRotation.value }
-        Icon(icon, null, modifier = Modifier.size(24.dp).managerPressDrawing(motion).then(rotation), tint = colors.interactive)
+        Icon(icon, null, modifier = Modifier.size(24.dp).managerPressDrawing(motion).then(rotation),
+            tint = if (action == ManagerAction.Refresh) accent else colors.textPrimary)
     }
 }
 
@@ -79,9 +81,10 @@ internal fun ManagerTextAction(
     val feedback = if (actionable) businessFeedback else ManagerActionFeedback.None
     val handler = rememberManagerActionHandler(feedback, onClick)
     val interaction = remember { MutableInteractionSource() }
-    val colors = LocalSoftVoWiFiColors.current
-    val buttonColors = if (primary) ButtonDefaults.buttonColors(color = colors.interactive, contentColor = colors.surface)
-        else ButtonDefaults.buttonColors()
+    val colors = MiuixTheme.colorScheme
+    val buttonColors = if (primary) ButtonDefaults.buttonColors(color = colors.primary, contentColor = colors.onPrimary)
+        else if (action == ManagerAction.Rejected) ButtonDefaults.buttonColors()
+        else ButtonDefaults.buttonColors(contentColor = colors.primary)
     val indication = rememberManagerPressIndication(ManagerPressStyle.Solid, actionable)
     val density = LocalDensity.current
     val measurer = rememberTextMeasurer()
@@ -103,7 +106,7 @@ internal fun ManagerTextAction(
                 progressBarRangeInfo = ProgressBarRangeInfo.Indeterminate
                 stateDescription = if (busyLabel == label) "正在处理" else busyLabel
             }
-        }.managerKeyboardFocusRing(interaction, actionable, color = if (primary) colors.surface else colors.interactive)
+        }.managerKeyboardFocusRing(interaction, actionable, color = if (primary) colors.onPrimary else colors.primary)
             .managerPressInputGate(actionable).indication(interaction, indication),
     ) {
         ManagerActionStateContent(if (busy) busyLabel else label, busy)

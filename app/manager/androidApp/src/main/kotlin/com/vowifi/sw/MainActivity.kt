@@ -221,6 +221,8 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    // Public Activity/Window.Callback entry; AndroidX annotates its inherited implementation.
+    @android.annotation.SuppressLint("RestrictedApi")
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
         if (::processRuntime.isInitialized && processRuntime.notifications.handleRingingVolumeKey(event)) return true
         return super.dispatchKeyEvent(event)

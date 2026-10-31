@@ -26,9 +26,9 @@ internal class SmsSocketBoundaryFixture : AutoCloseable {
     val created = Channel<CallTestSocket>(Channel.UNLIMITED)
     val sent = Channel<Unit>(Channel.UNLIMITED)
     var deferSms = false
-    private val factory: () -> LocalSocket = ::socket
+    private val factory: (String) -> LocalSocket = ::socket
     val client: Any = Class.forName("com.vowifi.sw.manager.data.LocalSocketEngineClient")
-        .getConstructor(String::class.java, Function0::class.java).newInstance("synthetic", factory)
+        .getConstructor(String::class.java, Function1::class.java).newInstance("synthetic", factory)
     val writeLock: Any = requireNotNull(client.javaClass.getDeclaredField("writeLock").apply { isAccessible = true }.get(client))
 
     init {
@@ -39,7 +39,7 @@ internal class SmsSocketBoundaryFixture : AutoCloseable {
     fun transport(): EngineMessageTransport = Class.forName("com.vowifi.sw.manager.data.AndroidEngineMessageTransport")
         .getConstructor(AndroidEngineClientPool::class.java, String::class.java).newInstance(pool, "a") as EngineMessageTransport
 
-    fun socket(): LocalSocket = CallTestSocket { socket, line ->
+    fun socket(@Suppress("UNUSED_PARAMETER") path: String = ""): LocalSocket = CallTestSocket { socket, line ->
         val request = Json.parseToJsonElement(line).jsonObject
         val id = request.getValue("id").jsonPrimitive.long
         val method = request.getValue("method").jsonPrimitive.content

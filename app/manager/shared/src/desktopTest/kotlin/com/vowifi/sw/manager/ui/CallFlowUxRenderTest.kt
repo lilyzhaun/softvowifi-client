@@ -18,7 +18,7 @@ import kotlin.test.*
 import kotlin.math.min
 
 class CallFlowUxRenderTest {
-    @Test fun knownNumberDetailExposesVisibleCallbackAndCopyActions() = onMotionTestThread { runTest {
+    @Test fun knownNumberDetailExposesVisibleCallbackAndSmsActions() = onMotionTestThread { runTest {
         val owner = OWNER_A
         val record = historyWrite(peer = "+12025550123", outcome = CallOutcome.REJECTED, endedAtMs = T0 + 1000).toRecord(owner)
         val history = CallHistoryState.Ready(listOf(record), owner)
@@ -29,7 +29,8 @@ class CallFlowUxRenderTest {
             s4Frames(e, 30)
             assertTrue(s4HasText(e, "1 次通话 · 当前线路本机记录"), "前提：真实详情号码组已呈现")
             assertTrue(s4HasText(e, "回拨"), "已知号码详情须显示回拨，即使当前不可用也解释原因")
-            assertTrue(s4HasText(e, "复制号码"))
+            assertTrue(s4HasText(e, "短信"))
+            assertFalse(s4HasText(e, "复制号码"))
         }
     } }
 

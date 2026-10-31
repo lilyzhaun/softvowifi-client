@@ -9,6 +9,8 @@ import com.vowifi.sw.manager.model.SimPresence
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
+import kotlin.test.assertNotEquals
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
@@ -155,7 +157,7 @@ class DefaultSimControlSourceLifecycleTest {
     }
 
     @Test
-    fun sameKeyReusesHandleAfterDisappearAndReappear() = runTest(UnconfinedTestDispatcher()) {
+    fun sameKeyRetiresOldActionsAfterDisappearAndReappear() = runTest(UnconfinedTestDispatcher()) {
         val handles = OpaqueIccidHandleStore()
         val inventory = FakeSubscriptionInventory(activeA())
         val engine = FakeEngineControlSource(engineReady(engineRow(SIM_KEY_A, EngineLifecycle.STOPPED)))
@@ -165,13 +167,18 @@ class DefaultSimControlSourceLifecycleTest {
         inventory.result = SubscriptionInventoryResult.Active(emptyList())
         inventory.emitChange()
         assertTrue(readyInstances(source.state.value).isEmpty())
-        assertEquals(SIM_KEY_A, handles.keyFor(original))
+        assertNull(handles.keyFor(original))
 
         inventory.result = activeA()
         inventory.emitChange()
         val restored = readyInstances(source.state.value).single()
         assertEquals(SimPresence.ACTIVE_MATCHED, restored.presence)
-        assertEquals(original, restored.handle)
+        assertNotEquals(original, restored.handle)
+        assertEquals(SIM_KEY_A, handles.keyFor(restored.handle))
+        source.start(original)
+        assertTrue(engine.started.isEmpty())
+        source.start(restored.handle)
+        assertEquals(listOf(SIM_KEY_A), engine.started)
         source.close()
     }
 }

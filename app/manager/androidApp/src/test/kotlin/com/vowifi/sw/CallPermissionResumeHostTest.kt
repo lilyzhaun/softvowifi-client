@@ -18,7 +18,7 @@ import org.robolectric.annotation.SQLiteMode
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35], application = SoftVoWiFiApplication::class,
     shadows = [CallEntryApplicationShadow::class, CallEntryShellShadow::class, CallEntryHmacShadow::class,
-        CallEntrySocketShadow::class, CallEntryAudioShadow::class])
+        CallEntrySocketShadow::class, CallEntryAudioShadow::class, RootFrameworkShadow::class])
 @SQLiteMode(SQLiteMode.Mode.NATIVE)
 class CallPermissionResumeHostTest {
     @Test fun grantedMicrophoneDialogContinuesTheFirstDial() = runBlocking {

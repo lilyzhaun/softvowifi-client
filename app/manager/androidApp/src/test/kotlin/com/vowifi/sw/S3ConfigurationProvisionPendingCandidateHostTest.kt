@@ -16,7 +16,7 @@ import org.robolectric.annotation.Config
 // C3：second-source-integrated 的原 RED 回执保留。
 // 经确认的公开 provisioning 契约替代“任意域状态变化”粗观测；原真实 IO／次数／Busy 断言不减。
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [33], shadows = [ConfigurationProvisionCommandShadow::class], instrumentedPackages = ["com.vowifi.sw.manager.data"])
+@Config(sdk = [33], shadows = [ConfigurationProvisionCommandShadow::class, RootFrameworkShadow::class], instrumentedPackages = ["com.vowifi.sw.manager.data"])
 class S3ConfigurationProvisionPendingCandidateHostTest {
     @Test fun acceptedCreateFromEmptyHasAnObservableStateWhileActualCreateIoIsHeld() = runBlocking {
         ConfigurationProvisionHostFixture().use { fixture ->

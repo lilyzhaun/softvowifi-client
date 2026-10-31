@@ -22,7 +22,7 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class RealLogShellRunTest {
-    private val command = "/data/adb/modules/vowifi_sw/control.sh logs catalog"
+    private val command = "/data/adb/softvowifi/runtime/control.sh logs catalog"
 
     @Test fun cancellationWithGrandchildHoldingStdoutIsBounded() {
         val host = HostLogProcesses()

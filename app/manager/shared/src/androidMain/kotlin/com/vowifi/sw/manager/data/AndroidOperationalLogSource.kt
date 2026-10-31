@@ -161,7 +161,7 @@ class AndroidOperationalLogSource internal constructor(
             reader.catalog().also { moduleIssue = null }
         } catch (error: LogReadFailure) {
             if (local == null && registration == null) throw error
-            moduleIssue = "模块日志读取失败：${error.safeMessage}"
+            moduleIssue = "Root 后端日志读取失败：${error.safeMessage}"
             LogCatalogResult(OperationalLogList(0, emptyList()), false)
         }
         return synchronized(lock) {

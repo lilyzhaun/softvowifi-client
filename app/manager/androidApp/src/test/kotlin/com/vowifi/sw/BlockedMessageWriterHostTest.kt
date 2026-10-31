@@ -207,7 +207,7 @@ private class BlockedMessageFixture(blockFlush: Boolean = false) : AutoCloseable
     val pool = AndroidEngineClientPool()
     val socket = BlockedMessageSocket(blockFlush)
     private val client = Class.forName("com.vowifi.sw.manager.data.LocalSocketEngineClient")
-        .getConstructor(String::class.java, Function0::class.java).newInstance("synthetic", { socket })
+        .getConstructor(String::class.java, Function1::class.java).newInstance("synthetic", { _: String -> socket })
     private val lifetime = (client.javaClass.getDeclaredField("scope").apply { isAccessible = true }.get(client) as CoroutineScope)
         .coroutineContext[Job]!!
     val reader: Job get() = lifetime.children.single()

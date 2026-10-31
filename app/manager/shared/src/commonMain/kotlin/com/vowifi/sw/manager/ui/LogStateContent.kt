@@ -140,7 +140,7 @@ private fun LazyListScope.operationalLogDataItems(
                      val labels = listOfNotNull(
                           operationalLogWindowNote(state),
                           if (selectedFileId == SYSTEM_REGISTRATION_LOG_ID) "显示最近最多50条系统电话服务记录，与软件引擎的注册记录相互独立。" else null,
-                         if (loadInfo.legacy) "正在按旧模块提供的文件读取日志。" else null,
+                         if (loadInfo.legacy) "正在按后端提供的旧格式文件读取日志。" else null,
                            if (loadInfo.issue == null && loadInfo.cached) "显示上次读取的记录，刷新可更新。" else null,
                         if (loadInfo.reading) "正在读取所选日志" else null,
                     )

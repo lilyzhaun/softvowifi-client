@@ -29,7 +29,7 @@ import org.robolectric.shadows.ShadowSubscriptionManager.SubscriptionInfoBuilder
 import org.robolectric.shadows.ShadowTelephonyManager
 
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [33], application = Application::class, shadows = [HomeCarrierTelephonyShadow::class])
+@Config(sdk = [33], application = Application::class, shadows = [HomeCarrierTelephonyShadow::class, RootFrameworkShadow::class])
 class AndroidHomeCarrierSourceTest {
     private val context get() = RuntimeEnvironment.getApplication()
 

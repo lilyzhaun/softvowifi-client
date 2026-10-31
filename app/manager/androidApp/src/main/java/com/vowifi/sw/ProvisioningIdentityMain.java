@@ -21,7 +21,8 @@ public final class ProvisioningIdentityMain {
     public static void main(String[] args) {
         byte[] stdin = null;
         try {
-            if (args == null || (args.length != 2 && !ProvisioningImsIdentity.isIdentityMode(args))) {
+            boolean baselineMode = args != null && args.length == 3 && "baseline".equals(args[2]);
+            if (args == null || (args.length != 2 && !ProvisioningImsIdentity.isIdentityMode(args) && !baselineMode)) {
                 throw new IllegalArgumentException();
             }
             int subId = parseNonNegativeInt(args[0]);
@@ -36,6 +37,8 @@ public final class ProvisioningIdentityMain {
             if (template.getInt("slot") != slot) {
                 throw new IllegalArgumentException();
             }
+            JSONObject activeBinding = baselineMode ? ProvisioningBaselineIdentity.readTemplate(template, subId, slot) : null;
+            if (baselineMode) template = new JSONObject(activeBinding.toString());
             clearIdentityFields(template);
             Object svc = phoneSubInfo();
             Class<?> iface = Class.forName("com.android.internal.telephony.IPhoneSubInfo");
@@ -61,6 +64,10 @@ public final class ProvisioningIdentityMain {
                 template.put("imsHomeDomain", identity.imsHomeDomain);
                 template.put("imsIdentityReadStatus", identity.status);
                 stripTransientSubIdKeys(template);
+            }
+            if (baselineMode) {
+                ProvisioningBaselineIdentity.requireSameBinding(activeBinding,
+                    ProvisioningBaselineIdentity.readTemplate(template, subId, slot));
             }
             String out = template.toString();
             if (out.indexOf('\n') >= 0 || out.indexOf('\r') >= 0) {

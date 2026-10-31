@@ -11,7 +11,8 @@ import kotlinx.serialization.json.*
 import kotlin.test.*
 
 class ConfigurationDigestRealmTest {
-    private val legacyClearGoReadback = """{"imsDigestRealm":"ims.spark.co.nz","imsDigestRealmSource":"carrier","ok":true,"displayLabel":"0001","lifecycle":"stopped","transport":"wifi","smsc":"+15550000001","epdgFqdn":"epdg.example.test","imsRealm":"","dns":"9.9.9.9","resolvedEpdgFqdn":"epdg.example.test","resolvedImsRealm":"ims.mnc005.mcc530.3gppnetwork.org","mcc":"530","mnc":"05","identitySource":"legacy","epdgResolutionKind":"configured","imsSipSecurity":"tcp_ipsec_3gpp","imsSipSecuritySource":"default","paniInitial":"absent","paniInitialSource":"default","paniCountry":"HK","paniCountrySource":"user"}"""
+    // "legacy" here is the retained identity-source policy, not an unversioned file.
+    private val legacyClearGoReadback = """{"formatState":"current","configVersion":1,"configRevision":"r1_abcdefghijklmnopabcdefghijklmnop","imsDigestRealm":"ims.spark.co.nz","imsDigestRealmSource":"carrier","ok":true,"displayLabel":"0001","lifecycle":"stopped","transport":"wifi","smsc":"+15550000001","epdgFqdn":"epdg.example.test","imsRealm":"","dns":"9.9.9.9","resolvedEpdgFqdn":"epdg.example.test","resolvedImsRealm":"ims.mnc005.mcc530.3gppnetwork.org","mcc":"530","mnc":"05","identitySource":"legacy","epdgResolutionKind":"configured","imsSipSecurity":"tcp_ipsec_3gpp","imsSipSecuritySource":"default","paniInitial":"absent","paniInitialSource":"default","paniCountry":"HK","paniCountrySource":"user"}"""
 
     private fun legacyStandardShow(mnc: String = "05"): String {
         val realm = "ims.mnc${mnc.padStart(3, '0')}.mcc530.3gppnetwork.org"
@@ -86,7 +87,7 @@ class ConfigurationDigestRealmTest {
         }
     }
 
-    private val legacy = """{"ok":true,"displayLabel":"0001","lifecycle":"stopped","transport":"wifi","smsc":"","epdgFqdn":"","imsRealm":"","dns":"","resolvedEpdgFqdn":"epdg.example.test","resolvedImsRealm":"ims.mnc005.mcc530.3gppnetwork.org","mcc":"530","mnc":"05"}"""
+    private val legacy = """{"ok":true,"formatState":"current","configVersion":1,"configRevision":"r1_abcdefghijklmnopabcdefghijklmnop","displayLabel":"0001","lifecycle":"stopped","transport":"wifi","smsc":"","epdgFqdn":"","imsRealm":"","dns":"","resolvedEpdgFqdn":"epdg.example.test","resolvedImsRealm":"ims.mnc005.mcc530.3gppnetwork.org","mcc":"530","mnc":"05"}"""
     private fun instance(realm: String? = null, source: String? = null) = ConfigurationEvaluator.instance(
         ConfigurationInstanceId("digest-test"), ConfigurationCodec.show(JsonObject(buildMap {
             putAll(Json.parseToJsonElement(legacy).jsonObject)

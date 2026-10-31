@@ -18,7 +18,7 @@ class AppearanceSettingsTest {
                 .single { it.key == AppearancePreferenceKey.LIQUID_GLASS_ENABLED })
             assertTrue(row.checked)
             assertFalse(row.actionable)
-            assertTrue(row.visibleSummary.contains("需先开启模糊效果"))
+            assertEquals(if (supported) "需先开启模糊效果" else "当前设备不支持模糊，使用不透明背景", row.visibleSummary)
         }
         source.setBlurRequested(true)
         assertTrue(source.state.value.liquidGlassRequested)
@@ -28,39 +28,59 @@ class AppearanceSettingsTest {
             source.state.value.copy(floatingNavigation = false), true).text)
     }
 
-    @Test
-    fun predictiveBackDefaultsOnWithoutWritingButRetainsAnExplicitPersistedOptOut() {
-        val values = mutableMapOf<String, Boolean>()
-        val persistence = RecordingAppearancePersistence(values)
-        val source = PersistentAppearanceSettingsSource(persistence)
-        assertTrue(source.state.value.predictiveBackRequested, "D4：缺键默认启用预测返回")
-        assertTrue(values.isEmpty(), "读默认值不能伪装用户显式设置")
-        assertTrue(persistence.writes.isEmpty())
-
-        source.setPredictiveBackRequested(false)
-        assertFalse(source.state.value.predictiveBackRequested)
-        assertEquals(false, values[AppearancePreferenceKey.PREDICTIVE_BACK_ENABLED.storageKey])
-        val restoredPersistence = RecordingAppearancePersistence(values)
-        val restored = PersistentAppearanceSettingsSource(restoredPersistence)
-        assertFalse(restored.state.value.predictiveBackRequested, "默认更改不能覆盖用户已经保存的关闭选择")
-        assertTrue(restoredPersistence.writes.isEmpty())
-
-        restored.setPredictiveBackRequested(true)
-        assertTrue(restored.state.value.predictiveBackRequested)
-        assertEquals(listOf(AppearancePreferenceKey.PREDICTIVE_BACK_ENABLED.storageKey to true), restoredPersistence.writes)
-        assertEquals(true, values[AppearancePreferenceKey.PREDICTIVE_BACK_ENABLED.storageKey])
+    @Test fun liquidGlassAvailabilityUsesTheSummaryForEachHardwareAndBlurStateWithoutChangingPreferences() {
+        for (supported in listOf(false, true)) for (blur in listOf(false, true)) for (liquid in listOf(false, true)) {
+            val settings = AppearanceSettings.Default.copy(blurRequested = blur, liquidGlassRequested = liquid)
+            val row = appearanceSpecToTogglePreference(appearancePreferenceSpecs(settings, supported)
+                .single { it.key == AppearancePreferenceKey.LIQUID_GLASS_ENABLED })
+            val expected = when {
+                !supported -> "当前设备不支持模糊，使用不透明背景"
+                !blur -> "需先开启模糊效果"
+                else -> appearanceLiquidGlassSummary(settings, supported).text
+            }
+            assertEquals(expected, row.visibleSummary)
+            assertEquals(supported && blur, row.actionable)
+            assertEquals(liquid, row.checked, "禁用不清除原请求偏好")
+        }
     }
 
     @Test
-    fun defaultsEnableFloatingNavigationAndRequestedBlurAndHapticsAndPredictiveButDisableLiquid() {
+    fun screenshotDefaultsDoNotWriteOrOverrideExplicitLiquidAndBackPreferences() {
+        val values = mutableMapOf<String, Boolean>()
+        val persistence = RecordingAppearancePersistence(values)
+        val source = PersistentAppearanceSettingsSource(persistence)
+        assertFalse(source.state.value.predictiveBackRequested, "截图要求缺键默认关闭预测返回")
+        assertTrue(source.state.value.liquidGlassRequested, "截图要求缺键默认开启液态玻璃")
+        assertTrue(values.isEmpty(), "读默认值不能伪装用户显式设置")
+        assertTrue(persistence.writes.isEmpty())
+
+        source.setPredictiveBackRequested(true)
+        source.setLiquidGlassRequested(false)
+        assertTrue(source.state.value.predictiveBackRequested)
+        assertEquals(true, values[AppearancePreferenceKey.PREDICTIVE_BACK_ENABLED.storageKey])
+        assertEquals(false, values[AppearancePreferenceKey.LIQUID_GLASS_ENABLED.storageKey])
+        val restoredPersistence = RecordingAppearancePersistence(values)
+        val restored = PersistentAppearanceSettingsSource(restoredPersistence)
+        assertTrue(restored.state.value.predictiveBackRequested, "默认更改不能覆盖用户已保存的开启选择")
+        assertFalse(restored.state.value.liquidGlassRequested, "默认更改不能覆盖用户已保存的关闭选择")
+        assertTrue(restoredPersistence.writes.isEmpty())
+
+        restored.setPredictiveBackRequested(false)
+        assertFalse(restored.state.value.predictiveBackRequested)
+        assertEquals(listOf(AppearancePreferenceKey.PREDICTIVE_BACK_ENABLED.storageKey to false), restoredPersistence.writes)
+        assertEquals(false, values[AppearancePreferenceKey.PREDICTIVE_BACK_ENABLED.storageKey])
+    }
+
+    @Test
+    fun defaultsMatchTheRequestedAppearanceScreenshot() {
         val settings = AppearanceSettings.Default
 
         assertTrue(settings.floatingNavigation)
         assertTrue(settings.blurRequested)
-        assertFalse(settings.liquidGlassRequested)
-        // D4：预测返回缺省开启；显式关闭及持久化写次数由各自原合同继续守护。
-        assertTrue(settings.predictiveBackRequested)
+        assertTrue(settings.liquidGlassRequested)
+        assertFalse(settings.predictiveBackRequested)
         assertTrue(settings.hapticsEnabled)
+        assertEquals(settings, AppearanceSettings(floatingNavigation = true, blurRequested = true))
     }
 
     @Test

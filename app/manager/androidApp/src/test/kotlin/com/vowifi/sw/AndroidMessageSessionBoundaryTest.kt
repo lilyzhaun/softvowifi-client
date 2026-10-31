@@ -19,7 +19,7 @@ import org.robolectric.annotation.Config
 import org.robolectric.shadows.ShadowSubscriptionManager.SubscriptionInfoBuilder
 
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [33], application = SoftVoWiFiApplication::class, shadows = [RuntimeApplicationShadow::class])
+@Config(sdk = [33], application = SoftVoWiFiApplication::class, shadows = [RuntimeApplicationShadow::class, RootFrameworkShadow::class])
 class AndroidMessageSessionBoundaryTest {
     @Test fun callAndMessageRostersUsePhysicalSlotOrderAndSlotLabel() {
         val context = RuntimeEnvironment.getApplication()

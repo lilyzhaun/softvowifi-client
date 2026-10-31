@@ -15,7 +15,7 @@ internal class RootDiagnosticLogReader(context: Context, private val stream: And
         catch (_: java.io.IOException) {RootDiagnosticReceipt(false,total.toLong(),0,1)}
         catch (_: IllegalStateException) {RootDiagnosticReceipt(false,total.toLong(),0,1)}
         val issue=if(!receipt.complete || receipt.unavailable>0 || receipt.invalid>0)
-            "Root读取不完整或模块不支持；已拒绝${receipt.invalid}条无效事件。App全局源仍可独立读取。" else null
+            "Root读取不完整或后端不支持；已拒绝${receipt.invalid}条无效事件。App全局源仍可独立读取。" else null
         return OperationalLogGroupRead(OperationalLogTail(ID,total>50,entries.sortedBy { it.wall }.map { local.entry(it,root=true) },emptyList()),issue)
     }
     fun combined(): OperationalLogGroupRead {

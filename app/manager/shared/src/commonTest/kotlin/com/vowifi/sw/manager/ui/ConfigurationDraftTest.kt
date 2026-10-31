@@ -86,6 +86,33 @@ class ConfigurationDraftTest {
         assertNotSame(firstSim1Draft, sim2Draft)
     }
 
+    @Test
+    fun dirtyDraftKeepsOriginalRevisionAfterRefreshAndRetention() {
+        val firstRevision = "r1_abcdefghijklmnopabcdefghijklmnop"
+        val nextRevision = "r1_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        val initial = instance("sim-1").copy(configVersion = 1, configRevision = firstRevision)
+        val draft = ConfigurationEditorDraft(initial)
+        draft.epdgFqdn.edit { replace(0, length, "user.example.test") }
+        draft.syncFrom(initial.copy(configRevision = nextRevision))
+        assertEquals(firstRevision, draft.overrides().expectedRevision,
+            "refresh must not authorize an old edit against a newly rebuilt config")
+        val retained = ConfigurationEditorDraft(initial.copy(configRevision = nextRevision), draft.retained())
+        assertEquals(firstRevision, retained.overrides().expectedRevision)
+        assertEquals("user.example.test", retained.epdgFqdn.text.toString())
+        retained.discard()
+        assertEquals(nextRevision, retained.overrides().expectedRevision)
+    }
+
+    @Test
+    fun cleanDraftFollowsCurrentRevisionWithoutCreatingAnEdit() {
+        val initial = instance("sim-1").copy(configVersion = 1, configRevision = "r1_abcdefghijklmnopabcdefghijklmnop")
+        val draft = ConfigurationEditorDraft(initial)
+        val incoming = initial.copy(configRevision = "r1_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")
+        draft.syncFrom(incoming)
+        assertEquals(incoming.configRevision, draft.overrides().expectedRevision)
+        assertEquals(false, draft.dirty)
+    }
+
     private fun instance(id: String) = ConfigurationInstance(
         instanceId = ConfigurationInstanceId(id),
         displayLabel = "SIM ••••",

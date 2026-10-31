@@ -75,7 +75,7 @@ internal fun configurationSecurityLabel(value: String): String = when (value) {
 }
 
 internal fun configurationEffectiveSummary(value: String, source: String, modified: Boolean): String =
-    "当前生效：$value · ${configurationSourceLabel(source)}" + if (modified) "\n$CONFIGURATION_UNSAVED_MARK" else ""
+    "当前解析：$value · ${configurationSourceLabel(source)}" + if (modified) "\n$CONFIGURATION_UNSAVED_MARK" else ""
 
 internal fun hasIdentityRealmOverride(instance: ConfigurationInstance): Boolean =
     instance.identitySource in setOf(ConfigurationIdentitySource.LEGACY, ConfigurationIdentitySource.OVERRIDE) &&

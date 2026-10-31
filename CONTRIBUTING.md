@@ -15,7 +15,7 @@ Direct edits to managed files are not silently overwritten: a later export stops
 
 Never submit SIM identities, phone/account identifiers, full configuration, authentication material, keys, tokens, OTPs, message bodies, raw captures, `local.properties` or build output. Use clearly synthetic samples. Do not send real messages, place calls, consume OTPs or change carrier settings merely to reproduce a report without the device/account owner's authorization.
 
-For security issues, follow [SECURITY.md](SECURITY.md). For compatibility reports, provide only the public carrier PLMN, app/module versions, device model, Android version and a redacted error summary. Do not claim support for untested devices or carriers.
+For security issues, follow [SECURITY.md](SECURITY.md). For compatibility reports, provide only the public carrier PLMN, App version, device model, Android version and a redacted error summary. Do not claim support for untested devices or carriers.
 
 ## 简体中文
 

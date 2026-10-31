@@ -14,7 +14,7 @@ internal fun boundCallLine(context: Context, binding: CallBinding?): String {
 internal fun callLineLabel(context: Context, rawOwner: String): String {
     val owner = IccidNormalizer.normalize(rawOwner) ?: return "当前绑定线路 · SIM 信息不可用"
     return try {
-        val info = context.getSystemService(SubscriptionManager::class.java)?.activeSubscriptionInfoList
+        val info = com.vowifi.sw.root.RootBridge.activeSubscriptions()
             ?.singleOrNull { IccidNormalizer.normalize(it.iccId) == owner }
             ?: return "当前绑定线路 · SIM 信息不可用"
         simCarrierTitle(validatedSlotIndex(info.simSlotIndex), subscriptionHomeCarrierLabel(context, info.subscriptionId), validatedMcc(info.mccString))

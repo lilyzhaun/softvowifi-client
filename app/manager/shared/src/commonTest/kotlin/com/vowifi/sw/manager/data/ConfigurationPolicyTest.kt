@@ -18,7 +18,7 @@ import kotlin.test.assertFalse
 
 class ConfigurationPolicyTest {
     private val baseline = ConfigurationOverrides(ConfigurationTransport.WIFI, "", "", "", "")
-    private val show = """{"ok":true,"displayLabel":"1234","lifecycle":"stopped","transport":"wifi","smsc":"","epdgFqdn":"","imsRealm":"","dns":"","resolvedEpdgFqdn":"example.invalid","resolvedImsRealm":"example.invalid","mcc":"310","mnc":"260"} """.trim()
+    private val show = """{"ok":true,"formatState":"current","configVersion":1,"configRevision":"r1_abcdefghijklmnopabcdefghijklmnop","displayLabel":"1234","lifecycle":"stopped","transport":"wifi","smsc":"","epdgFqdn":"","imsRealm":"","dns":"","resolvedEpdgFqdn":"example.invalid","resolvedImsRealm":"example.invalid","mcc":"310","mnc":"260"} """.trim()
 
     @Test fun optionalPoliciesSetAndClearWithoutTouchingOtherFields() {
         val next = baseline.copy(imsSipSecurity = "swu_udp_aka", paniInitial = "wlan-country", paniCountry = " hk ")

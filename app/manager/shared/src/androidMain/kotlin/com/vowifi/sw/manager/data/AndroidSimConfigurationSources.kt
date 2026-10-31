@@ -11,7 +11,7 @@ class AndroidSimConfigurationSources(
     private val inventory = AndroidSubscriptionInventory(context)
     val simControl: SimControlSource = AndroidSimControlSource(inventory, engine, handles)
     val configuration: ConfigurationSource = AndroidConfigurationSource(context, handles, inventory,
-        readAutomaticSmsc = pool::automaticSmsc) {
+        readRuntimeFacts = pool::configurationFacts) {
         engine.refresh()
     }
 

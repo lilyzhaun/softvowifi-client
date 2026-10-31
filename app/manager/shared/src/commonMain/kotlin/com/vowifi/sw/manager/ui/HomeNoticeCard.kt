@@ -64,7 +64,7 @@ internal fun HomeNoticeCard(
             is HomeNoticeAction.Refresh -> BasicComponent(title = notice.title, summary = notice.summary,
                 startAction = leading, modifier = Modifier.fillMaxWidth(), bottomAction = {
                     ManagerTextAction(action.label, ManagerAction.Refresh, onClick,
-                        enabled = actionable && refreshEnabled, busy = refreshRunning, busyLabel = "正在刷新")
+                        enabled = actionable && refreshEnabled, busy = refreshRunning, busyLabel = "正在刷新", primary = true)
                 },
             )
         }

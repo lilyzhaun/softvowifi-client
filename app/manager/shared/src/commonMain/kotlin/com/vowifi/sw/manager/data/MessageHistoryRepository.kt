@@ -9,6 +9,7 @@ interface MessageHistoryRepository {
     suspend fun owners(cursor: MessageOwnerCursor? = null): MessageOwnerPage
     suspend fun summaries(request: MessageSummaryRequest): MessageSummaryPage
     suspend fun thread(identity: StoredMessageConversation, cursor: MessageThreadCursor? = null): MessageThreadSlice
+    suspend fun hasConversation(identity: StoredMessageConversation): Boolean = thread(identity).records.isNotEmpty()
     suspend fun unreadIds(identity: StoredMessageConversation): List<String>
 }
 

@@ -137,6 +137,9 @@ class SettingsScreenTest {
         )
 
         val toggleRows = allSpecs.map { appearanceSpecToTogglePreference(it) }
+        assertEquals(listOf(true, true, true, false, true), toggleRows.map { it.checked })
+        assertEquals(listOf("使用紧凑悬浮导航", "已开启；模糊可用", "通信操作与悬浮底栏使用液态折射",
+            "使用普通返回动画", "操作与滚动有触感"), toggleRows.map { it.visibleSummary })
         assertEquals(
             List(5) { ManagerPreferenceComponent.SwitchPreference },
             toggleRows.map { it.renderedComponent },

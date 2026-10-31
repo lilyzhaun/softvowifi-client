@@ -43,6 +43,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import top.yukonga.miuix.kmp.overlay.OverlayDialog
 import androidx.compose.runtime.CompositionLocalProvider
 import top.yukonga.miuix.kmp.blur.layerBackdrop
+import kotlinx.coroutines.delay
 
 @Composable
 internal fun NewMessageScreen(
@@ -75,11 +76,14 @@ internal fun NewMessageScreen(
     }, onSend)
     var existing by remember(draftOwner, recipient, findConversation, active) { mutableStateOf<ConversationHandle?>(null) }
     LaunchedEffect(draftOwner, recipient, findConversation, active) {
-        existing = if (active && draftOwner != null && isValidMessageRecipient(recipient))
-            findConversation?.invoke(draftOwner, recipient) else null
+        if (active && draftOwner != null && isValidMessageRecipient(recipient) && findConversation != null) {
+            delay(300)
+            existing = findConversation(draftOwner, recipient)
+        }
     }
     val existingNow by rememberUpdatedState(existing)
     val bodyNow by rememberUpdatedState(body)
+    val pendingNow by rememberUpdatedState(submission.pending)
     val openNow by rememberUpdatedState(onOpenConversation)
     val requestImeOwner = rememberMessageImeOwnerRequest()
     var recipientTouched by rememberSaveable { mutableStateOf(false) }
@@ -128,12 +132,14 @@ internal fun NewMessageScreen(
                         color = LocalSoftVoWiFiColors.current.error,
                         fontSize = 14.sp, lineHeight = 20.sp)
                 }
-                if (existing != null) item(key = "existing-conversation") {
+                communicationNoticeItem("existing-conversation", existing?.let {
+                    CommunicationNoticeSpec("此线路已有与该号码的会话")
+                }) { notice, interactive ->
                     Column {
-                        CommunicationNotice("此线路已有与该号码的会话")
+                        CommunicationNotice(notice.title)
                         if (body.isEmpty() && onOpenConversation != null) CommunicationTextAction("打开会话", {
-                            if (activeNow && bodyNow.isEmpty()) existingNow?.let { openNow?.invoke(it) }
-                        }, enabled = !submission.pending)
+                            if (activeNow && !pendingNow && bodyNow.isEmpty()) existingNow?.let { openNow?.invoke(it) }
+                        }, enabled = interactive && !submission.pending)
                     }
                 }
                 if (choices.lines.isNotEmpty() || draftOwner != null) {

@@ -33,6 +33,7 @@ internal class DefaultSimControlSource(
     private val operationGate = EngineOperationGate()
     private val lock = Any()
     private var refreshInFlight: CompletableDeferred<RefreshResult>? = null
+    private var inventoryGeneration = 0L
     private val mutableState = MutableStateFlow<SimControlUiState>(SimControlUiState.Loading)
     override val state: StateFlow<SimControlUiState> = mutableState.asStateFlow()
 
@@ -42,7 +43,17 @@ internal class DefaultSimControlSource(
     @Volatile
     private var latestInventory: SubscriptionInventoryResult? = null
 
-    private val subscriptionWatch = inventory.startWatching(::refresh)
+    private val subscriptionWatch = inventory.startWatching(::onSubscriptionsChanged)
+
+    private fun onSubscriptionsChanged() {
+        synchronized(lock) {
+            if (closed) return
+            inventoryGeneration++
+            latestInventory = null
+            mutableState.value = SimControlUiState.Loading
+        }
+        refresh()
+    }
 
     init {
         scope.launch {
@@ -71,27 +82,38 @@ internal class DefaultSimControlSource(
             refreshInFlight?.let { return@synchronized it }
             if (!operationGate.tryEnter()) return@synchronized CompletableDeferred(RefreshResult.Busy)
             val completion = CompletableDeferred<RefreshResult>()
+            val generation = inventoryGeneration
             refreshInFlight = completion
             var outcome: RefreshResult? = null
             producer = scope.launch(start = CoroutineStart.LAZY) {
                 val result = inventory.listActive()
                 currentCoroutineContext().ensureActive()
-                synchronized(lock) {
-                    if (!closed) { latestInventory = result; publish() }
+                val current = synchronized(lock) {
+                    if (!closed && generation == inventoryGeneration) {
+                        if (result is SubscriptionInventoryResult.Active) handles.reconcileActive(result.subscriptions)
+                        latestInventory = result
+                        publish()
+                        true
+                    } else false
                 }
-                outcome = when (result) {
+                outcome = if (!current) RefreshResult.Cancelled else when (result) {
                     is SubscriptionInventoryResult.Active -> RefreshResult.Completed
                     is SubscriptionInventoryResult.PermissionDenied -> RefreshResult.Failed("SIM 控制权限不足")
                     is SubscriptionInventoryResult.Failure -> RefreshResult.Failed("无法读取活动订阅")
                 }
             }.also { job ->
                 job.invokeOnCompletion { error ->
-                    synchronized(lock) { refreshInFlight = null; operationGate.release() }
+                    val changed = synchronized(lock) {
+                        refreshInFlight = null
+                        operationGate.release()
+                        !closed && generation != inventoryGeneration
+                    }
                     when (error) {
                         null -> completion.complete(checkNotNull(outcome))
                         is CancellationException -> completion.cancel(error)
                         else -> completion.completeExceptionally(error)
                     }
+                    if (changed) refresh()
                 }
             }
             completion

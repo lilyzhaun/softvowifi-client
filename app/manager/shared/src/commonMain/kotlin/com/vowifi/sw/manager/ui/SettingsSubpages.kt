@@ -32,6 +32,7 @@ internal data class SettingsConfigurationActions(
     val onProvision: (SimHandle) -> Unit,
     val onRefresh: suspend () -> RefreshResult,
     val onOpenSim: (com.vowifi.sw.manager.ui.navigation.ConfigurationSimHandle) -> Unit = {},
+    val onRebuild: ((SimHandle) -> Boolean)? = null,
 )
 
 internal data class SettingsLogsActions(
@@ -56,7 +57,9 @@ internal fun SettingsConfigurationScreen(
 ) {
     val presentation = configurationPresentation(state, simState)
     val progress = provisioning?.collectAsState()?.value ?: ConfigurationProvisionState()
-    val draftPending = (state as? ConfigurationUiState.Ready)?.instances.orEmpty().any { drafts.draftFor(it).pending }
+    val draftPending = (state as? ConfigurationUiState.Ready)?.instances.orEmpty()
+        .filter { it.formatState == com.vowifi.sw.manager.model.ConfigurationFormatState.CURRENT }
+        .any { drafts.draftFor(it).pending }
     val refresh = rememberManagerRefreshController(actions.onRefresh,
         enabled = configurationRefreshEnabled(state) && !draftPending && !provisionBusy && progress.pending.isEmpty())
     val rotation = rememberManagerRefreshRotation(refresh)
@@ -71,7 +74,7 @@ internal fun SettingsConfigurationScreen(
             state = state,
             presentation = presentation,
             drafts = drafts,
-            actions = ConfigurationActions(actions.onSubmit, actions.onProvision, { refresh.request() }, actions.onOpenSim),
+            actions = ConfigurationActions(actions.onSubmit, actions.onProvision, { refresh.request() }, actions.onOpenSim, actions.onRebuild),
             refreshEnabled = refresh.enabled,
             refreshRotation = rotation,
             loading = loading,

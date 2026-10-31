@@ -5,6 +5,8 @@ import android.app.Service
 import android.content.ComponentName
 import android.content.Intent
 import android.telephony.SubscriptionManager
+import com.vowifi.sw.root.ObserverRootBridgeShadow
+import com.vowifi.sw.root.ObserverRootTelephonyShadow
 import org.junit.After
 import org.junit.Assert.*
 import org.junit.Before
@@ -26,14 +28,16 @@ import org.robolectric.shadows.ShadowSubscriptionManager.SubscriptionInfoBuilder
 @Config(sdk = [35], application = SoftVoWiFiApplication::class, shadows = [
     RuntimeApplicationShadow::class, MessageSourceShadow::class, ObserverStartBoundaryShadow::class,
     ObserverImsManagerShadow::class, ObserverMmTelShadow::class,
+    ObserverRootBridgeShadow::class, ObserverRootTelephonyShadow::class,
 ])
 class ForegroundObserverStartHostTest {
     @Before fun prepare() {
+        ObserverRootBridgeShadow.reset()
         RuntimeApplicationShadow.callFixture = CallPlatformFixture()
         ObserverStartBoundaryShadow.failure = null
         ObserverStartBoundaryShadow.attempts = 0
         shadowOf(RuntimeEnvironment.getApplication()).grantPermissions(
-            "android.permission.READ_PRIVILEGED_PHONE_STATE", "android.permission.POST_NOTIFICATIONS",
+            "android.permission.POST_NOTIFICATIONS",
         )
         ObserverMmTelShadow.registered.clear()
         ObserverMmTelShadow.closed.clear()
@@ -50,6 +54,7 @@ class ForegroundObserverStartHostTest {
         RuntimeApplicationShadow.callFixture?.close()
         RuntimeApplicationShadow.callFixture = null
         ObserverStartBoundaryShadow.failure = null
+        ObserverRootBridgeShadow.reset()
     }
 
     @Test fun freshForegroundEntryRequestsOnlyExistingObserver() {
@@ -90,7 +95,7 @@ class ForegroundObserverStartHostTest {
                     assertSame(notification, shadowOf(observer.get()).lastForegroundNotification)
                     if (index < 2) main.pause().resume()
                 }
-                assertEquals(3, Shadow.extract<RuntimeApplicationShadow>(application).runtimeStarts)
+                assertEquals(4, Shadow.extract<RuntimeApplicationShadow>(application).runtimeStarts)
                 main.pause().stop().destroy()
             }
         } finally {

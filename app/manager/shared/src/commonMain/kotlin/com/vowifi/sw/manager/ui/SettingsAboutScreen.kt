@@ -14,16 +14,12 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Stable
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
@@ -38,15 +34,11 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.compose.LocalLifecycleOwner
-import com.vowifi.sw.manager.model.EngineExecutableMatch
-import com.vowifi.sw.manager.model.EngineIntegritySnapshot
 import com.vowifi.sw.manager.model.EnvironmentDiagnosticsUiState
 import com.vowifi.sw.manager.model.ModuleDiagnostics
 import top.yukonga.miuix.kmp.basic.BasicComponent
 import top.yukonga.miuix.kmp.basic.Card
-import top.yukonga.miuix.kmp.basic.CircularProgressIndicator
+import top.yukonga.miuix.kmp.basic.SmallTitle
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.Info
@@ -73,8 +65,6 @@ internal fun rememberAboutHeaderState(): AboutHeaderState {
 
 internal fun aboutInformationRows(appVersion: String, appVersionCode: Int? = null,
     module: ModuleDiagnostics? = null,
-    integrity: EngineIntegritySnapshot = EngineIntegritySnapshot(),
-    includeIntegrity: Boolean = true,
 ): List<ManagerPreferenceRow.Information> {
     val about = aboutPresentation(appVersion)
     val installed = module?.takeIf { it.installed }
@@ -82,33 +72,12 @@ internal fun aboutInformationRows(appVersion: String, appVersionCode: Int? = nul
     val moduleName = aboutPresentation(version.orEmpty()).versionLabel.removePrefix("版本 ")
     val appName = about.versionLabel.removePrefix("版本 ")
     return buildList {
-        add(managerInformationPreference("应用版本", about.versionLabel + appVersionCode?.let { " · code $it" }.orEmpty(), MiuixIcons.Info))
-        add(managerInformationPreference("应用信息", about.description, MiuixIcons.Info))
         val moduleSummary = if (moduleName == "未知" && installed?.versionCode == null) "未知"
             else "版本 $moduleName · code ${installed?.versionCode ?: "未知"}"
-        add(managerInformationPreference("模块版本", moduleSummary, MiuixIcons.Info))
+        add(managerInformationPreference("Root 后端版本", moduleSummary, MiuixIcons.Info))
         if ((moduleName != "未知" && appName != "未知" && moduleName != appName) ||
             (appVersionCode != null && installed?.versionCode != null && appVersionCode != installed.versionCode)) {
-            add(managerInformationPreference("版本检查", "App 与模块版本不一致", MiuixIcons.Info))
-        }
-        if (includeIntegrity) addAll(aboutEngineInformationRows(integrity))
-    }
-}
-
-private fun aboutEngineInformationRows(integrity: EngineIntegritySnapshot): List<ManagerPreferenceRow.Information> = buildList {
-    add(managerInformationPreference("引擎标识", integrity.fileFingerprint ?: "无法读取", MiuixIcons.Info))
-    val running = integrity.running
-    when {
-        running == null -> add(managerInformationPreference("运行实例", "无法读取", MiuixIcons.Info))
-        running.isEmpty() -> add(managerInformationPreference("运行实例", "当前没有运行实例", MiuixIcons.Info))
-        else -> running.forEachIndexed { index, instance ->
-            val title = instance.pid?.let { "运行实例 PID $it" } ?: "运行实例 ${index + 1}"
-            val summary = when (instance.match) {
-                EngineExecutableMatch.SAME -> "与文件一致"
-                EngineExecutableMatch.DIFFERENT -> "与文件不一致"
-                EngineExecutableMatch.UNREADABLE -> "无法读取"
-            }
-            add(managerInformationPreference(title, summary, MiuixIcons.Info))
+            add(managerInformationPreference("版本检查", "App 与 Root 后端版本不一致", MiuixIcons.Info))
         }
     }
 }
@@ -116,26 +85,12 @@ private fun aboutEngineInformationRows(integrity: EngineIntegritySnapshot): List
 @Composable
 internal fun SettingsAboutScreen(appVersion: String, appVersionCode: Int? = null,
     diagnosticsState: EnvironmentDiagnosticsUiState = EnvironmentDiagnosticsUiState.Loading,
-    readEngineIntegrity: (suspend () -> EngineIntegritySnapshot)? = null,
+    onOpenEngineInformation: (() -> Unit)? = null,
 ) {
     val about = aboutPresentation(appVersion)
-    val lifecycle = LocalLifecycleOwner.current.lifecycle.currentStateFlow.collectAsState().value
-    val active = LocalAppRouteActive.current && lifecycle.isAtLeast(Lifecycle.State.RESUMED)
-    val reader = rememberUpdatedState(readEngineIntegrity)
-    var integrity by remember { mutableStateOf(EngineIntegritySnapshot()) }
-    var reading by remember { mutableStateOf(active && readEngineIntegrity != null) }
-    LaunchedEffect(active) {
-        val read = reader.value
-        if (active && read != null) {
-            integrity = EngineIntegritySnapshot()
-            reading = true
-            try { integrity = read() } finally { reading = false }
-        }
-    }
-    val loading = rememberManagerLoadingState(reading, integrity.fileFingerprint != null || integrity.running != null)
     val module = (diagnosticsState as? EnvironmentDiagnosticsUiState.Ready)?.module
     val rows = remember(appVersion, appVersionCode, module) {
-        aboutInformationRows(appVersion, appVersionCode, module, includeIntegrity = false)
+        aboutInformationRows(appVersion, appVersionCode, module)
     }
     val header = LocalAboutHeaderState.current ?: rememberAboutHeaderState()
     val density = LocalDensity.current
@@ -144,6 +99,7 @@ internal fun SettingsAboutScreen(appVersion: String, appVersionCode: Int? = null
     val bottomInset = LocalSubpageBottomContentInset.current
     val reduceMotion = rememberCoroutineScope().coroutineContext[MotionDurationScale]?.scaleFactor == 0f
     val colors = LocalSoftVoWiFiColors.current
+    val identityMeasured = identityHeightPx > 0
     Box(Modifier.fillMaxSize()) {
         AboutCloudBackground(progress = { header.progress })
         Column(
@@ -163,8 +119,9 @@ internal fun SettingsAboutScreen(appVersion: String, appVersionCode: Int? = null
             )
             Spacer(Modifier.height(8.dp))
             Text(
-                about.versionLabel, modifier = Modifier.fillMaxWidth().aboutIdentityLayer(header, .05f, .20f, reduceMotion),
-                color = colors.textPrimary, fontSize = 14.sp, lineHeight = 20.sp, textAlign = TextAlign.Center,
+                about.versionLabel + appVersionCode?.let { " · code $it" }.orEmpty(),
+                modifier = Modifier.fillMaxWidth().aboutIdentityLayer(header, .05f, .20f, reduceMotion),
+                color = colors.textSecondary, fontSize = 14.sp, lineHeight = 20.sp, textAlign = TextAlign.Center,
             )
         }
         LazyColumn(
@@ -179,21 +136,29 @@ internal fun SettingsAboutScreen(appVersion: String, appVersionCode: Int? = null
                     .height(40.dp + with(density) { identityHeightPx.toDp() } + 112.dp)
                     .onSizeChanged { header.spacerHeightPx = it.height })
             }
-            item(key = "about-card") {
+            if (identityMeasured) item(key = "about-card") {
                 // A viewport-high body allows the short, real information list to cover the identity;
                 // do not invent settings or links just to make this screen scrollable.
                 Column(Modifier.fillParentMaxHeight()) {
+                    SmallTitle("版本信息")
                     Card(insideMargin = PaddingValues(vertical = 4.dp)) {
                         Column {
-                            rows.forEach { ManagerInformationPreferenceItem(it) }
-                            if (loading.showLoading) BasicComponent(title = "正在读取引擎标识", summary = "只读检查文件与运行实例。",
-                                modifier = Modifier.managerLoadingAlpha(loading),
-                                endActions = { CircularProgressIndicator(size = 16.dp, modifier = Modifier.size(16.dp)) })
-                            else if (!loading.hidden) Column(Modifier.managerLoadingAlpha(loading)) {
-                                aboutEngineInformationRows(integrity).forEach { ManagerInformationPreferenceItem(it) }
-                            }
+                            rows.forEach { row -> BasicComponent(title = row.title, summary = row.summary) }
                         }
                     }
+                    Spacer(Modifier.height(12.dp))
+                    SmallTitle("更多信息")
+                    Card(insideMargin = PaddingValues(vertical = 4.dp)) {
+                        ManagerNavigatePreferenceItem(
+                            managerNavigatePreference("引擎信息", "查看引擎标识与运行实例", MiuixIcons.Info,
+                                if (onOpenEngineInformation != null) ManagerPreferenceAvailability.Enabled
+                                else ManagerPreferenceAvailability.Disabled("当前入口不可用")),
+                            onClick = onOpenEngineInformation,
+                        )
+                    }
+                    Text(about.description, color = colors.textSecondary, fontSize = 14.sp, lineHeight = 20.sp,
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 24.dp),
+                        textAlign = TextAlign.Center)
                 }
             }
         }

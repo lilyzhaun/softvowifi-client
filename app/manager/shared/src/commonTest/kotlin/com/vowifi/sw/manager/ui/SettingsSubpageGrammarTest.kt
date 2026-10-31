@@ -40,14 +40,13 @@ class SettingsSubpageGrammarTest {
         val sanitizedRows = aboutInformationRows(unsafeVersion)
 
         // Then
-        assertEquals(listOf("应用版本", "应用信息", "模块版本", "引擎标识", "运行实例"), safeRows.map { it.title })
+        assertEquals(listOf("Root 后端版本"), safeRows.map { it.title })
         assertTrue(safeRows.none { it.actionable })
-        assertEquals("应用版本", safeRows[0].title)
-        assertEquals("版本 1.2.3-alpha", safeRows[0].summary)
-        assertEquals("应用信息", safeRows[1].title)
-        assertEquals("SoftVoWiFi 管理应用", safeRows[1].summary)
-
-        assertEquals("版本 未知", sanitizedRows[0].summary)
+        assertEquals("未知", safeRows[0].summary)
+        assertEquals("版本 1.2.3-alpha", aboutPresentation(appVersion).versionLabel)
+        assertEquals("SoftVoWiFi 管理应用", aboutPresentation(appVersion).description)
+        assertEquals("版本 未知", aboutPresentation(unsafeVersion).versionLabel)
+        assertEquals("未知", sanitizedRows[0].summary)
     }
 
     @Test

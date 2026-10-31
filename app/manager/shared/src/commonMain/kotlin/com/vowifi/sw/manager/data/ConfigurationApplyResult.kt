@@ -1,6 +1,6 @@
 package com.vowifi.sw.manager.data
 
-internal enum class ConfigurationCommandApplyResult { Applied, Unchanged, Failed, Unconfirmed }
+internal enum class ConfigurationCommandApplyResult { Applied, Unchanged, RevisionConflict, Failed, Unconfirmed }
 
 internal fun configurationApplyResult(outcome: ConfigurationCommandOutcome): ConfigurationCommandApplyResult {
     if (outcome.timedOut || outcome.overflowed || outcome.writeFailed) return ConfigurationCommandApplyResult.Unconfirmed
@@ -8,6 +8,7 @@ internal fun configurationApplyResult(outcome: ConfigurationCommandOutcome): Con
     return when {
         response.ok && response.code == "APPLIED" && outcome.exitCode == 0 -> ConfigurationCommandApplyResult.Applied
         response.ok && response.code == "UNCHANGED" && outcome.exitCode == 0 -> ConfigurationCommandApplyResult.Unchanged
+        !response.ok && response.code == "CONFIG_REVISION_CONFLICT" && outcome.exitCode == 1 -> ConfigurationCommandApplyResult.RevisionConflict
         !response.ok && response.code != "ROLLBACK_FAILED" -> ConfigurationCommandApplyResult.Failed
         else -> ConfigurationCommandApplyResult.Unconfirmed
     }

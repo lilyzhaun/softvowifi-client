@@ -20,6 +20,12 @@ enum class ConfigurationLifecycle {
     STOPPING,
 }
 
+enum class ConfigurationFormatState {
+    CURRENT,
+    LEGACY,
+    UNSUPPORTED,
+}
+
 data class ConfigurationOverrides(
     val transport: ConfigurationTransport,
     val smsc: String,
@@ -32,6 +38,7 @@ data class ConfigurationOverrides(
     val imsDigestRealm: String? = null,
     // Per-transport DNS overrides; [dns] replaces the entry for [transport] when encoded.
     val dnsOverrides: Map<String, String> = emptyMap(),
+    val expectedRevision: String? = null,
 ) {
     override fun toString(): String = "ConfigurationOverrides"
 }
@@ -67,6 +74,11 @@ data class ConfigurationSnapshot(
     val imsPolicy: ConfigurationImsPolicy = ConfigurationImsPolicy(),
     val identitySource: ConfigurationIdentitySource = ConfigurationIdentitySource.UNKNOWN,
     val dnsOverrides: Map<String, String> = emptyMap(),
+    val formatState: ConfigurationFormatState = ConfigurationFormatState.CURRENT,
+    val configVersion: Int? = null,
+    val configRevision: String? = null,
+    val facts: ConfigurationFacts? = null,
+    val simAttributeReadStatus: SIMAttributeReadStatus? = null,
 ) {
     override fun toString(): String = "ConfigurationSnapshot"
 }
@@ -104,6 +116,12 @@ data class ConfigurationInstance(
     val dnsOverrides: Map<String, String> = emptyMap(),
     // The running instance's SIM-derived SMSC, separate from the editable disk value.
     val resolvedSmsc: String = "",
+    val formatState: ConfigurationFormatState = ConfigurationFormatState.CURRENT,
+    val configVersion: Int? = null,
+    val configRevision: String? = null,
+    val facts: ConfigurationFacts? = null,
+    val runtimeFacts: ConfigurationRuntimeFacts? = null,
+    val simAttributeReadStatus: SIMAttributeReadStatus? = null,
 ) {
     override fun toString(): String = "ConfigurationInstance"
 }

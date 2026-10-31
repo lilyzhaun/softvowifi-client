@@ -33,8 +33,9 @@ import com.vowifi.sw.manager.ui.SoftVoWiFiTheme
 import com.vowifi.sw.manager.ui.appChromeSpec
 import com.vowifi.sw.manager.ui.navigation.AppRoute
 import com.vowifi.sw.manager.ui.navigation.ConfigurationSimHandle
+import com.vowifi.sw.manager.ui.testing.captureTestDiagnostics
+import com.vowifi.sw.manager.ui.testing.diagnosticCaptureDirectory
 import java.nio.file.Files
-import java.nio.file.Path
 import kotlin.test.Test
 import kotlin.test.assertTrue
 
@@ -42,7 +43,8 @@ import kotlin.test.assertTrue
 @OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class)
 class ConfigurationDesignCaptureTest {
     @Test fun renderOverviewDetailBarAndDialogsWithSyntheticValues() {
-        val folder = Files.createDirectories(Path.of("build/reports/configuration-design"))
+        val folder = diagnosticCaptureDirectory("configuration-design")
+        captureTestDiagnostics { Files.createDirectories(folder) }
         val lifecycle = object : LifecycleOwner {
             override val lifecycle = LifecycleRegistry.createUnsafe(this).apply { currentState = Lifecycle.State.RESUMED }
         }
@@ -65,7 +67,11 @@ class ConfigurationDesignCaptureTest {
             try {
                 settle()
                 steps(scene, ::settle)
-                scene.render(time).use { image -> image.encodeToData()!!.use { Files.write(folder.resolve("$name.png"), it.bytes) } }
+                scene.render(time).use { image ->
+                    captureTestDiagnostics { image.encodeToData()!!.use {
+                        Files.write(folder.resolve("$name.png"), it.bytes)
+                    } }
+                }
             } finally { scene.close() }
         }
 

@@ -9,7 +9,7 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [35], manifest = Config.NONE)
+@Config(sdk = [35], manifest = Config.NONE, shadows = [RootFrameworkShadow::class])
 class HomeEngineControlOwnershipHostTest {
     @Test fun appOnlyCallProtectionUsesSubscriptionHandleWithoutBackendWorkOrCrossLineLeak() {
         HomeEngineControlHostFixture().use { fixture ->

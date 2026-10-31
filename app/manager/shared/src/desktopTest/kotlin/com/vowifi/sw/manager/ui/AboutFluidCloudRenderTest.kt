@@ -42,6 +42,28 @@ import kotlin.math.abs
 import kotlin.math.roundToInt
 
 class AboutFluidCloudRenderTest {
+    @Test fun aboutDoesNotExposeTheUnmeasuredIdentityGapOnEntry() = onMotionTestThread { runTest {
+        MotionTestEnvironment(testScheduler, 390, 844) {
+            CompositionLocalProvider(LocalLifecycleOwner provides resumedOwner()) {
+                SoftVoWiFiTheme(false) {
+                    AppSubpageScene(AppRoute.SettingsAbout, spec(), onBack = {}) {
+                        SettingsAboutScreen("0.3.48")
+                    }
+                }
+            }
+        }.use { e ->
+            e.scene.render(0).close()
+            assertFalse(nodes(e).any { it.config.getOrNull(SemanticsProperties.Text).orEmpty()
+                .any { text -> text.text == "Root 后端版本" } },
+                "身份组尚未完成测量时不能先显示按错误占位高度布局的信息卡")
+            testScheduler.runCurrent()
+            e.scene.render(0).close()
+            assertTrue(nodes(e).any { it.config.getOrNull(SemanticsProperties.Text).orEmpty()
+                .any { text -> text.text == "Root 后端版本" } },
+                "身份组完成测量后信息卡必须出现")
+        }
+    } }
+
     @Test fun aboutKeepsTheFullColourLauncherIconInBothThemes() = onMotionTestThread { runTest {
         for (dark in listOf(false, true)) {
             MotionTestEnvironment(testScheduler, 390, 844, durationScale = 0f) {
@@ -82,10 +104,10 @@ class AboutFluidCloudRenderTest {
         }.use { e ->
             repeat(12) { e.advanceFrameBy() }
             assertTrue(texts(e).contains("SoftVoWiFi"), "关于页需要独立的应用标识组，而非只有两条信息行")
-            assertTrue(texts(e).containsAll(listOf("应用版本", "版本 0.3.48", "应用信息", "SoftVoWiFi 管理应用")))
+            assertTrue(texts(e).containsAll(listOf("Root 后端版本", "版本 0.3.48", "版本信息", "更多信息", "SoftVoWiFi 管理应用")))
             val headerVersion = nodes(e).filter { it.config.getOrNull(SemanticsProperties.Text).orEmpty().any { t -> t.text == "版本 0.3.48" } }
                 .minBy { it.boundsInRoot.top }.boundsInRoot
-            val information = nodes(e).single { it.config.getOrNull(SemanticsProperties.Text).orEmpty().any { t -> t.text == "应用版本" } }.boundsInRoot
+            val information = nodes(e).single { it.config.getOrNull(SemanticsProperties.Text).orEmpty().any { t -> t.text == "版本信息" } }.boundsInRoot
             assertTrue(information.top - headerVersion.bottom in 112f..160f,
                 "标识组和信息卡间距不得重复计入顶栏/顶部内距：${information.top - headerVersion.bottom}")
             assertEquals(1, nodes(e).count { it.config.contains(SemanticsProperties.VerticalScrollAxisRange) })
@@ -144,7 +166,7 @@ class AboutFluidCloudRenderTest {
             e.release(Offset(195f, 540f)); e.advanceFrameBy()
             header.list.requestScrollToItem(1); repeat(3) { e.advanceFrameBy() }
             assertEquals(1f, header.progress)
-            assertTrue(texts(e).containsAll(listOf("关于", "应用版本", "应用信息")))
+            assertTrue(texts(e).containsAll(listOf("关于", "Root 后端版本", "更多信息")))
             assertEquals(1, nodes(e).count { it.config.contains(SemanticsProperties.VerticalScrollAxisRange) })
         }
     } }

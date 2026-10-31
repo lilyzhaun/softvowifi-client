@@ -3,6 +3,9 @@ package com.vowifi.sw.manager.ui
 import androidx.compose.ui.graphics.vector.ImageVector
 import com.vowifi.sw.manager.model.ConfigurationInstance
 import com.vowifi.sw.manager.model.ConfigurationInstanceId
+import com.vowifi.sw.manager.model.ConfigurationFormatState
+import com.vowifi.sw.manager.model.ConfigurationLifecycle
+import com.vowifi.sw.manager.model.EngineLifecycle
 import com.vowifi.sw.manager.model.ConfigurationUiState
 import com.vowifi.sw.manager.model.SimControlInstance
 import com.vowifi.sw.manager.model.SimControlUiState
@@ -17,7 +20,7 @@ import top.yukonga.miuix.kmp.icon.extended.Refresh
 
 enum class ConfigurationPanelKind { LOADING, EMPTY, FAILURE, PERMISSION_DENIED, UNAVAILABLE }
 
-enum class ConfigurationRowKind { CONFIGURED, ACTIVE_UNCONFIGURED, UNAVAILABLE }
+enum class ConfigurationRowKind { CONFIGURED, REBUILD_REQUIRED, ACTIVE_UNCONFIGURED, UNAVAILABLE }
 
 data class ConfigurationRowPresentation(
     val key: String,
@@ -28,6 +31,7 @@ data class ConfigurationRowPresentation(
     val canApply: Boolean = false,
     val handle: SimHandle? = null,
     val canProvision: Boolean = false,
+    val canRebuild: Boolean = false,
 )
 
 data class ConfigurationPresentation(
@@ -87,8 +91,8 @@ private fun configurationStatePresentation(state: ConfigurationUiState): Configu
     )
     ConfigurationUiState.Empty -> emptyPresentation()
     is ConfigurationUiState.Ready -> ConfigurationPresentation(
-        showEditor = true,
-        showSaveAction = true,
+        showEditor = state.instances.any { it.formatState == ConfigurationFormatState.CURRENT },
+        showSaveAction = state.instances.any { it.formatState == ConfigurationFormatState.CURRENT },
         disclosure = FIXTURE_DISCLOSURE_TEXT.takeIf { state.isFixture },
         panelKind = null,
         statePanel = null,
@@ -132,8 +136,17 @@ private fun legacyConfigurationRows(state: ConfigurationUiState): List<Configura
         ConfigurationRowPresentation(
             key = instance.instanceId.value,
             label = instance.displayLabel,
-            kind = ConfigurationRowKind.CONFIGURED,
+            kind = when (instance.formatState) {
+                ConfigurationFormatState.CURRENT -> ConfigurationRowKind.CONFIGURED
+                ConfigurationFormatState.LEGACY -> ConfigurationRowKind.REBUILD_REQUIRED
+                ConfigurationFormatState.UNSUPPORTED -> ConfigurationRowKind.UNAVAILABLE
+            },
             instance = instance,
+            status = when (instance.formatState) {
+                ConfigurationFormatState.CURRENT -> null
+                ConfigurationFormatState.LEGACY -> "旧配置需重建；请先确认活动订阅"
+                ConfigurationFormatState.UNSUPPORTED -> "配置版本暂不支持，请更新 App"
+            },
             canApply = canApplyConfiguration(state, instance.instanceId),
         )
     }
@@ -177,6 +190,23 @@ private fun configuredSimRow(
         kind = ConfigurationRowKind.UNAVAILABLE,
         status = "配置暂不可用",
     )
+    if (configuration.formatState != ConfigurationFormatState.CURRENT) {
+        val legacy = configuration.formatState == ConfigurationFormatState.LEGACY
+        val stopped = configuration.lifecycle == ConfigurationLifecycle.STOPPED && sim.lifecycle == EngineLifecycle.STOPPED
+        return ConfigurationRowPresentation(
+            key = sim.handle.value, label = label,
+            kind = if (legacy) ConfigurationRowKind.REBUILD_REQUIRED else ConfigurationRowKind.UNAVAILABLE,
+            instance = configuration,
+            status = when {
+                !legacy -> "配置版本暂不支持，请更新 App"
+                !stopped -> "旧配置需重建；请先正常停止该 SIM 的引擎"
+                else -> "旧配置需重建；旧自定义值将全部清除，历史记录和日志保留"
+            },
+            handle = sim.handle,
+            canRebuild = legacy && stopped && !sim.operationPending && sim.slotIndex?.let { it in 0..1 } == true &&
+                state is ConfigurationUiState.Ready && state.applyingInstanceId == null,
+        )
+    }
     return ConfigurationRowPresentation(
         key = sim.handle.value,
         label = label,
@@ -232,7 +262,8 @@ private fun safeConfigurationLabel(label: String): String = label.takeIf {
 } ?: "实例 ••••"
 
 internal fun canApplyConfiguration(state: ConfigurationUiState, id: ConfigurationInstanceId): Boolean =
-    state is ConfigurationUiState.Ready && state.applyingInstanceId != id && state.instances.any { it.instanceId == id }
+    state is ConfigurationUiState.Ready && state.applyingInstanceId != id &&
+        state.instances.any { it.instanceId == id && it.formatState == ConfigurationFormatState.CURRENT }
 
 private fun panel(
     kind: ConfigurationPanelKind,

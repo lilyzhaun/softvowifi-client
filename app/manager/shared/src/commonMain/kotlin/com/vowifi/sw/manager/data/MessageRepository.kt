@@ -92,7 +92,7 @@ interface MessageRepository {
 
     suspend fun countUnreadIncoming(): Long
 
-    suspend fun countUnreadByOwner(): Map<SimOwnerId, Long> = throw MessageStorageException()
+    suspend fun countUnreadByOwner(): Map<SimOwnerId, Long>
 
     suspend fun lastOwner(): SimOwnerId?
 

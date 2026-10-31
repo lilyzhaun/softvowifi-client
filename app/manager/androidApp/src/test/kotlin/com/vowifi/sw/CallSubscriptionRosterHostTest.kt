@@ -11,7 +11,7 @@ import org.robolectric.annotation.Config
 import org.robolectric.shadows.ShadowSubscriptionManager.SubscriptionInfoBuilder
 
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [35], manifest = Config.NONE)
+@Config(sdk = [35], manifest = Config.NONE, shadows = [RootFrameworkShadow::class])
 class CallSubscriptionRosterHostTest {
     @Test fun androidActiveRosterPreservesUnidentifiableSecondSubscription() {
         val context = RuntimeEnvironment.getApplication()

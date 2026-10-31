@@ -17,7 +17,7 @@ class DiagnosticsProductionGrammarTest {
             EnvironmentDiagnosticsUiState.Loading to ManagerStatus(
                 kind = ManagerStatusKind.Loading,
                 title = "正在检查运行环境",
-                summary = "完成后将显示模块、权限和运行条件检查。",
+                summary = "完成后将显示 Root 后端、权限和运行条件检查。",
                 retryDescription = null,
             ),
             EnvironmentDiagnosticsUiState.Failure("java.io.IOException: /data/local/tmp/fail at internal.Native.call") to ManagerStatus(

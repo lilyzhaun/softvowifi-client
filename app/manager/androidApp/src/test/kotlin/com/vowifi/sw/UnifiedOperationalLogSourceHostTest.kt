@@ -134,7 +134,7 @@ class UnifiedOperationalLogSourceHostTest {
         private val commands = mutableListOf<String>()
         val source = AndroidOperationalLogSource(LogCommand { command ->
             commands += command
-            val operation = command.removePrefix("/data/adb/modules/vowifi_sw/control.sh logs ")
+            val operation = command.removePrefix("/data/adb/softvowifi/runtime/control.sh logs ")
             intercept?.invoke(command) ?: when (operation) {
                 "catalog" -> result(catalog())
                 "read $engineA" -> result(tail(engineA, listOf(line("00", "alpha-engine-first"), line("02", "alpha-engine-tied"))))

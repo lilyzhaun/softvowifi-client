@@ -79,6 +79,8 @@ internal class ConfigurationEditorDraft(
         private set
     private val owner = instance.draftOwnerId
     private var baseline by mutableStateOf(retained?.baseline ?: ConfigurationDraftValues.from(instance))
+    private var expectedRevision = if (retained != null) retained.expectedRevision else instance.configRevision
+    private var baselineRevision = if (retained != null) retained.baselineRevision else instance.configRevision
     private var selectedTransport by mutableStateOf(baseline.transport)
     private var dnsOverrides by mutableStateOf(baseline.dnsOverrides)
 
@@ -167,6 +169,11 @@ internal class ConfigurationEditorDraft(
     fun syncFrom(instance: ConfigurationInstance) {
         check(instance.draftOwnerId == owner && (owner != null || instance.instanceId == instanceId))
         instanceId = instance.instanceId
+        // A clean draft can follow a fresh snapshot. Once an edit spans a
+        // revision change, only explicit discard or a confirmed save may bind
+        // it to the new revision; refresh/retention must not authorize replay.
+        if (!dirty && !pending && expectedRevision == baselineRevision) expectedRevision = instance.configRevision
+        baselineRevision = instance.configRevision
         val incoming = ConfigurationDraftValues.from(instance)
         val values = synchronizedConfigurationDraft(currentValues(), baseline, incoming)
         if (!pending) replaceValues(values)
@@ -176,6 +183,7 @@ internal class ConfigurationEditorDraft(
     fun discard() {
         if (pending) return
         replaceValues(baseline)
+        expectedRevision = baselineRevision
         validationRequested = false
         status = ConfigurationEditStatus.Idle
     }
@@ -216,6 +224,8 @@ internal class ConfigurationEditorDraft(
                         ConfigurationEditStatus.Unconfirmed
                     } else {
                         baseline = ConfigurationDraftValues.from(incoming)
+                        baselineRevision = incoming.configRevision
+                        expectedRevision = incoming.configRevision
                         replaceValues(baseline)
                         if (outcome.result == com.vowifi.sw.manager.model.ConfigurationWriteResult.Unchanged)
                             ConfigurationEditStatus.Unchanged else ConfigurationEditStatus.Saved
@@ -233,7 +243,10 @@ internal class ConfigurationEditorDraft(
         }
     }
 
-    fun retained() = ConfigurationRetainedDraft(currentValues(), baseline, pending || status == ConfigurationEditStatus.Unconfirmed)
+    fun retained() = ConfigurationRetainedDraft(
+        currentValues(), baseline, pending || status == ConfigurationEditStatus.Unconfirmed,
+        expectedRevision, baselineRevision,
+    )
 
     private fun replaceValues(values: ConfigurationDraftValues) {
         selectedTransport = values.transport
@@ -259,6 +272,7 @@ internal class ConfigurationEditorDraft(
         paniCountry = paniCountry.text.toString(),
         imsDigestRealm = imsDigestRealm.text.toString(),
         dnsOverrides = dnsOverrides,
+        expectedRevision = expectedRevision,
     )
 
     private fun currentValues() = ConfigurationDraftValues(

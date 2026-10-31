@@ -21,7 +21,8 @@ import org.robolectric.shadows.ShadowAudioRecord
 import org.robolectric.shadows.ShadowAudioTrack
 
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [35], manifest = Config.NONE, shadows = [CoexistenceAudioManagerShadow::class, CoexistenceRecordingMonitorShadow::class])
+@Config(sdk = [35], manifest = Config.NONE, shadows = [CoexistenceAudioManagerShadow::class,
+    CoexistenceRecordingMonitorShadow::class, RootFrameworkShadow::class])
 class CallAudioMediaCoexistenceHostTest {
     @Test fun conversationRequestsDuckingRatherThanPausingTheUsersExistingMedia() = withConversation { fixture ->
         val request = requireNotNull(shadowOf(fixture.manager).lastAudioFocusRequest).audioFocusRequest

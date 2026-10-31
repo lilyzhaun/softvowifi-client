@@ -20,7 +20,7 @@ class AboutEngineIntegrityHostTest {
             ProcessBuilder("bash", "-c", """
                 sha256sum() {
                     case "${'$'}1" in
-                        /data/adb/modules/vowifi_sw/bin/vowifi-engine-arm64|/proc/101/exe)
+                        /data/adb/softvowifi/runtime/bin/vowifi-engine-arm64|/proc/101/exe)
                             printf '%s  %s\n' '${"a".repeat(64)}' "${'$'}1";;
                         /proc/202/exe) printf '%s  %s\n' '${"b".repeat(64)}' "${'$'}1";;
                         *) return 1;;
@@ -32,7 +32,7 @@ class AboutEngineIntegrityHostTest {
         try {
             val result = reader.read(ready(101, 202, null))
             val command = commands.single()
-            assertTrue(command.contains("/data/adb/modules/vowifi_sw/bin/vowifi-engine-arm64"))
+            assertTrue(command.contains("/data/adb/softvowifi/runtime/bin/vowifi-engine-arm64"))
             assertTrue(command.contains("/proc/101/exe"))
             assertTrue(command.contains("/proc/202/exe"))
             assertFalse(command.contains("/proc/303/exe"))

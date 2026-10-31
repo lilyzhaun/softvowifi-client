@@ -30,7 +30,7 @@ import org.robolectric.util.ReflectionHelpers.ClassParameter
 import kotlinx.coroutines.runBlocking
 
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [33], application = Application::class)
+@Config(sdk = [33], application = Application::class, shadows = [RootFrameworkShadow::class])
 class DiagnosticAppSourcesHostTest {
     private val app: Application get() = RuntimeEnvironment.getApplication()
     private fun subscription(id: Int, slot: Int, identity: String) = SubscriptionInfoBuilder.newBuilder()

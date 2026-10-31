@@ -60,14 +60,16 @@ internal fun ConfigurationStatusCard(
     onProvision: (SimHandle) -> Unit,
     pending: Boolean = false,
     completion: ConfigurationProvisionCompletion? = null,
+    onRebuild: ((SimHandle) -> Boolean)? = null,
 ) {
     val header = configurationHeader(row.label)
     ConfigurationCompletionFeedback(completion?.sequence ?: 0L,
         completion?.outcome == ConfigurationProvisionOutcome.Failed || completion?.outcome == ConfigurationProvisionOutcome.Unconfirmed)
+    val rebuilding = row.kind == ConfigurationRowKind.REBUILD_REQUIRED
     val provisionMessage = if (pending) null else when (completion?.outcome) {
-        ConfigurationProvisionOutcome.Failed -> "创建配置失败，请重试"
-        ConfigurationProvisionOutcome.Unconfirmed -> "创建结果未确认，请刷新核对；不会自动重试"
-        ConfigurationProvisionOutcome.Cancelled -> "创建已取消，未确认完成"
+        ConfigurationProvisionOutcome.Failed -> if (rebuilding) "重建配置失败，请刷新核对" else "创建配置失败，请重试"
+        ConfigurationProvisionOutcome.Unconfirmed -> if (rebuilding) "重建结果未确认，请刷新核对；不会自动重试" else "创建结果未确认，请刷新核对；不会自动重试"
+        ConfigurationProvisionOutcome.Cancelled -> if (rebuilding) "重建已取消，未确认完成" else "创建已取消，未确认完成"
         ConfigurationProvisionOutcome.Created, ConfigurationProvisionOutcome.Updated,
         ConfigurationProvisionOutcome.Unchanged, null -> null
     }
@@ -78,7 +80,9 @@ internal fun ConfigurationStatusCard(
         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
             ConfigurationCompletionSummary(
                 title = header.title,
-                summary = listOfNotNull(header.details, if (pending) "正在创建配置" else row.status ?: "配置暂不可用", provisionMessage).joinToString("\n"),
+                summary = listOfNotNull(header.details, if (pending) {
+                    if (rebuilding) "正在重建配置" else "正在创建配置"
+                } else row.status ?: "配置暂不可用", provisionMessage).joinToString("\n"),
                 sequence = completion?.sequence ?: 0L,
                 startAction = {
                     Icon(
@@ -88,7 +92,7 @@ internal fun ConfigurationStatusCard(
                     )
                 },
             )
-            if (shouldShowProvisionAction(row) || (pending && row.handle != null)) {
+            if (!rebuilding && (shouldShowProvisionAction(row) || (pending && row.handle != null))) {
                 val businessFeedback = configurationProvisionFeedback(state, row)
                 ManagerTextAction(
                     label = configurationProvisionLabel(), action = ManagerAction.ProvisionConfiguration,
@@ -100,6 +104,9 @@ internal fun ConfigurationStatusCard(
                         .heightIn(min = 48.dp)
                         .padding(horizontal = 16.dp, vertical = 8.dp),
                 )
+            }
+            if (rebuilding && onRebuild != null) {
+                ConfigurationRebuildAction(row, pending, onRebuild)
             }
         }
     }

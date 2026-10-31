@@ -4,9 +4,9 @@
 
 [简体中文](README.zh-CN.md) · [Download releases](https://github.com/lilyzhaun/softvowifi-client/releases) · [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md) · [Known issues](KNOWN_ISSUES.md)
 
-This repository receives versioned **app-only source snapshots** from the SoftVoWiFi development repository. It contains the management app, privileged observer, shared models, Android integration, tests, and the source inputs needed to rebuild the client independently. The interface is a native Kotlin / Compose app with miuix components and Navigation3—not a web UI.
+This repository contains reviewed **App-only source snapshots**: the native Kotlin/Compose manager, ordinary foreground observer, libsu RootService bridge, shared models, Android integration, and host tests. The app retains its original name **SoftVoWiFi**, package **`com.vowifi.sw`**, icon, and signing identity.
 
-> **A compatible SoftVoWiFi root module is required.** A standalone APK does not implement the private VoWiFi engine, install the privileged backend, or provide a working Wi-Fi Calling service by itself. The project is experimental; published binaries do not establish complete device/carrier compatibility. Do not rely on it for emergency calls.
+> **Standalone APK with user-authorized Root.** The APK bundles the engine and runtime resources; KernelSU/Magisk may provide `su`, but no SoftVoWiFi module or privileged-app installation is used. The project remains experimental; registration does not establish working SMS or audible calls. Do not rely on it for emergency calls. Historical module releases retain their original packaging and verification scope.
 
 ## Preview
 
@@ -30,34 +30,35 @@ https://github.com/user-attachments/assets/973bcf68-27c4-4a6f-ad82-63140677de54
 | **Messages** | Conversations, SMS actions, search, and app-private message history |
 | **Settings** | Configuration, diagnostics, redacted logs, notification settings, and app preferences |
 
-SMS, call, and management actions are wired to the module/engine protocol. Successful registration is not proof of SMS delivery or a connected, audible call. Full voice, notification, recovery, accessibility, and dual-SIM isolation acceptance still have gaps; see [known issues](KNOWN_ISSUES.md). The development repository and its device evidence are private; they are not required to build the client or submit a public report.
+SMS, call, and management actions use the existing engine protocol through the Root bridge. Full voice, notification, recovery, accessibility, and dual-SIM isolation acceptance still have gaps; see [known issues](KNOWN_ISSUES.md). Public reports and App source checks do not require access to another repository.
 
 The desktop target exists for tests and previews, not as a desktop calling client. eSIM profile management, contacts, the system SMS database, default-dialer integration, RCS, attachments, call hold, and conferencing are outside the current scope.
 
 ## Downloads
 
-Each [GitHub Release](https://github.com/lilyzhaun/softvowifi-client/releases) contains:
+The current source branch targets a standalone APK; a standalone release has not yet been published. Existing v0.3.49 and earlier assets retain their module packaging and cannot supply the runtime input for this branch. Future standalone [GitHub Releases](https://github.com/lilyzhaun/softvowifi-client/releases) use these assets:
 
 | Asset | Description |
 |---|---|
-| `SoftVoWiFi-v<version>.apk` | Client APK independently built from this repository and signed with the approved certificate |
-| `SoftVoWiFi-ksu-v<version>.zip` | **Exact upstream module ZIP**, copied without rebuilding or repacking |
-| `SHA256SUMS` | SHA-256 checksums for the APK, ZIP, and metadata; also covers the APK `.idsig` sidecar when present |
-| `RELEASE.json` | Version, version code, module filename/size/checksum, and exported-source content digest |
+| `SoftVoWiFi-v<version>.apk` | Independently compiled App plus verified bundled runtime, signed with the approved certificate |
+| `SHA256SUMS` | APK, metadata, and `.idsig` sidecar checksums |
+| `RELEASE.json` | Version/code, APK filename/size/checksum, and reviewed App-source digest |
 
-The module ZIP is a separately distributed binary asset with a **private-source Go engine**. The client source is GPL-3.0-only, with retained third-party and earlier grants described below; this does not make the complete backend open source. Repository visibility and binary redistribution clearance are separate from automation.
+The APK includes a separately licensed engine binary. This repository's App source license does not make the complete backend open source. Embedded runtime/dependency notices and corresponding-source scope must be considered separately.
 
 Module releases from v0.3.44 include `APP-SOURCE.json`, the client GPL/NOTICE and linked-engine dependency licenses/NOTICE files. Check the release-specific materials for the embedded App's source. Earlier module assets are not offered as public downloads pending source and license review.
 
 ### Installation
 
 1. Use a compatible rooted ARM64 Android 13+ device and a supported KernelSU / Magisk setup. The current backend requires Qualcomm QMI / QRTR and suitable XFRM/IPsec support, an active SIM, and carrier ePDG access; Android version alone does not guarantee support.
-2. Download the matching module ZIP and verify its checksum. Install it through the root manager and complete the required reboot. The ZIP includes the privileged manager app and backend.
-3. If updating the app separately, use the APK from the **same release version** and verify it too. An APK update does not update the module engine or supply a missing module.
+2. Download the standalone APK and verify its checksum and approved certificate.
+3. Install it normally. Existing module-based installations require a deliberate migration and verification that the package is no longer a system/privileged app; a `/data/app` path alone is not sufficient.
 4. Grant root access manually in the root manager as needed. KernelSU authorization must be completed by the user in KernelSU Manager; do not assume a changed signature/UID inherits an old grant.
 5. Open Home and Settings, inspect diagnostics and SIM configuration, and start the intended line. Test registration, actual SMS delivery, and voice separately.
 
-The independently built APK and the APK embedded in the module use the same version and approved signing certificate, but may differ byte-for-byte. **Uninstalling the module deletes its configuration and logs**; the management App and its private data are not deleted with it. Back up any module data you need before uninstalling. Module `rollback` only cleans up runtime resources and preserves data; deleting module data while installed requires an explicitly authorized `purge`.
+Stopping a line or runtime `rollback` keeps configuration and logs. Runtime data lives under `/data/adb/softvowifi`, with sockets under `/data/local/tmp/softvowifi`; old module data is not automatically imported, deleted, or re-enabled. Removing the app does not imply that external Root data has been removed. Destructive `purge` is a separate, explicit operation.
+
+Historical module behavior: **Uninstalling the module deletes its configuration and logs**. This does not describe removal of the standalone APK; old module files are not changed automatically.
 
 For checksum verification on Linux, download the assets listed in `SHA256SUMS` into the same directory, then run:
 
@@ -67,7 +68,7 @@ timeout 30s sha256sum --check SHA256SUMS
 
 ## Build from source
 
-Building the client does **not** require upstream engine source, private Go dependencies, or production signing credentials. Access to this repository and ordinary Gradle dependency downloads are still required. The instructions below target Linux / Bash.
+App tests and lint require no engine source or signing credentials. Packaging a complete APK additionally requires a verified standalone release APK of the matching version as the binary/runtime input. The App is independently compiled; the private engine is not rebuilt from this source tree. These instructions target Linux/Bash.
 
 ### Requirements
 
@@ -82,10 +83,12 @@ cd softvowifi-client
 
 # A few retained render tests write temporary images under this directory.
 timeout 10s mkdir -p /tmp/opencode
-timeout 1800s bash tools/release/build-apk.sh
+timeout 1800s bash tools/release/build-apk.sh --check
+# To package: first verify a matching APK from this repository's release assets.
+timeout 1800s bash tools/release/build-apk.sh /path/to/verified-release.apk
 ```
 
-The helper runs shared desktop tests, Android host tests, and the unsigned Android release build. Output:
+Both modes run shared desktop tests, Android host tests, and lint. The packaging mode also extracts and validates the runtime inventory, then builds an unsigned release APK:
 
 ```text
 app/manager/androidApp/build/outputs/apk/release/androidApp-release-unsigned.apk
@@ -93,7 +96,7 @@ app/manager/androidApp/build/outputs/apk/release/androidApp-release-unsigned.apk
 
 This output is **unsigned** and cannot replace the installed official app as-is. Keep private keys, passwords, `local.properties`, and build output out of Git.
 
-The generated app version is read from `app/manager/version.properties`; it is synchronized from the upstream module version. Do not edit that file independently to create a mismatched client release.
+The App version is read from `app/manager/version.properties`. It must match the verified runtime input; do not relabel another runtime as a new release.
 
 The working branch can contain reviewed source changes ahead of a release tag. `RELEASE.json` describes its immutable release tag, not every later working-branch snapshot. Check out that tag when inspecting a published APK's source. A preparation-only source refresh does not move tags, change versions, sign an APK or replace release assets.
 
@@ -103,7 +106,8 @@ Historical exception: the current v0.3.47 attachments correspond to client commi
 
 ```text
 app/manager/          Android app, shared UI/models, schemas, tests, Gradle wrapper
-app/observer/src/    Privileged observer source compiled by the Android app
+app/manager/rootbridge/  RootService, restricted Binder methods and FD stream bridge
+app/observer/src/    Ordinary foreground observer compiled by the Android app
 app/observer/res/    Observer resources
 export/country-source/  Pinned public AOSP MCC-to-country inputs and attribution
 tools/export/        Public country-table regeneration helpers
@@ -119,7 +123,7 @@ No private engine source, OEM/operator catalog, upstream Git history, device evi
 
 Submit issues and client-source pull requests here; private repository access is not required. Maintainers review and integrate the patch into the development tree before the next export. See [CONTRIBUTING.md](CONTRIBUTING.md); report vulnerabilities through [SECURITY.md](SECURITY.md), not a secret-bearing public issue.
 
-Report the app/module version, device model, Android version, public carrier PLMN, network conditions, and a **redacted** error summary. Distinguish “registered,” “SMS accepted,” “delivery report,” “message received,” and “call audible.” Never attach SIM identities, full configuration, authentication material, credentials, message bodies, or raw communication captures. Do not send real SMS/calls or consume OTP merely to reproduce a report without authorization.
+Report the App version, device model, Android version, public carrier PLMN, network conditions, and a **redacted** error summary. Distinguish “registered,” “SMS accepted,” “delivery report,” “message received,” and “call audible.” Never attach SIM identities, full configuration, authentication material, credentials, message bodies, or raw communication captures. Do not send real SMS/calls or consume OTP merely to reproduce a report without authorization.
 
 ## License and attribution
 

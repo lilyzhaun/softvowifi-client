@@ -33,10 +33,15 @@ public final class ObserverService extends Service {
     public void onCreate() {
         super.onCreate();
         publishForeground();
+        com.vowifi.sw.root.RootBridge.bind(this, () -> {
+            if (getApplication() instanceof ProcessRuntimeStarter) {
+                ((ProcessRuntimeStarter) getApplication()).startRuntime();
+            }
+            registerObservers();
+        });
         if (getApplication() instanceof ProcessRuntimeStarter) {
             ((ProcessRuntimeStarter) getApplication()).onObserverReady(this);
         }
-        registerObservers();
     }
 
     @Override
@@ -55,6 +60,8 @@ public final class ObserverService extends Service {
 
     @Override
     public void onDestroy() {
+        try { com.vowifi.sw.root.RootBridge.observeNativeRegistration(null); }
+        catch (RuntimeException exception) { Log.w(TAG, "observer_cleanup_unavailable"); }
         if (getApplication() instanceof ProcessRuntimeStarter) {
             ((ProcessRuntimeStarter) getApplication()).onObserverDestroyed(this);
         }
@@ -105,49 +112,8 @@ public final class ObserverService extends Service {
 
     private void registerObservers() {
         try {
-            if (checkSelfPermission(Manifest.permission.READ_PHONE_STATE)
-                    != PackageManager.PERMISSION_GRANTED
-                    && checkSelfPermission("android.permission.READ_PRIVILEGED_PHONE_STATE")
-                    != PackageManager.PERMISSION_GRANTED) {
-                Log.w(TAG, "observer_unavailable_subscription_permission");
-                return;
-            }
-            SubscriptionManager subscriptions = getSystemService(SubscriptionManager.class);
-            if (subscriptions == null) {
-                Log.w(TAG, "observer_unavailable_subscription_service");
-                return;
-            }
-            List<SubscriptionInfo> active = subscriptions.getActiveSubscriptionInfoList();
-            if (active == null || active.isEmpty()) {
-                Log.w(TAG, "No active subscriptions");
-                return;
-            }
-            if (checkSelfPermission("android.permission.READ_PRIVILEGED_PHONE_STATE")
-                    != PackageManager.PERMISSION_GRANTED
-                    && checkSelfPermission(Manifest.permission.READ_PRECISE_PHONE_STATE)
-                    != PackageManager.PERMISSION_GRANTED) {
-                Log.w(TAG, "observer_unavailable_ims_permission");
-                return;
-            }
-            ImsManager ims = getSystemService(ImsManager.class);
-            if (ims == null) {
-                Log.w(TAG, "observer_unavailable_ims_service");
-                return;
-            }
             File output = new File(getFilesDir(), "logs/ims-registration.jsonl");
-            for (SubscriptionInfo info : active) {
-                try {
-                    int subId = info.getSubscriptionId();
-                    ImsMmTelManager manager = ims.getImsMmTelManager(subId);
-                    RegistrationObserver observer = new RegistrationObserver(
-                            subId, info.getSimSlotIndex(), manager, executor, output);
-                    if (observer.start()) {
-                        observers.put(subId, observer);
-                    }
-                } catch (RuntimeException exception) {
-                    Log.w(TAG, "observer_unavailable_subscription_ims");
-                }
-            }
+            com.vowifi.sw.root.RootBridge.observeNativeRegistration(event -> RegistrationObserver.writeEvent(output, event));
         } catch (SecurityException exception) {
             Log.w(TAG, "observer_unavailable_permission_race");
         } catch (RuntimeException exception) {

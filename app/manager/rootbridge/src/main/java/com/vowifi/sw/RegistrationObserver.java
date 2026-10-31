@@ -22,14 +22,14 @@ import java.nio.file.StandardOpenOption;
 import java.nio.file.attribute.PosixFilePermissions;
 import java.util.concurrent.Executor;
 
-final class RegistrationObserver implements AutoCloseable {
+public final class RegistrationObserver implements AutoCloseable {
     private static final String TAG = "SoftVoWiFiObserver";
 
     private final int subId;
     private final int slot;
     private final ImsMmTelManager manager;
     private final Executor executor;
-    private final File output;
+    private final java.util.function.Consumer<String> sink;
     private final RegistrationManager.RegistrationCallback callback =
             new RegistrationManager.RegistrationCallback() {
                 @Override
@@ -74,20 +74,23 @@ final class RegistrationObserver implements AutoCloseable {
                 }
             };
 
-    RegistrationObserver(
+    public RegistrationObserver(
             int subId,
             int slot,
             ImsMmTelManager manager,
             Executor executor,
-            File output) {
+            java.util.function.Consumer<String> sink) {
         this.subId = subId;
         this.slot = slot;
         this.manager = manager;
         this.executor = executor;
-        this.output = output;
+        this.sink = sink;
     }
 
-    boolean start() {
+    // Registration runs only inside RootService; the ordinary App receives Binder events.
+    @android.annotation.SuppressLint("MissingPermission")
+    public boolean start() {
+        if (android.os.Process.myUid() != 0) return false;
         try {
             manager.registerImsRegistrationCallback(executor, callback);
             Log.i(TAG, "observer_callback_registered");
@@ -99,7 +102,9 @@ final class RegistrationObserver implements AutoCloseable {
     }
 
     @Override
+    @android.annotation.SuppressLint("MissingPermission")
     public void close() {
+        if (android.os.Process.myUid() != 0) return;
         manager.unregisterImsRegistrationCallback(callback);
     }
 
@@ -117,7 +122,11 @@ final class RegistrationObserver implements AutoCloseable {
     }
 
     private void write(JSONObject event) {
-        byte[] bytes = (event.toString() + '\n').getBytes(StandardCharsets.UTF_8);
+        sink.accept(event.toString());
+    }
+
+    public static void writeEvent(File output, String event) {
+        byte[] bytes = (event + '\n').getBytes(StandardCharsets.UTF_8);
         if (bytes.length > 1024 * 1024) return;
         // Both SIM callbacks share one file and one bound, including truncation.
         synchronized (RegistrationObserver.class) {

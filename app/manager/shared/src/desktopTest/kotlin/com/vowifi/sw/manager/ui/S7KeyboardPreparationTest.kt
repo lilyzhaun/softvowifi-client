@@ -53,7 +53,7 @@ class S7KeyboardPreparationTest {
                 assertTrue(button().config.getOrNull(SemanticsProperties.Focused) == true, "先证明公开Focused，不能手发FocusInteraction")
                 assertEquals(bounds, button().boundsInRoot, "focus不能改变布局或命中矩形")
                 val focusedEdge = s3SmallPatch(e, testScheduler, edge)
-                val accent = f.palette.interactive.toArgb()
+                val accent = f.managerAccent.toArgb()
                 assertTrue(s3RgbDistance(beforeFocus.pixels[8], accent) >= 48, "描边必须与已知原背景可区分")
                 val glyph = f.textBounds("合成操作").inflate(1f)
                 assertTrue(glyph.left > bounds.left + 2 && glyph.top > bounds.top + 2 &&
@@ -103,7 +103,7 @@ class S7KeyboardPreparationTest {
             var mode: InputModeManager? = null; var accent = 0
             ManagerPressRenderFixture(testScheduler, durationScale = scale) {
                 val manager = LocalInputModeManager.current
-                val ink = when (kind) { 0 -> LocalSoftVoWiFiColors.current.interactive; 2 -> phoneColors().accent
+                val ink = when (kind) { 0 -> top.yukonga.miuix.kmp.theme.MiuixTheme.colorScheme.primary; 2 -> phoneColors().accent
                     8 -> phoneColors().onAccent; else -> communicationColors().accent }
                 SideEffect { mode = manager; accent = ink.toArgb() }
                 CompositionLocalProvider(LocalAppRouteActive provides active) {

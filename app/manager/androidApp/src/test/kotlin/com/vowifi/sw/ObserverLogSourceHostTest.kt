@@ -52,7 +52,7 @@ class ObserverLogSourceHostTest {
         val file = File(RuntimeEnvironment.getApplication().filesDir, "logs/ims-registration.jsonl")
         file.parentFile!!.mkdirs()
         file.writeBytes(ByteArray(1024 * 1024) { 'x'.code.toByte() })
-        val observer = RegistrationObserver(555, 0, null, { it.run() }, file)
+        val observer = RegistrationObserver(555, 0, null, { it.run() }) { RegistrationObserver.writeEvent(file, it) }
         val write = RegistrationObserver::class.java.getDeclaredMethod("write", JSONObject::class.java).apply { isAccessible = true }
         write.invoke(observer, JSONObject().put("timestampMs", 1).put("subId", 555).put("state", "REGISTERED"))
         assertTrue(file.length() in 1..1024 * 1024)
@@ -72,7 +72,7 @@ class ObserverLogSourceHostTest {
         try {
             val tasks = (1..2).map { writer ->
                 workers.submit {
-                    val observer = RegistrationObserver(555, 0, null, { it.run() }, file)
+                    val observer = RegistrationObserver(555, 0, null, { it.run() }) { RegistrationObserver.writeEvent(file, it) }
                     check(start.await(3, TimeUnit.SECONDS))
                     repeat(50) { index ->
                         write.invoke(observer, JSONObject().put("timestampMs", writer * 100 + index)

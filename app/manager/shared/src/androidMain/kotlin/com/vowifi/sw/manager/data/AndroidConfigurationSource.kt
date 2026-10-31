@@ -2,6 +2,7 @@ package com.vowifi.sw.manager.data
 
 import android.content.Context
 import com.vowifi.sw.manager.model.ConfigurationFormatException
+import com.vowifi.sw.manager.model.ConfigurationFormatState
 import com.vowifi.sw.manager.model.ConfigurationApplyAcceptance
 import com.vowifi.sw.manager.model.ConfigurationApplyOutcome
 import com.vowifi.sw.manager.model.ConfigurationInstanceId
@@ -35,6 +36,7 @@ internal class AndroidConfigurationSource(
     private val inventory: SubscriptionInventory,
     private val readNetworkOutlets: suspend () -> ConfigurationNetworkOutlets = ::readAndroidNetworkOutlets,
     readAutomaticSmsc: suspend (String) -> String? = { null },
+    readRuntimeFacts: suspend (String) -> com.vowifi.sw.manager.model.ConfigurationRuntimeFacts? = { null },
     private val onCreated: () -> Unit = {},
 ) : ConfigurationSource {
     private val appContext = context.applicationContext
@@ -42,6 +44,8 @@ internal class AndroidConfigurationSource(
     private val operationGate = EngineOperationGate()
     private val lock = Any()
     private var refreshInFlight: ConfigurationRefreshFlight? = null
+    private var subscriptionGeneration = 0L
+    private var subscriptionRefreshPending = false
     private var explicitProvision: SimHandle? = null
     private var automaticProvision = emptySet<SimHandle>()
     private var provisionSequence = 0L
@@ -63,11 +67,12 @@ internal class AndroidConfigurationSource(
     }
     private val catalog = AndroidConfigurationCatalog(
         commands,
-        AndroidSubscriptionDiscovery(appContext),
+        AndroidSubscriptionDiscovery(appContext, handles = handles),
         handles,
         ownerFor = { ownerHmac?.ownerIdFor(it) },
         networkOutlets = { networkOutlets },
         readAutomaticSmsc = readAutomaticSmsc,
+        readRuntimeFacts = readRuntimeFacts,
     )
     private val provisioner = AndroidConfigurationProvisioner(
         AndroidSubscriptionIdentityReader(appContext),
@@ -105,29 +110,41 @@ internal class AndroidConfigurationSource(
         overrides: ConfigurationOverrides,
         onComplete: (ConfigurationApplyOutcome) -> Unit,
     ): ConfigurationApplyAcceptance = AndroidConfigurationSubmitter(
-        scope, { closed }, { synchronized(lock) { !closed && operationGate.tryEnter() } }, operationGate::release,
+        scope, { closed }, { synchronized(lock) { !closed && operationGate.tryEnter() } }, ::releaseOperation,
     ).submit(
         available = { mutableState.value is ConfigurationUiState.Ready && catalog.iccidFor(instanceId) != null },
         operation = { applyLocked(instanceId, overrides) },
         onComplete = onComplete,
     )
 
-    override fun provision(handle: SimHandle) {
+    override val supportsRebuild: Boolean get() = true
+
+    override fun provision(handle: SimHandle) { requestProvision(handle, rebuild = false) }
+
+    override fun rebuild(handle: SimHandle): Boolean = requestProvision(handle, rebuild = true)
+
+    private fun requestProvision(handle: SimHandle, rebuild: Boolean): Boolean {
         synchronized(lock) {
-            if (closed || !listingAllowsAuto(mutableState.value) || !operationGate.tryEnter()) return
+            if (closed || !listingAllowsAuto(mutableState.value)) return false
+            if (rebuild) {
+                val current = (mutableState.value as? ConfigurationUiState.Ready)?.instances
+                    ?.firstOrNull { it.instanceId.value == handle.value }
+                if (current?.formatState != ConfigurationFormatState.LEGACY || current.lifecycle != ConfigurationLifecycle.STOPPED) return false
+            }
+            if (!operationGate.tryEnter()) return false
             val key = handles.keyFor(handle)
             if (key == null || !ConfigurationControlCommand.digitsOnly(key)) {
                 operationGate.release()
                 failProvision(mutableState.value, ConfigurationEvaluator.failure(CREATE_FAILED))
-                return
+                return false
             }
             explicitProvision = handle
             mutableProvisioning.value = mutableProvisioning.value.copy(pending = mutableProvisioning.value.pending + handle)
         }
         var outcome = ConfigurationProvisionOutcome.Unconfirmed
-        val producer = scope.launch(start = CoroutineStart.LAZY) { outcome = provisionLocked(handle) }
+        val producer = scope.launch(start = CoroutineStart.LAZY) { outcome = provisionLocked(handle, rebuild) }
         producer.invokeOnCompletion { error ->
-            synchronized(lock) {
+            val refresh = synchronized(lock) {
                 operationGate.release()
                 if (!closed) {
                     explicitProvision = null
@@ -138,9 +155,12 @@ internal class AndroidConfigurationSource(
                     }
                     completeProvision(handle, terminal)
                 }
+                (!closed && subscriptionRefreshPending).also { subscriptionRefreshPending = false }
             }
+            if (refresh) refreshInternal(AutoProvisionRetry.Default)
         }
         producer.start()
+        return true
     }
 
     override fun close() {
@@ -162,7 +182,26 @@ internal class AndroidConfigurationSource(
     }
 
     private fun onSubscriptionsChanged() {
+        synchronized(lock) {
+            if (closed) return
+            subscriptionGeneration++
+            subscriptionRefreshPending = true
+            catalog.clear()
+            mutableState.value = ConfigurationUiState.Loading
+        }
         refreshInternal(AutoProvisionRetry.Default)
+    }
+
+    private fun releaseOperation() {
+        val refresh = synchronized(lock) {
+            operationGate.release()
+            (!closed && subscriptionRefreshPending).also { subscriptionRefreshPending = false }
+        }
+        if (refresh) refreshInternal(AutoProvisionRetry.Default)
+    }
+
+    private fun currentGeneration(generation: Long): Boolean = synchronized(lock) {
+        !closed && subscriptionGeneration == generation
     }
 
     private fun refreshInternal(retry: AutoProvisionRetry, refreshIdentities: Boolean = false) {
@@ -180,27 +219,31 @@ internal class AndroidConfigurationSource(
                 } else CompletableDeferred(RefreshResult.Busy)
             }
             if (!operationGate.tryEnter()) return@synchronized CompletableDeferred(RefreshResult.Busy)
+            val generation = subscriptionGeneration
+            subscriptionRefreshPending = false
             val completion = CompletableDeferred<RefreshResult>()
             refreshInFlight = ConfigurationRefreshFlight(identities, completion, readsNetworkOutlets = needsOutlets)
             var result: RefreshResult? = null
             producer = scope.launch(start = CoroutineStart.LAZY) {
-                val refreshed = refreshLocked(retry, identities)
+                val refreshed = refreshLocked(retry, identities, generation)
                 currentCoroutineContext().ensureActive()
-                synchronized(lock) { if (!closed) mutableState.value = refreshed.state }
-                result = if (refreshed.result == RefreshResult.Completed && networkOutlets.issue != null) {
+                val current = synchronized(lock) {
+                    (!closed && subscriptionGeneration == generation).also { if (it) mutableState.value = refreshed.state }
+                }
+                result = if (!current) RefreshResult.Cancelled else if (refreshed.result == RefreshResult.Completed && networkOutlets.issue != null) {
                     RefreshResult.Failed(checkNotNull(networkOutlets.issue))
                 } else refreshed.result
             }.also { job ->
                 job.invokeOnCompletion { error ->
                     synchronized(lock) {
                         refreshInFlight = null
-                        operationGate.release()
                         if (!closed && automaticProvision.isNotEmpty()) {
                             val finished = automaticProvision
                             automaticProvision = emptySet()
                             mutableProvisioning.value = mutableProvisioning.value.copy(pending = mutableProvisioning.value.pending - finished)
                         }
                     }
+                    releaseOperation()
                     when (error) {
                         null -> completion.complete(checkNotNull(result))
                         is CancellationException -> completion.cancel(error)
@@ -214,7 +257,7 @@ internal class AndroidConfigurationSource(
         return accepted
     }
 
-    private suspend fun refreshLocked(retry: AutoProvisionRetry, refreshIdentities: Boolean = false): ConfigurationRefreshRead {
+    private suspend fun refreshLocked(retry: AutoProvisionRetry, refreshIdentities: Boolean, generation: Long): ConfigurationRefreshRead {
         // Subscription registration can request Default before init's ForceRetry
         // joins that flight. Whichever read wins must initialize the directory.
         if (!networkOutletsRead || retry == AutoProvisionRetry.ForceRetry) {
@@ -223,6 +266,7 @@ internal class AndroidConfigurationSource(
             networkOutletsRead = true
         }
         var listing = catalog.load()
+        if (!currentGeneration(generation)) return ConfigurationRefreshRead(listing.state, RefreshResult.Cancelled)
         var identityReadbackResult: RefreshResult? = null
         if (closed || !listingAllowsAuto(listing.state)) return ConfigurationRefreshRead(listing.state)
         val active = when (val result = inventory.listActive()) {
@@ -234,11 +278,11 @@ internal class AndroidConfigurationSource(
         if (refreshIdentities) {
             val activeKeys = active.map { it.key }.toSet()
             val targets = (listing.state as? ConfigurationUiState.Ready)?.instances.orEmpty()
-                .filter { it.lifecycle == ConfigurationLifecycle.STOPPED }
+                .filter { it.lifecycle == ConfigurationLifecycle.STOPPED && it.formatState == ConfigurationFormatState.CURRENT }
                 .mapNotNull { catalog.iccidFor(it.instanceId) }
                 .filter { it in activeKeys }
             for (key in targets) {
-                if (closed) return ConfigurationRefreshRead(listing.state)
+                if (!currentGeneration(generation)) return ConfigurationRefreshRead(listing.state, RefreshResult.Cancelled)
                 val failure = provisioner.refreshIdentity(key)
                 if (failure != null) {
                     return ConfigurationRefreshRead(
@@ -254,6 +298,7 @@ internal class AndroidConfigurationSource(
             }
         }
         val selected = tracker.select(active, listing.existingKeys, retry)
+        if (!currentGeneration(generation)) return ConfigurationRefreshRead(listing.state, RefreshResult.Cancelled)
         if (selected.isEmpty()) {
             return ConfigurationRefreshRead(listing.state, identityReadbackResult ?: configurationRefreshResult(listing.state))
         }
@@ -302,6 +347,7 @@ internal class AndroidConfigurationSource(
         instanceId: ConfigurationInstanceId,
         overrides: ConfigurationOverrides,
     ): ConfigurationApplyOutcome {
+        val generation = synchronized(lock) { subscriptionGeneration }
         val current = when (val state = mutableState.value) {
             is ConfigurationUiState.Ready -> state
             ConfigurationUiState.Loading,
@@ -317,9 +363,17 @@ internal class AndroidConfigurationSource(
             retainReady(current, ConfigurationEvaluator.failure().message)
             return ConfigurationApplyOutcome.Failed
         }
+        if (previous.formatState != ConfigurationFormatState.CURRENT || !validConfigRevision(previous.configRevision)) {
+            retainReady(current, "旧配置需重建，或请更新 App")
+            return ConfigurationApplyOutcome.Failed
+        }
+        if (overrides.expectedRevision != previous.configRevision) {
+            retainReady(current, "配置已变化，请刷新核对并处理原草稿")
+            return ConfigurationApplyOutcome.Failed
+        }
         mutableState.value = current.copy(applyingInstanceId = instanceId, message = APPLYING)
         val payload = try {
-            ConfigurationCodec.encodeChanges(
+            ConfigurationCodec.encodeRevisionChanges(
                 ConfigurationOverrides(previous.transport, previous.smsc, previous.epdgFqdn, previous.imsRealm, previous.dns,
                     previous.imsPolicy.securityOverride, previous.imsPolicy.initialOverride, previous.imsPolicy.countryOverride,
                     previous.imsPolicy.digestRealmOverride, previous.dnsOverrides),
@@ -329,13 +383,24 @@ internal class AndroidConfigurationSource(
             retainReady(current, error.message ?: ConfigurationEvaluator.failure().message)
             return ConfigurationApplyOutcome.Failed
         }
-        return when (val result = commands.applyTracked(iccid, payload)) {
+        if (!currentGeneration(generation) || catalog.iccidFor(instanceId) != iccid) return ConfigurationApplyOutcome.Unconfirmed
+        val result = commands.applyTracked(iccid, payload)
+        if (!currentGeneration(generation)) return ConfigurationApplyOutcome.Unconfirmed
+        return when (result) {
+            ConfigurationCommandApplyResult.RevisionConflict -> {
+                val readback = catalog.load().state
+                if (readback is ConfigurationUiState.Ready) retainReady(readback, "配置已变化，请刷新核对并处理原草稿")
+                else retainReady(current, "配置已变化，请刷新核对并处理原草稿")
+                ConfigurationApplyOutcome.Failed
+            }
             ConfigurationCommandApplyResult.Failed -> {
                 retainReady(current, ConfigurationEvaluator.failure().message)
                 ConfigurationApplyOutcome.Failed
             }
             ConfigurationCommandApplyResult.Unconfirmed -> {
-                retainReady(current, ConfigurationEvaluator.failure().message)
+                val readback = catalog.load().state
+                if (readback is ConfigurationUiState.Ready) retainReady(readback, "保存结果未确认，请刷新核对；不会自动重试")
+                else retainReady(current, "保存结果未确认，请刷新核对；不会自动重试")
                 ConfigurationApplyOutcome.Unconfirmed
             }
             ConfigurationCommandApplyResult.Applied, ConfigurationCommandApplyResult.Unchanged -> {
@@ -343,14 +408,15 @@ internal class AndroidConfigurationSource(
                 mutableState.value = readback
                 val instance = (readback as? ConfigurationUiState.Ready)?.instances
                     ?.firstOrNull { catalog.iccidFor(it.instanceId) == iccid }
-                if (instance == null) ConfigurationApplyOutcome.Unconfirmed
+                if (instance == null || instance.instanceId != instanceId) ConfigurationApplyOutcome.Unconfirmed
                 else ConfigurationApplyOutcome.Confirmed(instance, if (result == ConfigurationCommandApplyResult.Unchanged)
                     com.vowifi.sw.manager.model.ConfigurationWriteResult.Unchanged else com.vowifi.sw.manager.model.ConfigurationWriteResult.Applied)
             }
         }
     }
 
-    private suspend fun provisionLocked(handle: SimHandle): ConfigurationProvisionOutcome {
+    private suspend fun provisionLocked(handle: SimHandle, rebuild: Boolean = false): ConfigurationProvisionOutcome {
+        val generation = synchronized(lock) { subscriptionGeneration }
         currentCoroutineContext().ensureActive()
         val current = mutableState.value
         when (current) {
@@ -376,30 +442,38 @@ internal class AndroidConfigurationSource(
             is SubscriptionInventoryResult.Failure,
             -> Unit
         }
-        if (exists) {
+        if (rebuild) {
+            val instance = (current as? ConfigurationUiState.Ready)?.instances?.firstOrNull { it.instanceId.value == handle.value }
+            if (!exists || instance?.formatState != ConfigurationFormatState.LEGACY || instance.lifecycle != ConfigurationLifecycle.STOPPED) {
+                return ConfigurationProvisionOutcome.Failed
+            }
+        } else if (exists) {
             return publishProvisionReadback(handle, catalog.load().state, ConfigurationProvisionOutcome.Unchanged)
         }
         if (current is ConfigurationUiState.Ready) {
             synchronized(lock) {
                 if (!closed) mutableState.value = current.copy(
                     applyingInstanceId = ConfigurationInstanceId(handle.value),
-                    message = CREATING,
+                    message = if (rebuild) "正在重建配置" else CREATING,
                 )
             }
         }
-        val attempt = provisioner.attempt(iccid)
+        val attempt = if (rebuild) provisioner.rebuild(iccid) else provisioner.attempt(iccid)
         currentCoroutineContext().ensureActive()
         if (closed) return ConfigurationProvisionOutcome.Cancelled
+        if (!currentGeneration(generation) || handles.keyFor(handle) != iccid) return ConfigurationProvisionOutcome.Unconfirmed
         return when (attempt) {
             ProvisionAttempt.Created -> {
                 runCatching { onCreated() }
-                val readback = ConfigurationEvaluator.readyAfterCreate(catalog.load().state)
-                publishProvisionReadback(handle, readback, ConfigurationProvisionOutcome.Created)
+                val fresh = catalog.load().state
+                val readback = if (rebuild) ConfigurationEvaluator.readyAfterRebuild(fresh) else ConfigurationEvaluator.readyAfterCreate(fresh)
+                publishProvisionReadback(handle, readback, if (rebuild) ConfigurationProvisionOutcome.Updated else ConfigurationProvisionOutcome.Created)
             }
             ProvisionAttempt.AlreadyExists ->
                 publishProvisionReadback(handle, catalog.load().state, ConfigurationProvisionOutcome.Unchanged)
             is ProvisionAttempt.Failed -> {
-                failProvision(current, attempt.state)
+                val readback = if (rebuild && attempt.unconfirmed) catalog.load().state else current
+                failProvision(readback, attempt.state)
                 if (attempt.unconfirmed) ConfigurationProvisionOutcome.Unconfirmed else ConfigurationProvisionOutcome.Failed
             }
         }
@@ -416,7 +490,9 @@ internal class AndroidConfigurationSource(
             mutableState.value = readback
         }
         val confirmed = (readback as? ConfigurationUiState.Ready)?.instances
-            ?.any { it.instanceId.value == handle.value && catalog.iccidFor(it.instanceId) == handles.keyFor(handle) } == true
+            ?.any { it.instanceId.value == handle.value && catalog.iccidFor(it.instanceId) == handles.keyFor(handle) &&
+                (outcome !in setOf(ConfigurationProvisionOutcome.Created, ConfigurationProvisionOutcome.Updated) ||
+                    it.formatState == ConfigurationFormatState.CURRENT && validConfigRevision(it.configRevision)) } == true
         return if (confirmed) outcome else ConfigurationProvisionOutcome.Unconfirmed
     }
 

@@ -1,7 +1,7 @@
 package com.vowifi.sw.manager.data
 
 internal object ConfigurationControlCommand {
-    const val SCRIPT = "/data/adb/modules/vowifi_sw/control.sh"
+    const val SCRIPT = "/data/adb/softvowifi/runtime/control.sh"
     const val APPLY_TIMEOUT_SECONDS = 60L
     const val CREATE_TIMEOUT_SECONDS = 60L
 
@@ -24,9 +24,16 @@ internal object ConfigurationControlCommand {
         return "$SCRIPT config refresh-identity $iccid $subscriptionId $slot"
     }
 
+    fun rebuildLine(iccid: String, subscriptionId: Int, slot: Int): String {
+        require(digitsOnly(iccid))
+        require(subscriptionId >= 0)
+        require(slot == 0 || slot == 1)
+        return "$SCRIPT config rebuild $iccid $subscriptionId $slot"
+    }
+
     fun handle(index: Int): String = "config-$index"
 
-    fun digitsOnly(iccid: String): Boolean = iccid.isNotEmpty() && iccid.all(Char::isDigit)
+    fun digitsOnly(iccid: String): Boolean = iccid.isNotEmpty() && iccid.all { it in '0'..'9' }
 
     private fun configLine(action: String, iccid: String): String {
         require(digitsOnly(iccid))

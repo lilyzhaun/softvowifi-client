@@ -9,7 +9,7 @@ internal object DiagnosticLabels {
             DiagnosticComponent.SUBSCRIPTIONS -> "SIM 订阅"
             DiagnosticComponent.CONFIGURATION -> "配置"
             DiagnosticComponent.UNDERLAY -> "底层网络"
-            DiagnosticComponent.MODULE -> "模块"
+            DiagnosticComponent.MODULE -> "Root 后端"
             DiagnosticComponent.ENGINE -> "引擎"
             DiagnosticComponent.DNS -> "DNS"
             DiagnosticComponent.TUNNEL -> "外层连接"

@@ -19,6 +19,8 @@ internal class ConfigurationRetainedDraft(
     val current: ConfigurationDraftValues,
     val baseline: ConfigurationDraftValues,
     val unconfirmed: Boolean,
+    val expectedRevision: String? = null,
+    val baselineRevision: String? = null,
 ) {
     override fun toString(): String = "ConfigurationRetainedDraft"
 }
@@ -39,7 +41,8 @@ internal class ConfigurationDraftStore(private val memory: ConfigurationDraftMem
 
     fun reconcile(state: ConfigurationUiState) {
         if (state !is ConfigurationUiState.Ready) return
-        state.instances.forEach { draftFor(it).syncFrom(it) }
+        state.instances.filter { it.formatState == com.vowifi.sw.manager.model.ConfigurationFormatState.CURRENT }
+            .forEach { draftFor(it).syncFrom(it) }
     }
 
     fun retain() {

@@ -146,7 +146,8 @@ class HomePresentationStateTest {
 
     @Test
     fun simActionSummaryUsesNonBreakingPhraseForUnregisteredIms() {
-        val configuredInstance = configured("SIM 1 · Lebara")
+        val configuredInstance = configured("SIM 1 · Lebara").copy(lifecycle = EngineLifecycle.RUNNING,
+            runtime = runtime().copy(ims = "UNREGISTERED"), canStart = false, canStop = true)
         val presentation = homeDashboardPresentation(
             RegistrationUiState.Empty,
             SimControlUiState.Ready(listOf(configuredInstance)),

@@ -27,5 +27,8 @@ interface ConfigurationSource {
         onComplete: (ConfigurationApplyOutcome) -> Unit,
     ): ConfigurationApplyAcceptance
     fun provision(handle: SimHandle) = Unit
+    val supportsRebuild: Boolean get() = false
+    /** Destructive explicit decision only; never called from refresh/provision. */
+    fun rebuild(handle: SimHandle): Boolean = false
     fun close() = Unit
 }

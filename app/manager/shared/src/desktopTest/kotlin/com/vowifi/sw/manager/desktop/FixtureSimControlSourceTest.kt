@@ -5,6 +5,7 @@ import androidx.compose.ui.ImageComposeScene
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.semantics.SemanticsNode
 import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.unit.Density
@@ -80,14 +81,18 @@ class FixtureSimControlSourceTest {
             assertFalse(layout.hasVisualOverflow)
             assertEquals(row.title.length, layout.getLineEnd(layout.lineCount - 1))
             assertTrue(layout.size.height <= title.boundsInRoot.height)
-            val plmn = nodes.single { node -> node.config.getOrNull(SemanticsProperties.Text)?.any { it.text == "PLMN $mcc/$mnc" } == true }
-            assertTrue(plmn.boundsInRoot.top >= title.boundsInRoot.bottom)
+            assertTrue(nodes.none { node -> node.config.getOrNull(SemanticsProperties.Text)?.any { it.text.contains("PLMN") } == true },
+                "首页不显示PLMN，设置页保留原信息")
             val action = nodes.single { node ->
-                node.config.getOrNull(SemanticsProperties.Text)?.any { it.text == row.action.label } == true &&
+                node.config.getOrNull(SemanticsProperties.ContentDescription)?.contains(row.action.label) == true &&
+                    node.config.getOrNull(SemanticsProperties.Role) == Role.Switch &&
                     node.config.getOrNull(SemanticsActions.OnClick) != null
             }
-            assertTrue(action.boundsInRoot.height >= 48f)
-            assertTrue(action.boundsInRoot.top >= plmn.boundsInRoot.bottom)
+            assertTrue(action.touchBoundsInRoot.height >= 48f, "原48dp触控目标保持；官方轨道绘制高度独立于扩展触控区")
+            assertEquals(title.boundsInRoot.center.y, action.boundsInRoot.center.y, 2f,
+                "用户批准的新卡片以卡名/开关同顶行，取代旧内容下置动作")
+            assertTrue(title.boundsInRoot.right + 12f <= action.boundsInRoot.left,
+                "长名自然增高但不得与开关碰撞")
             assertTrue(action.boundsInRoot.bottom <= 1800f)
             assertTrue(requireNotNull(action.config[SemanticsActions.OnClick].action).invoke())
             assertEquals(instance.handle, stopped)

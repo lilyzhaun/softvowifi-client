@@ -38,7 +38,7 @@ internal class BlockingEngineSocket : LocalSocket() {
     val requestReceived = CompletableDeferred<Unit>()
     @Volatile var descriptorOpen = true
         private set
-    var connectFailure: IOException? = null
+    var setupFailure: IOException? = null
     var shutdownFailure: IOException? = null
     var shutdownOutputFailure: IOException? = null
     var closeFailure: IOException? = null
@@ -89,8 +89,8 @@ internal class BlockingEngineSocket : LocalSocket() {
             check(packet.followingRead.await(5, TimeUnit.SECONDS)) { "reader did not enter next read" }
         }
     }
-    override fun connect(endpoint: LocalSocketAddress) { connectFailure?.let { throw it } }
-    override fun setSoTimeout(timeout: Int) = Unit
+    override fun connect(endpoint: LocalSocketAddress) = Unit
+    override fun setSoTimeout(timeout: Int) { setupFailure?.let { throw it } }
     override fun getInputStream(): InputStream = input
     override fun getOutputStream(): OutputStream = output
     override fun shutdownInput() {
@@ -105,6 +105,7 @@ internal class BlockingEngineSocket : LocalSocket() {
         closeFailure?.let { throw it }
     }
     fun peerEof() { incoming.offer(Packet(byteArrayOf())) }
+    fun sendEvent(line: String) { incoming.put(Packet((line + "\n").encodeToByteArray())) }
 }
 
 internal class BlockingSocketClient : AutoCloseable {

@@ -33,7 +33,8 @@ import org.robolectric.util.ReflectionHelpers
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35], manifest = Config.NONE, shadows = [CoexistenceAudioManagerShadow::class,
-    CoexistenceRecordingMonitorShadow::class, PublicationAudioTrackShadow::class, PublicationLocalSocketShadow::class])
+    CoexistenceRecordingMonitorShadow::class, PublicationAudioTrackShadow::class, PublicationLocalSocketShadow::class,
+    RootFrameworkShadow::class])
 class CallAudioPublicationHostTest {
     @Test fun recordingSilencedAfterTheFinalCheckCannotPublishASuccessfulAudioSession() {
         val app = RuntimeEnvironment.getApplication()

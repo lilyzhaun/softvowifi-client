@@ -70,7 +70,7 @@ class GlobalDiagnosticLogSourceHostTest {
             assertEquals(LocalDiagnosticLogReader.ID, state.selectedFileId)
             assertEquals(listOf("app.jsonl"), state.files.map { it.name })
             assertTrue(state.entries.any { it.safeDetail.contains("process_started") })
-            assertTrue(state.loadInfo.issue.orEmpty().contains("模块日志读取失败"))
+            assertTrue(state.loadInfo.issue.orEmpty().contains("Root 后端日志读取失败"))
         } finally { source.close() }
     }
 

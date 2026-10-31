@@ -49,8 +49,8 @@ class ConfigurationUiContractTest {
         assertEquals(listOf("运营商策略", "运营商目录", "手动设置", "默认值", "归属国家，非当前位置", "身份域", "来源未知"),
             listOf("carrier", "catalog", "user", "default", "home_mcc", "identity", "surprise").map(::configurationSourceLabel))
         assertEquals("TCP + IPsec", configurationSecurityLabel("tcp_ipsec_3gpp"))
-        assertEquals("当前生效：TCP + IPsec · 运营商策略", configurationEffectiveSummary("TCP + IPsec", "carrier", false))
-        assertEquals("当前生效：wlan · 手动设置\n未保存", configurationEffectiveSummary("wlan", "user", true))
+        assertEquals("当前解析：TCP + IPsec · 运营商策略", configurationEffectiveSummary("TCP + IPsec", "carrier", false))
+        assertEquals("当前解析：wlan · 手动设置\n未保存", configurationEffectiveSummary("wlan", "user", true))
     }
 
     @Test

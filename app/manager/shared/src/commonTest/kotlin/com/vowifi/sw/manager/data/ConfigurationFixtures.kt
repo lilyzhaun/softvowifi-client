@@ -35,6 +35,9 @@ internal fun redactedShowJson(
     extra: JsonObject = buildJsonObject {},
 ): String {
     val body = buildJsonObject {
+        put("formatState", "current")
+        put("configVersion", 1)
+        put("configRevision", "r1_abcdefghijklmnopabcdefghijklmnop")
         if (includeOk) put("ok", ok)
         put("displayLabel", displayLabel)
         put("lifecycle", lifecycle)

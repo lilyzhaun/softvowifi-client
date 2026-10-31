@@ -22,10 +22,11 @@ internal class MessageOwnerDraft(
 )
 
 @Composable
-internal fun rememberMessageOwnerDraft(owner: SimOwnerId?): MessageOwnerDraft {
+internal fun rememberMessageOwnerDraft(owner: SimOwnerId?, initialRecipient: String? = null): MessageOwnerDraft {
     var entries by rememberSaveable { mutableStateOf<Map<String, List<String>>>(emptyMap()) }
-    val key = owner?.wire().orEmpty()
-    val entry = entries[key] ?: listOf("", "")
+    val ownerKey = owner?.wire().orEmpty()
+    val key = if (initialRecipient == null) ownerKey else "$ownerKey:${com.vowifi.sw.manager.data.PeerNumberNormalizer.normalize(initialRecipient)}"
+    val entry = entries[key] ?: listOf(initialRecipient.orEmpty(), "")
     val canBindUnassigned: (SimOwnerId) -> Boolean = { target ->
         entries[""].orEmpty().none(String::isNotEmpty) || entries[target.wire()].orEmpty().none(String::isNotEmpty)
     }
@@ -33,7 +34,7 @@ internal fun rememberMessageOwnerDraft(owner: SimOwnerId?): MessageOwnerDraft {
         recipient = entry[0],
         body = entry[1],
         updateRecipient = { value -> entries = entries + (key to listOf(value, entries[key]?.get(1).orEmpty())) },
-        updateBody = { value -> entries = entries + (key to listOf(entries[key]?.get(0).orEmpty(), value)) },
+        updateBody = { value -> entries = entries + (key to listOf(entries[key]?.get(0) ?: initialRecipient.orEmpty(), value)) },
         clear = { entries = entries - key },
         canBindUnassigned = canBindUnassigned,
         bindUnassigned = { target ->
@@ -56,6 +57,8 @@ internal class BoundMessageDraft(
     val clearUnbound: () -> Unit,
     val selectOwner: (SimOwnerId) -> Unit,
     val confirmOwner: (SimOwnerId) -> Boolean,
+    val openRecipient: (SimOwnerId, String) -> Boolean,
+    val openNew: () -> Unit,
 )
 
 @Composable
@@ -67,8 +70,11 @@ internal fun rememberBoundMessageDraft(
     var ownerWire by rememberSaveable { mutableStateOf<String?>(null) }
     var initializeAutomatically by rememberSaveable { mutableStateOf(true) }
     var selectionNotice by remember { mutableStateOf<String?>(null) }
+    var targetRecipient by rememberSaveable { mutableStateOf<String?>(null) }
+    var ordinaryOwnerWire by rememberSaveable { mutableStateOf<String?>(null) }
+    var ordinaryInitializeAutomatically by rememberSaveable { mutableStateOf(true) }
     val owner = ownerWire?.let(SimOwnerId::parse)
-    val draft = rememberMessageOwnerDraft(owner)
+    val draft = rememberMessageOwnerDraft(owner, targetRecipient)
     val available = state as? MessageUiState.Available
     LaunchedEffect(canInitialize, initializeAutomatically, available?.ownerId, available?.composerEnabled, available?.origin,
         owner, draft.recipient, draft.body) {
@@ -96,7 +102,29 @@ internal fun rememberBoundMessageDraft(
             draft.clear()
             selectionNotice = null
         }
-    }, selectOwner = { target -> choose(target); Unit }, confirmOwner = ::choose) }
+    }, selectOwner = { target -> choose(target); Unit }, confirmOwner = ::choose,
+        openRecipient = { target, number ->
+            if (!isValidMessageRecipient(number)) false
+            else {
+                if (targetRecipient == null) {
+                    ordinaryOwnerWire = ownerWire
+                    ordinaryInitializeAutomatically = initializeAutomatically
+                }
+                onSelectOwner(target)
+                initializeAutomatically = false
+                ownerWire = target.wire()
+                targetRecipient = number
+                selectionNotice = null
+                true
+            }
+        }, openNew = {
+            if (targetRecipient != null) {
+                ownerWire = ordinaryOwnerWire
+                initializeAutomatically = ordinaryInitializeAutomatically
+                ordinaryOwnerWire?.let(SimOwnerId::parse)?.let(onSelectOwner)
+                targetRecipient = null
+            }
+        }) }
 }
 
 internal fun messageStateForDraft(state: MessageUiState, owner: SimOwnerId?): MessageUiState =

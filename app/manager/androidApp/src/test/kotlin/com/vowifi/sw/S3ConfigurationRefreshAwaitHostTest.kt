@@ -14,7 +14,7 @@ import org.robolectric.annotation.Config
 
 // 只补新完成契约；复用真实 AndroidConfigurationSource 与已通过的命令边界影子。
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [33], shadows = [S3ConfigurationCommandShadow::class],
+@Config(sdk = [33], shadows = [S3ConfigurationCommandShadow::class, RootFrameworkShadow::class],
     instrumentedPackages = ["com.vowifi.sw.manager.data"])
 class S3ConfigurationRefreshAwaitHostTest {
     @Test fun heldManualProvisionCannotBeJoinedAsEitherRefreshKind() = runBlocking {

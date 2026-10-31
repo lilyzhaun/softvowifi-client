@@ -31,6 +31,8 @@ data class EngineRuntimeStatus(
     val call: String,
     val transport: String,
     val pcscf: List<String>,
+    val tunnelProgress: String = "",
+    val imsProgress: String = "",
 )
 
 enum class EngineLifecycle {

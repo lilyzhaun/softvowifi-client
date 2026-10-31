@@ -9,6 +9,7 @@ import com.vowifi.sw.manager.model.EngineControlUiState
 import com.vowifi.sw.manager.model.EngineInstanceState
 import com.vowifi.sw.manager.model.EngineLifecycle
 import com.vowifi.sw.manager.model.EngineProtocolFrame
+import com.vowifi.sw.manager.model.EngineConnectionProgress
 import java.io.IOException
 import java.util.concurrent.TimeUnit
 import kotlin.coroutines.CoroutineContext
@@ -25,20 +26,30 @@ import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
-class AndroidEngineControlSource internal constructor(
+class AndroidEngineControlSource private constructor(
     private val runControl: suspend (String, String?) -> String,
     private val request: suspend (String, String) -> EngineProtocolFrame.Response,
     private val removeClient: (String) -> Unit,
     private val closeBackend: () -> Unit,
     private val queryCapabilities: suspend (String) -> ClientCapabilitiesResult,
+    private val progressEvents: ((String) -> SharedFlow<EngineConnectionProgressEvent>)?,
     parentContext: CoroutineContext,
 ) : EngineControlSource {
+    internal constructor(
+        runControl: suspend (String, String?) -> String,
+        request: suspend (String, String) -> EngineProtocolFrame.Response,
+        removeClient: (String) -> Unit,
+        closeBackend: () -> Unit,
+        queryCapabilities: suspend (String) -> ClientCapabilitiesResult,
+        parentContext: CoroutineContext,
+    ) : this(runControl, request, removeClient, closeBackend, queryCapabilities, null, parentContext)
     constructor() : this(AndroidEngineClientPool(), ownsPool = true)
     constructor(pool: AndroidEngineClientPool) : this(pool, ownsPool = false)
     constructor(pool: AndroidEngineClientPool, controlCommand: suspend (String, String?) -> String) :
@@ -53,6 +64,7 @@ class AndroidEngineControlSource internal constructor(
         { owner -> pool.remove(owner)?.close() },
         { if (ownsPool) pool.close() },
         pool::clientCapabilities,
+        pool::connectionProgress,
         Dispatchers.IO,
     )
 
@@ -62,6 +74,10 @@ class AndroidEngineControlSource internal constructor(
     private var refreshInFlight: CompletableDeferred<RefreshResult>? = null
     private var controlSequence = 0L
     private val controlCompletions = mutableMapOf<String, EngineControlCompletion>()
+    private val progressWatches = mutableMapOf<String, Pair<SharedFlow<EngineConnectionProgressEvent>, Job>>()
+    private data class Progress(val snapshot: EngineConnectionProgress, val event: EngineConnectionProgressEvent, val revision: Long)
+    private val latestProgress = mutableMapOf<String, Progress>()
+    private var progressRevision = 0L
     @Volatile
     private var closed = false
     private val mutableState = MutableStateFlow<EngineControlUiState>(EngineControlUiState.Loading)
@@ -168,6 +184,7 @@ class AndroidEngineControlSource internal constructor(
     }
 
     private suspend fun refreshLocked(): RefreshResult {
+        val progressBefore = synchronized(pendingOwners) { progressRevision }
         var readFailed = false
         val refreshed = try {
             val listed = EngineControlScriptCodec.instances(runControl("list", null))
@@ -197,8 +214,20 @@ class AndroidEngineControlSource internal constructor(
         currentCoroutineContext().ensureActive()
         synchronized(pendingOwners) {
             if (!closed) {
+                if (refreshed is EngineControlUiState.Ready) {
+                    val active = refreshed.instances.filter { it.lifecycle == EngineLifecycle.RUNNING }.map { it.iccid }.toSet()
+                    progressWatches.keys.filter { it !in active }.forEach { owner ->
+                        progressWatches.remove(owner)?.second?.cancel()
+                        latestProgress.remove(owner)
+                    }
+                }
                 mutableState.value = if (refreshed is EngineControlUiState.Ready) refreshed.copy(
                     instances = refreshed.instances.map { row -> row.copy(
+                        runtime = row.runtime?.let { runtime ->
+                            val recent = latestProgress[row.iccid]
+                            if (recent != null && recent.revision > progressBefore && recent.event.isCurrent()) recent.snapshot.applyTo(runtime)
+                            else runtime
+                        },
                         operationPending = row.iccid in pendingOwners,
                         controlCompletion = controlCompletions[row.iccid],
                     ) },
@@ -210,6 +239,7 @@ class AndroidEngineControlSource internal constructor(
     }
 
     private suspend fun status(instance: EngineInstanceState, onReadFailure: () -> Unit): EngineInstanceState = try {
+        watchProgress(instance.iccid)
         val response = request(instance.iccid, "getStatus")
         response.error?.let { error -> throw EngineControlException(error.message) }
         val runtime = EngineProtocolCodec.status(response)
@@ -225,11 +255,34 @@ class AndroidEngineControlSource internal constructor(
         onReadFailure()
         removeClient(instance.iccid)
         val message = if (error is IOException && error.message.isSocketPermissionDenied()) {
-            "控制 socket 权限被拒绝，请检查模块 SELinux 与 socket 权限"
+            "控制连接权限被拒绝，请检查 Root 授权与后端运行环境"
         } else {
             error.message ?: "控制 socket 不可用"
         }
         instance.copy(message = message, clientCapabilities = null)
+    }
+
+    private fun watchProgress(owner: String) {
+        val stream = progressEvents?.invoke(owner) ?: return
+        synchronized(pendingOwners) {
+            if (closed || progressWatches[owner]?.first === stream) return
+            progressWatches.remove(owner)?.second?.cancel()
+            latestProgress.remove(owner)
+            val job = scope.launch(start = CoroutineStart.UNDISPATCHED) {
+                stream.collect { event ->
+                    val snapshot = EngineProtocolCodec.connectionProgress(event.frame) ?: return@collect
+                    synchronized(pendingOwners) {
+                        if (closed || !event.isCurrent()) return@synchronized
+                        val previous = latestProgress[owner]
+                        if (previous != null && previous.event.connectionToken === event.connectionToken &&
+                            previous.snapshot.sequence >= snapshot.sequence) return@synchronized
+                        latestProgress[owner] = Progress(snapshot, event, ++progressRevision)
+                        updateInstance(owner) { row -> row.copy(runtime = row.runtime?.let(snapshot::applyTo)) }
+                    }
+                }
+            }
+            progressWatches[owner] = stream to job
+        }
     }
 
     private fun updateFailure(iccid: String, error: Throwable) {
@@ -280,13 +333,18 @@ class AndroidEngineControlSource internal constructor(
             )
             refreshInFlight?.cancel()
             controlCompletions.clear()
+            latestProgress.clear()
+            progressWatches.clear()
         }
         scope.cancel()
         closeBackend()
     }
 }
 
-private suspend fun runEngineControlScript(command: String, iccid: String?): String = withContext(Dispatchers.IO) {
+private suspend fun runEngineControlScript(command: String, iccid: String?): String =
+    runEngineControlProcess(command, iccid) { com.vowifi.sw.root.RootBridge.startCommand(it) }
+
+internal suspend fun runEngineControlProcess(command: String, iccid: String?, start: (String) -> Process): String = withContext(Dispatchers.IO) {
     val invocation = buildString {
         append(CONTROL_SCRIPT)
         append(' ')
@@ -297,10 +355,11 @@ private suspend fun runEngineControlScript(command: String, iccid: String?): Str
             append(iccid)
         }
     }
-    val process = ProcessBuilder("su", "-c", invocation)
-        .redirectErrorStream(true)
-        .start()
-    if (!process.waitFor(20, TimeUnit.SECONDS)) {
+    val process = start(invocation)
+    // Startup includes strict binding, a bounded 40s carrier read and the
+    // existing socket admission window. Do not kill that transaction at 20s.
+    val timeoutSeconds = if (command == "start") 75L else 20L
+    if (!process.waitFor(timeoutSeconds, TimeUnit.SECONDS)) {
         process.destroyForcibly()
         throw RootCommandException("su command timed out")
     }
@@ -315,7 +374,7 @@ private suspend fun runEngineControlScript(command: String, iccid: String?): Str
     output
 }
 
-private const val CONTROL_SCRIPT = "/data/adb/modules/vowifi_sw/control.sh"
+private const val CONTROL_SCRIPT = "/data/adb/softvowifi/runtime/control.sh"
 
 private fun String?.isSocketPermissionDenied(): Boolean =
     this.orEmpty().contains("EACCES", ignoreCase = true) ||

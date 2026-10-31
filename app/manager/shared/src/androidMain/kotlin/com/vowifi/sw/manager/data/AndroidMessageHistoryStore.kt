@@ -41,6 +41,10 @@ internal class AndroidMessageHistoryStore(private val dao: AndroidMessageHistory
         }
     }
 
+    override suspend fun hasConversation(identity: StoredMessageConversation): Boolean = historyStorageCall {
+        dao.conversationMessageId(identity.owner.wire(), identity.key) != null
+    }
+
     override suspend fun unreadIds(identity: StoredMessageConversation): List<String> = historyStorageCall {
         dao.unreadIds(identity.owner.wire(), identity.key)
     }

@@ -90,6 +90,7 @@ class SubpageHostTest {
             AppRoute.SettingsLogs,
             AppRoute.SettingsCallNotifications,
             AppRoute.SettingsAbout,
+            AppRoute.SettingsEngineInformation,
         )
 
         routes.forEach { route ->

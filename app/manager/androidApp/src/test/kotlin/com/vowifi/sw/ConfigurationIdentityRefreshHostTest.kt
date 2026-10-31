@@ -25,7 +25,7 @@ class ConfigurationIdentityRefreshHostTest {
             }))
             val result = commands.refreshIdentity(iccid, 54, 0, payload)
             assertTrue(result is CommandRead.Listed)
-            assertEquals("/data/adb/modules/vowifi_sw/control.sh config refresh-identity $iccid 54 0", requested)
+            assertEquals("/data/adb/softvowifi/runtime/control.sh config refresh-identity $iccid 54 0", requested)
             assertFalse(requested.contains("001020000000002"))
             assertFalse(requested.contains('{'))
             assertEquals(payload, input.readText())

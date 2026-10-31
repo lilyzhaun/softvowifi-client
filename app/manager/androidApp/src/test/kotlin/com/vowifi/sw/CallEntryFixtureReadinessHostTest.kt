@@ -28,6 +28,7 @@ import org.robolectric.util.ReflectionHelpers
         CallEntryShellShadow::class,
         CallEntryHmacShadow::class,
         CallEntrySocketShadow::class,
+        RootFrameworkShadow::class,
         CallEntryAudioShadow::class,
     ],
 )

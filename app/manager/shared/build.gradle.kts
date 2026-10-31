@@ -46,6 +46,7 @@ kotlin {
             implementation(libs.kotlinx.coroutines.test)
         }
         androidMain.dependencies {
+            api(project(":rootbridge"))
             implementation(libs.androidx.room3.runtime)
             implementation(libs.androidx.sqlite)
             implementation(libs.androidx.sqlite.framework)

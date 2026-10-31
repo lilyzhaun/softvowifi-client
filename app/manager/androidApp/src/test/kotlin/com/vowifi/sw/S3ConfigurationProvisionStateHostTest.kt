@@ -32,7 +32,7 @@ import org.robolectric.annotation.Implements
 import org.robolectric.shadows.ShadowSubscriptionManager.SubscriptionInfoBuilder
 
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [33], shadows = [ConfigurationProvisionCommandShadow::class], instrumentedPackages = ["com.vowifi.sw.manager.data"])
+@Config(sdk = [33], shadows = [ConfigurationProvisionCommandShadow::class, RootFrameworkShadow::class], instrumentedPackages = ["com.vowifi.sw.manager.data"])
 class S3ConfigurationProvisionStateHostTest {
     @Test fun createdCompletionLeavesDnsBlankForTheLiveNetworkWithoutApplying() = runBlocking {
         ConfigurationProvisionHostFixture().use { fixture ->

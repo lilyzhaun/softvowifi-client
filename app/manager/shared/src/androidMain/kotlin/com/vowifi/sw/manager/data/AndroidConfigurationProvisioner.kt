@@ -44,6 +44,20 @@ internal class AndroidConfigurationProvisioner(
         }
     }
 
+    suspend fun rebuild(iccid: String): ProvisionAttempt {
+        if (!ConfigurationControlCommand.digitsOnly(iccid)) return ProvisionAttempt.Failed(ConfigurationEvaluator.failure("无法重建配置"))
+        val prepared = when (val candidate = prepare(identityReader.read(iccid))) {
+            is PreparedCandidate.Ready -> candidate
+            is PreparedCandidate.Failed -> return ProvisionAttempt.Failed(candidate.state)
+        }
+        return when (val result = commands.rebuild(iccid, prepared.subscriptionId, prepared.slot, prepared.payload)) {
+            is CommandRead.Created -> ProvisionAttempt.Created
+            is CommandRead.Listed -> ProvisionAttempt.AlreadyExists
+            is CommandRead.Mapped -> ProvisionAttempt.Failed(result.state, result.writeUnconfirmed)
+            is CommandRead.Snapshot -> ProvisionAttempt.Failed(ConfigurationEvaluator.failure("无法重建配置"), true)
+        }
+    }
+
     suspend fun attemptSelected(
         keys: List<String>,
         aborted: () -> Boolean,

@@ -23,7 +23,7 @@ class AndroidEngineIntegrityReader internal constructor(private val command: And
             fun hash(tag: String, path: String) {
                 append("h=\$(sha256sum $path 2>/dev/null); printf '$tag=%s\\n' \"\${h%% *}\"\n")
             }
-            hash("F", "/data/adb/modules/vowifi_sw/bin/vowifi-engine-arm64")
+            hash("F", "/data/adb/softvowifi/runtime/bin/vowifi-engine-arm64")
             readable.forEach { hash("P${it.index}", "/proc/${it.value}/exe") }
         }
         val result = try { command.run(script) } catch (_: IOException) { return@runInterruptible unreadable() }

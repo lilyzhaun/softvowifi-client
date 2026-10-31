@@ -271,6 +271,7 @@ internal val AppRoute.topBarTitle: String
         AppRoute.SettingsLogs -> "运行日志"
         AppRoute.SettingsCallNotifications -> "通知设置"
         AppRoute.SettingsAbout -> "关于"
+        AppRoute.SettingsEngineInformation -> "引擎信息"
     }
 
 private data object RootBackInfo : NavigationEventInfo()

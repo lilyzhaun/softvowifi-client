@@ -222,7 +222,7 @@ private fun usableAddress(address: InetAddress): Boolean =
 
 private fun publishUnderlay(state: String): Boolean = try {
     val result = AndroidSuCommand(timeoutSeconds = 3, maxBytes = 1024).run(
-        "/data/adb/modules/vowifi_sw/bin/vowifi-engine-arm64 network-update", state, 3,
+        "/data/adb/softvowifi/runtime/bin/vowifi-engine-arm64 network-update", state, 3,
     )
     !result.timedOut && !result.overflowed && !result.writeFailed && result.exitCode == 0
 } catch (_: java.io.IOException) { false }

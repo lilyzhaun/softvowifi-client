@@ -29,7 +29,7 @@ import org.robolectric.annotation.Implements
 import org.robolectric.shadows.ShadowSubscriptionManager.SubscriptionInfoBuilder
 
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [33], shadows = [S3ConfigurationCommandShadow::class],
+@Config(sdk = [33], shadows = [S3ConfigurationCommandShadow::class, RootFrameworkShadow::class],
     instrumentedPackages = ["com.vowifi.sw.manager.data"])
 class S3ConfigurationRefreshBehaviorHostTest {
     @Test fun heldOrdinaryReadDoesNotUpgradeToOrReplayIdentityWork() = runBlocking {
@@ -84,6 +84,7 @@ internal const val S3_CONFIG_TARGET = "0000000000000000001"
 internal class S3ConfigurationIoFixture(
     notifyOnWatch: Boolean = false,
     smscRead: suspend (String) -> String? = { null },
+    runtimeRead: suspend (String) -> com.vowifi.sw.manager.model.ConfigurationRuntimeFacts? = { null },
     outletsRead: suspend () -> ConfigurationNetworkOutlets = { ConfigurationNetworkOutlets(supported = true) },
 ) : AutoCloseable {
     val source: AndroidConfigurationSource
@@ -118,6 +119,7 @@ internal class S3ConfigurationIoFixture(
         source = AndroidConfigurationSource(context, handles, controlledInventory,
             readNetworkOutlets = outletsRead,
             readAutomaticSmsc = smscRead,
+            readRuntimeFacts = runtimeRead,
             onCreated = { error("不应创建候选") })
     }
     suspend fun ready(): ConfigurationUiState.Ready = withTimeout(3000) {

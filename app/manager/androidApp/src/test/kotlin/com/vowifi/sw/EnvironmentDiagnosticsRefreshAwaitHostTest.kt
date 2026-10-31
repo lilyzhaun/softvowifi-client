@@ -38,7 +38,7 @@ class EnvironmentDiagnosticsRefreshAwaitHostTest {
         host.bounded {
             runBlocking {
                 val source = AndroidEnvironmentDiagnosticsSource(start = { command ->
-                    assertEquals("/data/adb/modules/vowifi_sw/control.sh diagnose", command)
+                    assertEquals("/data/adb/softvowifi/runtime/control.sh diagnose", command)
                     val process = host.start("printf '%s' '$diagnosticsJson'")
                     val call = calls.incrementAndGet()
                     if (call <= 2) {
@@ -105,7 +105,7 @@ class EnvironmentDiagnosticsRefreshAwaitHostTest {
             host.bounded {
                 runBlocking {
                     val source = AndroidEnvironmentDiagnosticsSource(start = { command ->
-                        assertEquals("/data/adb/modules/vowifi_sw/control.sh diagnose", command)
+                        assertEquals("/data/adb/softvowifi/runtime/control.sh diagnose", command)
                         host.start(script).also { started.countDown() }
                     }, parentContext = Dispatchers.IO, readStockWfc = { STOCK_WFC_OFF })
                     try {
@@ -133,7 +133,7 @@ class EnvironmentDiagnosticsRefreshAwaitHostTest {
         host.bounded {
             runBlocking {
                 val source = AndroidEnvironmentDiagnosticsSource(start = { command ->
-                    assertEquals("/data/adb/modules/vowifi_sw/control.sh diagnose", command)
+                    assertEquals("/data/adb/softvowifi/runtime/control.sh diagnose", command)
                     calls.incrementAndGet()
                     val process = host.start("printf '%s' '$diagnosticsJson'")
                     entered.countDown()

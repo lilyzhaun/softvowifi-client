@@ -14,22 +14,16 @@ internal class AndroidSubscriptionInventory @JvmOverloads constructor(
     private val watchers = mutableListOf<Watcher>()
     private var platformRegistered = false
     private var registerInFlight = false
-    private val listener = object : SubscriptionManager.OnSubscriptionsChangedListener() {
-        override fun onSubscriptionsChanged() {
+    private val listener = Runnable {
             observe(DiagnosticStage.LISTENER, DiagnosticResult.OBSERVED)
             val snapshot = synchronized(lock) { watchers.toList() }
             snapshot.forEach { watcher ->
                 ignoreWatchFailure { watcher.onChanged() }
             }
-        }
     }
 
     override fun listActive(): SubscriptionInventoryResult = try {
-        val manager = manager() ?: run {
-            observe(DiagnosticStage.ENUMERATE, DiagnosticResult.UNAVAILABLE, DiagnosticReason.UNAVAILABLE)
-            return SubscriptionInventoryResult.Failure(UNREADABLE)
-        }
-        val active = manager.activeSubscriptionInfoList.orEmpty()
+        val active = com.vowifi.sw.root.RootBridge.activeSubscriptions()
         val accepted = active.mapNotNull(::toJoinInput)
         observe(DiagnosticStage.ENUMERATE, DiagnosticResult.OBSERVED,
             if (active.isEmpty()) DiagnosticReason.EMPTY else DiagnosticReason.NONE,
@@ -99,12 +93,8 @@ internal class AndroidSubscriptionInventory @JvmOverloads constructor(
     }
 
     private fun addPlatformListener(): Boolean {
-        val manager = manager() ?: run {
-            observe(DiagnosticStage.LISTENER, DiagnosticResult.UNAVAILABLE, DiagnosticReason.UNAVAILABLE)
-            return false
-        }
         val result = watchAttempt {
-            manager.addOnSubscriptionsChangedListener(context.mainExecutor, listener)
+            com.vowifi.sw.root.RootBridge.watchSubscriptions(listener)
         }
         observe(DiagnosticStage.LISTENER, if (result is WatchAttempt.Ok) DiagnosticResult.SUCCESS else DiagnosticResult.FAILURE,
             when (result) { WatchAttempt.Ok -> DiagnosticReason.NONE; WatchAttempt.Denied -> DiagnosticReason.PERMISSION_DENIED; WatchAttempt.Failed -> DiagnosticReason.LISTENER_FAILED })
@@ -112,7 +102,7 @@ internal class AndroidSubscriptionInventory @JvmOverloads constructor(
     }
 
     private fun removePlatformListener() {
-        manager()?.removeOnSubscriptionsChangedListener(listener)
+            com.vowifi.sw.root.RootBridge.unwatchSubscriptions(listener)
     }
 
     private fun manager(): SubscriptionManager? =
@@ -144,6 +134,7 @@ internal class AndroidSubscriptionInventory @JvmOverloads constructor(
             mnc = validatedMnc(info.mncString),
             lastFour = fourDigitTail(key),
             homeCarrierLabel = subscriptionHomeCarrierLabel(context, info.subscriptionId),
+            subscriptionId = info.subscriptionId,
         )
     }
 

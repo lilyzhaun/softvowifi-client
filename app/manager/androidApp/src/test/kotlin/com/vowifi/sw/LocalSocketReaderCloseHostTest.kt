@@ -5,6 +5,9 @@ import com.vowifi.sw.manager.data.AndroidEngineClientPool
 import com.vowifi.sw.manager.data.EngineMessageTransport
 import java.io.EOFException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.async
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
@@ -22,6 +25,24 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [33], application = SoftVoWiFiApplication::class, shadows = [RuntimeApplicationShadow::class])
 class LocalSocketReaderCloseHostTest {
+    @Test fun progressEventComesThroughTheActualReaderAndRetiresWithItsConnection() = runBlocking {
+        BlockingSocketClient().use { fixture ->
+            fixture.transport.connect()
+            @Suppress("UNCHECKED_CAST")
+            val stream = fixture.client.javaClass.getMethod("getConnectionProgress").invoke(fixture.client) as SharedFlow<Any>
+            val next = async(start = CoroutineStart.UNDISPATCHED) { stream.first() }
+            fixture.socket.sendEvent("""{"event":"connectionProgress","data":{"sequence":1,"tunnel":"CONNECTING","ims":"UNREGISTERED","tunnelProgress":"SIM_AKA_COMPLETE"}}""")
+            val event = withTimeout(1_000) { next.await() }
+            val frame = event.javaClass.getMethod("getFrame").invoke(event) as com.vowifi.sw.manager.model.EngineProtocolFrame.Event
+            assertEquals("SIM_AKA_COMPLETE", com.vowifi.sw.manager.data.EngineProtocolCodec.connectionProgress(frame)?.tunnelProgress)
+            @Suppress("UNCHECKED_CAST")
+            val isCurrent = event.javaClass.getDeclaredField("isCurrent").apply { isAccessible = true }.get(event) as () -> Boolean
+            assertTrue(isCurrent())
+            fixture.transport.close()
+            assertFalse(isCurrent())
+            assertFalse("事件不应额外发送getStatus或控制请求", fixture.socket.requestReceived.isCompleted)
+        }
+    }
     @Test fun closeTerminatesBlockedReaderBeforePeerClosesAndIsIdempotent() = runBlocking {
         BlockingSocketClient().use { fixture ->
             fixture.transport.connect()
@@ -69,9 +90,10 @@ class LocalSocketReaderCloseHostTest {
         } finally { socket.peerEof(); withTimeout(5_000) { socket.eof.await() } }
     }
 
-    @Test fun failedConnectClosesAcquiredSocketAndKeepsOriginalError() = runBlocking {
-        val original = SocketBoundaryFailure("connect")
-        val socket = BlockingEngineSocket().apply { connectFailure = original }
+    @Test fun failedSocketSetupClosesAcquiredSocketAndKeepsOriginalError() = runBlocking {
+        // Root now supplies a connected FD; retain the acquired-socket failure/cleanup boundary.
+        val original = SocketBoundaryFailure("setup")
+        val socket = BlockingEngineSocket().apply { setupFailure = original }
         try {
             val failure = runCatching {
                 AndroidCallControlTransport { socket }.request("synthetic", "getCallSnapshot", buildJsonObject {}, 5_000)

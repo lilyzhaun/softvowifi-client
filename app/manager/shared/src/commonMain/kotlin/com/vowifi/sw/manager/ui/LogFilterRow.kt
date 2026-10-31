@@ -60,7 +60,7 @@ internal fun LogFilterRow(
     ) {
         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
             if (presentation.files.any { it.groupKey == null && it.id !in setOf("app-diagnostics-v1","root-diagnostics-v1","all-diagnostics-v1", SYSTEM_REGISTRATION_LOG_ID) }) Text(
-                "当前模块仅支持按文件查看日志。",
+                "当前后端仅支持按文件查看日志。",
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
             )
             OverlayDropdownPreference(

@@ -11,6 +11,18 @@ import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 
 class EngineProtocolCodecTest {
+    @Test fun connectionProgressEventsAreTypedBoundedAndDoNotEchoUnknownSteps() {
+        fun event(sequence: Long, tunnel: String = "CONNECTING", step: String = "SIM_AKA_COMPLETE") =
+            EngineProtocolFrame.Event("connectionProgress", kotlinx.serialization.json.buildJsonObject {
+                put("sequence", sequence); put("tunnel", tunnel); put("ims", "REGISTERING")
+                put("tunnelProgress", step); put("imsProgress", "SENDING_REGISTER")
+            })
+        val parsed = kotlin.test.assertNotNull(EngineProtocolCodec.connectionProgress(event(1)))
+        assertEquals("SIM_AKA_COMPLETE", parsed.tunnelProgress)
+        assertEquals(null, EngineProtocolCodec.connectionProgress(event(0)))
+        assertEquals(null, EngineProtocolCodec.connectionProgress(event(2, tunnel = "arbitrary")))
+        assertEquals("", EngineProtocolCodec.connectionProgress(event(3, step = "/data/private"))?.tunnelProgress)
+    }
     @Test
     fun requestUsesJsonLinesEnvelope() {
         val line = EngineProtocolCodec.request(7, "getStatus")

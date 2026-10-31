@@ -24,7 +24,7 @@ internal class OperationalLogReader(private val command: LogCommand) {
 
     private suspend fun <T> invoke(arguments: String, parse: (String) -> T): T {
         val result = try {
-            command.run("/data/adb/modules/vowifi_sw/control.sh logs $arguments")
+            command.run("/data/adb/softvowifi/runtime/control.sh logs $arguments")
         } catch (error: IOException) {
             throw LogReadFailure(if (permission(error.message.orEmpty())) OperationalLogEvaluator.permissionDenied()
             else OperationalLogEvaluator.failure("无法启动日志读取"))

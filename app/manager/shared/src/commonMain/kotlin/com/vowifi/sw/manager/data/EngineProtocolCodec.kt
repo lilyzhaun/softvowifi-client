@@ -3,6 +3,8 @@ package com.vowifi.sw.manager.data
 import com.vowifi.sw.manager.model.EngineProtocolError
 import com.vowifi.sw.manager.model.EngineProtocolFrame
 import com.vowifi.sw.manager.model.EngineRuntimeStatus
+import com.vowifi.sw.manager.model.EngineConnectionProgress
+import kotlinx.serialization.SerializationException
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -45,7 +47,11 @@ object EngineProtocolCodec {
 
     fun status(response: EngineProtocolFrame.Response): EngineRuntimeStatus {
         val result = requireNotNull(response.result) { "getStatus response has no result" }
-        return json.decodeFromJsonElement(EngineRuntimeStatus.serializer(), result)
+        val runtime = json.decodeFromJsonElement(EngineRuntimeStatus.serializer(), result)
+        return runtime.copy(
+            tunnelProgress = runtime.tunnelProgress.takeIf { it in TUNNEL_PROGRESS }.orEmpty(),
+            imsProgress = runtime.imsProgress.takeIf { it in IMS_PROGRESS }.orEmpty(),
+        )
     }
 
     fun helloVersion(response: EngineProtocolFrame.Response): Int {
@@ -54,7 +60,26 @@ object EngineProtocolCodec {
         require(version != null) { "hello response has no valid version" }
         return version
     }
+
+    fun connectionProgress(event: EngineProtocolFrame.Event): EngineConnectionProgress? {
+        if (event.name != "connectionProgress") return null
+        val snapshot = try {
+            json.decodeFromJsonElement(EngineConnectionProgress.serializer(), event.data)
+        } catch (_: SerializationException) { return null }
+        if (snapshot.sequence <= 0 || snapshot.tunnel !in setOf("DISCONNECTED", "CONNECTING", "CONNECTED", "BACKOFF", "FATAL") ||
+            snapshot.ims !in setOf("UNREGISTERED", "REGISTERING", "REGISTERED")) return null
+        return snapshot.copy(
+            tunnelProgress = snapshot.tunnelProgress.takeIf { it in TUNNEL_PROGRESS }.orEmpty(),
+            imsProgress = snapshot.imsProgress.takeIf { it in IMS_PROGRESS }.orEmpty(),
+        )
+    }
 }
+
+private val TUNNEL_PROGRESS = setOf("RESOLVING_EPDG", "IKE_NEGOTIATION", "EAP_AKA_AUTHENTICATION",
+    "IKE_SA_INIT_RESPONSE", "EAP_CHALLENGE_RECEIVED", "SIM_AKA_COMPLETE", "SENDING_EAP_RESPONSE",
+    "EAP_SUCCESS_RECEIVED", "CHILD_SA_NEGOTIATED", "DATAPLANE_READY", "ROUTING_READY")
+private val IMS_PROGRESS = setOf("PREPARING_TRANSPORT", "SENDING_REGISTER", "AKA_AUTHENTICATION", "INSTALLING_SECURITY", "SENDING_AUTHENTICATED_REGISTER",
+    "BUILDING_REGISTER", "REGISTER_CHALLENGE_RECEIVED", "BUILDING_AUTHORIZATION", "REGISTER_ACCEPTED")
 
 @Serializable
 private data class WireEnvelope(

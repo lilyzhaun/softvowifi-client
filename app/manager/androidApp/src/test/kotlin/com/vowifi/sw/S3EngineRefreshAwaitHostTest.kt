@@ -14,7 +14,7 @@ import org.robolectric.annotation.Config
 
 // 完成结果只由实际 source-owned producer 返回；保留原能力缺失时的行为断言。
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [35], manifest = Config.NONE)
+@Config(sdk = [35], manifest = Config.NONE, shadows = [RootFrameworkShadow::class])
 class S3EngineRefreshAwaitHostTest {
     @Test fun actualListReadFailureReturnsFailedRatherThanACompletedObservation() = runBlocking {
         HomeEngineControlHostFixture().use { fixture ->

@@ -354,7 +354,7 @@ class ManagerControlPressTest {
         }
 
     private fun iconColor(kind: IconKind, fixture: ManagerPressRenderFixture) = when (kind) {
-        IconKind.MANAGER -> fixture.palette.interactive
+        IconKind.MANAGER -> fixture.managerAccent
         IconKind.COMMUNICATION -> fixture.communicationAccent
     }
 

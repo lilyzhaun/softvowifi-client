@@ -22,7 +22,7 @@ internal class TwoCardConfigurationCommandShadow {
 
     private fun success(output: String): AndroidSuResult = AndroidSuResult(false, 0, output, false)
 
-    private fun shown(overrides: String) = """{"ok":true,"displayLabel":"0001","lifecycle":"stopped","transport":"sim2","smsc":"+15550000001","epdgFqdn":"","imsRealm":"ims.mnc001.mcc001.3gppnetwork.org","dns":"","dnsOverrides":$overrides,"resolvedEpdgFqdn":"epdg.example.test","resolvedImsRealm":"home.card.test","mcc":"001","mnc":"01"}"""
+    private fun shown(overrides: String) = """{"ok":true,"formatState":"current","configVersion":1,"configRevision":"r1_abcdefghijklmnopabcdefghijklmnop","displayLabel":"0001","lifecycle":"stopped","transport":"sim2","smsc":"+15550000001","epdgFqdn":"","imsRealm":"ims.mnc001.mcc001.3gppnetwork.org","dns":"","dnsOverrides":$overrides,"resolvedEpdgFqdn":"epdg.example.test","resolvedImsRealm":"home.card.test","mcc":"001","mnc":"01"}"""
 }
 
 private const val TARGET = "0000000000000000001"

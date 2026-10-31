@@ -47,7 +47,7 @@ internal fun ManagerCompactRefreshIndicator(
         RefreshState.RefreshComplete -> managerRefreshTexts(terminal).last()
     }
     if (!LocalAppRouteActive.current || phase == RefreshState.Idle) return
-    val color = LocalSoftVoWiFiColors.current.interactive
+    val color = PullToRefreshDefaults.color
     Box(Modifier.fillMaxSize().drawWithContent {
         val top = contentPadding.value.calculateTopPadding().toPx().coerceIn(0f, size.height)
         val bottom = (top + headerExtentPx.value.coerceAtLeast(0f)).coerceIn(top, size.height)

@@ -46,6 +46,7 @@ class ConfigurationProvenanceTest {
             """{
                 "ok":true,"displayLabel":"1234","lifecycle":"stopped","transport":"wifi",
                 "smsc":"","epdgFqdn":"","imsRealm":"template.example.test","dns":"",
+                "formatState":"current","configVersion":1,"configRevision":"r1_abcdefghijklmnopabcdefghijklmnop",
                 "resolvedEpdgFqdn":"epdg.example.test","resolvedImsRealm":"identity.example.test",
                 "mcc":"530","mnc":"05","imsDigestRealm":"identity.example.test",
                 "imsDigestRealmSource":"identity","paniInitialSource":"$initialSource"

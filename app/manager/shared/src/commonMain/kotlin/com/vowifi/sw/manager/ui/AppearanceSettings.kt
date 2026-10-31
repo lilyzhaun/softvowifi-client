@@ -7,16 +7,16 @@ import kotlinx.coroutines.flow.asStateFlow
 data class AppearanceSettings(
     val floatingNavigation: Boolean,
     val blurRequested: Boolean,
-    val liquidGlassRequested: Boolean = false,
-    val predictiveBackRequested: Boolean = true,
+    val liquidGlassRequested: Boolean = true,
+    val predictiveBackRequested: Boolean = false,
     val hapticsEnabled: Boolean = true,
 ) {
     companion object {
         val Default = AppearanceSettings(
             floatingNavigation = true,
             blurRequested = true,
-            liquidGlassRequested = false,
-            predictiveBackRequested = true,
+            liquidGlassRequested = true,
+            predictiveBackRequested = false,
             hapticsEnabled = true,
         )
     }

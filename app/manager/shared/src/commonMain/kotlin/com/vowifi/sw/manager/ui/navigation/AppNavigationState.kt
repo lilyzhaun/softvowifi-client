@@ -37,7 +37,9 @@ class AppNavigationState private constructor(
             val root = backStack.firstOrNull() as? AppRoute.Root ?: return null
             val subpages = backStack.drop(1)
             val branch = (subpages.firstOrNull() as? AppRoute.Subpage)?.root ?: root
-            val validSubpages = subpages.all { route ->
+            val contextualMessage = subpages.size == 2 && subpages[0] is AppRoute.CallHistoryDetail &&
+                (subpages[1] is AppRoute.MessageThread || subpages[1] == AppRoute.NewMessage)
+            val validSubpages = contextualMessage || subpages.all { route ->
                 route is AppRoute.Subpage && route.root == branch
             }
             return if (validSubpages && subpages.distinct().size == subpages.size) {

@@ -4,6 +4,13 @@ import com.vowifi.sw.manager.model.CallPhase
 import com.vowifi.sw.manager.ui.shouldAutoSelectCalls
 
 object AppNavigator {
+    /** Contextual push: retain call detail below SMS so the stock Nav3 forward/back motion stays continuous. */
+    fun openCallMessage(state: AppNavigationState, target: AppRoute.Subpage): AppNavigationState {
+        if (state.topRoute !is AppRoute.CallHistoryDetail ||
+            (target !is AppRoute.MessageThread && target != AppRoute.NewMessage)) return state
+        return AppNavigationState.create(state.backStack + target) ?: state
+    }
+
     fun selectRoot(
         state: AppNavigationState,
         root: AppRoute.Root,

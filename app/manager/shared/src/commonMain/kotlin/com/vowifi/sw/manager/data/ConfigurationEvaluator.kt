@@ -66,6 +66,9 @@ object ConfigurationEvaluator {
     fun readyAfterCreate(refreshed: ConfigurationUiState): ConfigurationUiState =
         readyAfterMessage(refreshed, CREATED)
 
+    fun readyAfterRebuild(refreshed: ConfigurationUiState): ConfigurationUiState =
+        readyAfterMessage(refreshed, "配置已重建")
+
     fun readyAfterAutoCreate(refreshed: ConfigurationUiState): ConfigurationUiState =
         readyAfterMessage(refreshed, AUTO_CREATED)
 
@@ -129,7 +132,12 @@ object ConfigurationEvaluator {
         systemSubscription = systemSubscription,
         imsPolicy = snapshot.imsPolicy,
         identitySource = snapshot.identitySource,
+        simAttributeReadStatus = snapshot.simAttributeReadStatus,
         dnsOverrides = snapshot.dnsOverrides,
+        formatState = snapshot.formatState,
+        configVersion = snapshot.configVersion,
+        configRevision = snapshot.configRevision,
+        facts = snapshot.facts,
     )
 }
 
@@ -224,6 +232,15 @@ private const val IDENTITY_REFRESH_RUNNING = "请先停止该 SIM 的引擎，�
 private const val IDENTITY_REFRESH_MISMATCH = "当前 SIM 身份未通过校验"
 
 private val ALLOWED_MESSAGES = setOf(
+    "配置已重建",
+    "正在重建配置",
+    "重建结果未确认，请刷新核对；不会自动重试",
+    "请先停止该 SIM 的引擎，再重建配置",
+    "请更新 App 后重试",
+    "无法重建配置",
+    "旧配置需重建，或请更新 App",
+    "配置已变化，请刷新核对并处理原草稿",
+    "保存结果未确认，请刷新核对；不会自动重试",
     IDENTITY_REFRESH_FAILED,
     IDENTITY_REFRESH_UNCONFIRMED,
     IDENTITY_REFRESH_RUNNING,
