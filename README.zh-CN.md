@@ -36,7 +36,7 @@ desktop 仅用于测试和预览，不是桌面电话客户端。eSIM profile �
 
 ## 下载与安装
 
-当前源码分支已改为单APK形态，尚未发布单APK版本。现有v0.3.49及更早附件保留模块包装，不能作为本分支的运行资源输入。后续单APK的[GitHub Release](https://github.com/lilyzhaun/softvowifi-client/releases)使用下列附件：
+从v0.3.50起使用单APK形态。历史v0.3.49及更早附件保留模块包装，不能作为本分支的运行资源输入。单APK的[GitHub Release](https://github.com/lilyzhaun/softvowifi-client/releases)使用下列附件：
 
 | 文件 | 内容 |
 |---|---|

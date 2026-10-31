@@ -36,7 +36,7 @@ The desktop target exists for tests and previews, not as a desktop calling clien
 
 ## Downloads
 
-The current source branch targets a standalone APK; a standalone release has not yet been published. Existing v0.3.49 and earlier assets retain their module packaging and cannot supply the runtime input for this branch. Future standalone [GitHub Releases](https://github.com/lilyzhaun/softvowifi-client/releases) use these assets:
+Releases from v0.3.50 use the standalone APK format. Historical v0.3.49 and earlier assets retain their module packaging and cannot supply the runtime input for this branch. Standalone [GitHub Releases](https://github.com/lilyzhaun/softvowifi-client/releases) use these assets:
 
 | Asset | Description |
 |---|---|
