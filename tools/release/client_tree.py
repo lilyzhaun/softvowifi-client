@@ -12,7 +12,7 @@ BOOTSTRAP_PATHS = frozenset({
     ".github/ISSUE_TEMPLATE/bug-report.yml", ".github/ISSUE_TEMPLATE/config.yml",
     *(f"tools/release/{name}" for name in (
         "version.py", "verify.py", "build-apk.sh",
-        "linux-tools.sh", "client_tree.py",
+        "linux-tools.sh", "client_tree.py", "runtime_payload.py",
     )),
 })
 MAX_BYTES = 32 * 1024 * 1024

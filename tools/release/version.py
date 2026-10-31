@@ -1,4 +1,4 @@
-"""Strict version detection for the single module/module.prop release entry point."""
+"""Strict version detection for the single app/manager/version.properties release entry point."""
 
 import argparse
 import json
@@ -58,7 +58,7 @@ def should_release(previous, current, manual=False):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--file", default="module/module.prop")
+    parser.add_argument("--file", default="app/manager/version.properties")
     parser.add_argument("--before")
     parser.add_argument("--manual", action="store_true")
     args = parser.parse_args()
@@ -67,8 +67,14 @@ def main():
     if args.before and args.before != "0" * 40:
         if re.fullmatch(r"[0-9a-f]{40}", args.before) is None:
             raise ValueError("invalid previous commit")
+        previous_path = args.file
+        present = subprocess.run(["git", "cat-file", "-e", f"{args.before}:{previous_path}"],
+                                 capture_output=True, timeout=30, env={**os.environ, "GIT_MASTER": "1"})
+        # Only pre-migration commits use the historical version location.
+        if present.returncode and previous_path == "app/manager/version.properties":
+            previous_path = "module/module.prop"
         raw = subprocess.run(
-            ["git", "show", f"{args.before}:module/module.prop"], check=True,
+            ["git", "show", f"{args.before}:{previous_path}"], check=True,
             capture_output=True, text=True, timeout=30, env={**os.environ, "GIT_MASTER": "1"},
         ).stdout
         previous = parse_version(raw)

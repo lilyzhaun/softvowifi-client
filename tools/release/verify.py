@@ -1,4 +1,4 @@
-"""Verify the public version/ZIP handoff and the independently built Android package."""
+"""Verify the public standalone APK handoff and independently compiled Android package."""
 
 import hashlib
 import json
@@ -15,17 +15,17 @@ from client_tree import candidate_digest, committed_files
 
 def metadata():
     result = json.loads(Path("RELEASE.json").read_text())
-    fields = {"schema", "version", "version_code", "tag", "module_name", "module_sha256",
-              "module_size", "client_tree_sha256"}
-    if set(result) != fields or type(result["schema"]) is not int or result["schema"] != 1:
+    fields = {"schema", "version", "version_code", "tag", "apk_name", "apk_sha256",
+              "apk_size", "client_tree_sha256"}
+    if set(result) != fields or type(result["schema"]) is not int or result["schema"] != 2:
         raise ValueError("invalid public release handoff")
     version = parse_version(Path("app/manager/version.properties").read_text())
     if (result["version"] != version.name or result["version_code"] != version.code
-            or result["tag"] != version.tag or result["module_name"] != f"SoftVoWiFi-ksu-{version.tag}.zip"
-            or re.fullmatch(r"[0-9a-f]{64}", result["module_sha256"]) is None
+            or result["tag"] != version.tag or result["apk_name"] != f"SoftVoWiFi-{version.tag}.apk"
+            or re.fullmatch(r"[0-9a-f]{64}", result["apk_sha256"]) is None
             or re.fullmatch(r"[0-9a-f]{64}", result["client_tree_sha256"]) is None
-            or type(result["module_size"]) is not int or result["module_size"] <= 0):
-        raise ValueError("client/module version mismatch or invalid checksum")
+            or type(result["apk_size"]) is not int or result["apk_size"] <= 0):
+        raise ValueError("client/APK version mismatch or invalid checksum")
     if candidate_digest(committed_files()) != result["client_tree_sha256"]:
         raise ValueError("actual client source digest differs from release metadata")
     return result
@@ -51,12 +51,12 @@ def main():
             raise ValueError("requested tag and release version differ")
         if os.environ.get("GITHUB_OUTPUT"):
             with open(os.environ["GITHUB_OUTPUT"], "a") as output:
-                output.write(f"module_name={data['module_name']}\napk_name=SoftVoWiFi-{data['tag']}.apk\n")
-    elif command == "module":
+                output.write(f"apk_name={data['apk_name']}\n")
+    elif command == "artifact":
         path = Path(value)
-        if (path.name != data["module_name"] or path.stat().st_size != data["module_size"]
-                or hashlib.sha256(path.read_bytes()).hexdigest() != data["module_sha256"]):
-            raise ValueError("module ZIP checksum mismatch")
+        if (path.name != data["apk_name"] or path.stat().st_size != data["apk_size"]
+                or hashlib.sha256(path.read_bytes()).hexdigest() != data["apk_sha256"]):
+            raise ValueError("APK checksum mismatch")
     elif command == "apk":
         verify_apk(Path(value), data)
     elif command == "checksums":
