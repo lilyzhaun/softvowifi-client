@@ -138,6 +138,16 @@ object ConfigurationEvaluator {
         configVersion = snapshot.configVersion,
         configRevision = snapshot.configRevision,
         facts = snapshot.facts,
+        callSignaling = snapshot.callSignaling,
+        callMedia = snapshot.callMedia,
+        tunnelSecurity = snapshot.tunnelSecurity,
+        tunnelTiming = snapshot.tunnelTiming,
+        tunnelIdentity = snapshot.tunnelIdentity,
+        imsTiming = snapshot.imsTiming,
+        swuAccess = snapshot.swuAccess,
+        imsProtection = snapshot.imsProtection,
+        epdgAddressFamily = snapshot.epdgAddressFamily,
+        epdgSelection = snapshot.epdgSelection,
     )
 }
 

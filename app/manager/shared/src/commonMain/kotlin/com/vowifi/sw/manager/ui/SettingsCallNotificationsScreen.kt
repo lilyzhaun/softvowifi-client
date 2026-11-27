@@ -67,7 +67,7 @@ internal fun SettingsCallNotificationsScreen(source: CallNotificationSettingsSou
     val inlineRefresh = LocalSubpageTopBarAction.current == null
     val rows = callNotificationPreferenceRows(snapshot)
     val actions = callNotificationPage(snapshot).rows
-    AppPageScaffold(title = "通知设置", showTopBar = false, refreshController = refresh, refreshRotation = rotation) {
+    AppPageScaffold(title = "通知设置", showTopBar = false, refreshController = refresh) {
         managerRefreshResultItem(refresh, "notification-refresh-result")
         if (snapshot.freshness == NotificationSnapshotFreshness.STALE) {
             item(key = "notification-stale") {

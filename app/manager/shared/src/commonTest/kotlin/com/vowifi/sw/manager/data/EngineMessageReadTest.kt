@@ -83,6 +83,22 @@ class EngineMessageReadTest {
             fixture.source.close()
         }
     }
+
+    @Test
+    fun unexpectedReadFailureDegradesStorageWithoutCrashingCaller() = runTest(UnconfinedTestDispatcher()) {
+        val fixture = readFixture()
+        fixture.repository.failWith = IllegalStateException("synth-read-io")
+        try {
+            fixture.source.markVisibleRead(fixture.request)
+            fixture.repository.release.complete(Unit)
+            val state = fixture.ready()
+            assertFalse(assertIs<MessageRecord.Incoming>(state.records.single()).isRead)
+            assertEquals(STORAGE_SYNC_NOTICE, state.attachmentNotice)
+            assertFalse(state.composerEnabled)
+        } finally {
+            fixture.source.close()
+        }
+    }
 }
 
 private class ReadFixture(
@@ -119,10 +135,12 @@ private class AwaitingReadRepository(private val backing: MessageRepository) : M
     val started = CompletableDeferred<Unit>()
     val release = CompletableDeferred<Unit>()
     var fail = false
+    var failWith: Exception? = null
 
     override suspend fun markIncomingRead(request: ObservedIncomingReadRequest, nowMs: Long): IncomingReadUpdate {
         started.complete(Unit)
         release.await()
+        failWith?.let { throw it }
         if (fail) throw MessageStorageException()
         return backing.markIncomingRead(request, nowMs)
     }

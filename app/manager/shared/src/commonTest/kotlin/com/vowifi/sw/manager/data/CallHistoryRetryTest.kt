@@ -124,4 +124,44 @@ class CallHistoryRetryTest {
                 "历史重试不能冒充引擎快照刷新")
         } finally { f.source.close(); advanceUntilIdle() }
     }
+
+    @Test fun unexpectedRuntimeExceptionInStartupAndLoopKeepsWorkerAliveForRetry() = runTest(UnconfinedTestDispatcher()) {
+        val saved = FakeCallHistoryRepository()
+        saved.upsert(OWNER_A, historyWrite(endedAtMs = T0 + 1000, outcome = CallOutcome.REJECTED))
+        var failStartup = true
+        var failWrite = false
+        val repository = object : CallHistoryRepository by saved {
+            override suspend fun lastOwner(): SimOwnerId? {
+                if (failStartup) {
+                    failStartup = false
+                    throw IllegalStateException("synth-startup")
+                }
+                return saved.lastOwner()
+            }
+            override suspend fun upsert(ownerId: SimOwnerId, write: CallHistoryWrite) {
+                if (failWrite) {
+                    failWrite = false
+                    throw IllegalStateException("synth-upsert")
+                }
+                saved.upsert(ownerId, write)
+            }
+        }
+        val store = CallHistoryStore(repository, coroutineContext)
+        try {
+            assertIs<CallHistoryState.Failure>(store.state.value, "unexpected startup exception must transition to Failure")
+            assertTrue(store.worker.isActive, "unexpected startup exception killed CallHistoryStore worker")
+            store.refresh(); runCurrent()
+            assertEquals(OWNER_A, assertIs<CallHistoryState.Ready>(store.state.value).owner)
+
+            failWrite = true
+            store.write(CallHistoryEffect(1, OWNER_A, historyWrite(correlation = "boom", endedAtMs = T0 + 2000, outcome = CallOutcome.REJECTED)))
+            assertIs<CallHistoryState.Failure>(store.state.value, "unexpected loop exception must transition to Failure")
+            assertTrue(store.worker.isActive, "unexpected loop exception killed CallHistoryStore worker")
+            store.refresh(); runCurrent()
+            assertEquals(1, assertIs<CallHistoryState.Ready>(store.state.value).records.size)
+
+            store.write(CallHistoryEffect(2, OWNER_A, historyWrite(correlation = "recovered", endedAtMs = T0 + 3000, outcome = CallOutcome.REJECTED)))
+            assertEquals(2, assertIs<CallHistoryState.Ready>(store.state.value).records.size)
+        } finally { store.close(); advanceUntilIdle() }
+    }
 }

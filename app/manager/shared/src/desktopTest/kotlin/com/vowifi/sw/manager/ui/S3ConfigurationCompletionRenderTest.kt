@@ -58,7 +58,7 @@ class S3ConfigurationCompletionRenderTest {
                 environment.press(point); environment.advanceFrameBy(16); environment.release(point); frames()
             }
             repeat(15) { environment.advanceFrameBy(16) }
-            for (terminal in listOf(ConfigurationApplyOutcome.Failed, ConfigurationApplyOutcome.Unconfirmed)) {
+            for (terminal in listOf(ConfigurationApplyOutcome.Failed, ConfigurationApplyOutcome.Unconfirmed, ConfigurationApplyOutcome.Busy)) {
                 outcome = terminal
                 val before = haptics.count { it == HapticFeedbackType.Reject }
                 save()
@@ -75,7 +75,7 @@ class S3ConfigurationCompletionRenderTest {
             assertEquals(ConfigurationEditStatus.BusyRejected, draft.status)
             assertEquals(sequence, draft.completionSequence)
             assertEquals(rejects, haptics.count { it == HapticFeedbackType.Reject })
-            assertEquals(3, calls); assertTrue(draft.dirty)
+            assertEquals(4, calls); assertTrue(draft.dirty)
         }
     } }
 

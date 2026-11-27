@@ -88,4 +88,59 @@ class CallHistoryDeletionTest {
             assertTrue(store.historySnapshot.value.deletePending.isEmpty())
         } finally { store.close() }
     }
+
+    @Test fun unexpectedDeleteExceptionReturnsFailedWithoutKillingWorker() = runTest(UnconfinedTestDispatcher()) {
+        val saved = FakeCallHistoryRepository()
+        saved.upsert(OWNER_A, historyWrite())
+        var failNext = true
+        val repo = object : CallHistoryRepository by saved {
+            override suspend fun deleteByIds(ownerId: SimOwnerId, ids: Set<com.vowifi.sw.manager.model.CallHistoryRecordId>) {
+                if (failNext) {
+                    failNext = false
+                    throw IllegalStateException("synth-delete-io")
+                }
+                saved.deleteByIds(ownerId, ids)
+            }
+        }
+        val store = CallHistoryStore(repo, coroutineContext)
+        try {
+            store.select(OWNER_A)
+            val before = assertIs<CallHistoryState.Ready>(store.state.value)
+            val ids = before.records.mapNotNull { it.recordId }.toSet()
+            assertEquals(CallHistoryDeleteResult.FAILED, store.deleteAndAwait(before, ids))
+            assertTrue(store.worker.isActive, "unexpected delete exception killed CallHistoryStore worker")
+            assertSame(before, store.state.value)
+            assertEquals(CallHistoryDeleteResult.COMMITTED, store.deleteAndAwait(before, ids))
+            assertIs<CallHistoryState.Empty>(store.state.value)
+        } finally { store.close() }
+    }
+
+    @Test fun unexpectedReadbackExceptionAfterDeleteReturnsUnconfirmedWithoutKillingWorker() = runTest(UnconfinedTestDispatcher()) {
+        val saved = FakeCallHistoryRepository()
+        saved.upsert(OWNER_A, historyWrite())
+        var failNextReadback = false
+        val repo = object : CallHistoryRepository by saved {
+            override suspend fun deleteByIds(ownerId: SimOwnerId, ids: Set<com.vowifi.sw.manager.model.CallHistoryRecordId>) {
+                saved.deleteByIds(ownerId, ids)
+                failNextReadback = true
+            }
+            override suspend fun listByOwner(ownerId: SimOwnerId): List<com.vowifi.sw.manager.model.CallRecord> {
+                if (failNextReadback) {
+                    failNextReadback = false
+                    throw IllegalStateException("synth-readback-io")
+                }
+                return saved.listByOwner(ownerId)
+            }
+        }
+        val store = CallHistoryStore(repo, coroutineContext)
+        try {
+            store.select(OWNER_A)
+            val before = assertIs<CallHistoryState.Ready>(store.state.value)
+            val ids = before.records.mapNotNull { it.recordId }.toSet()
+            assertEquals(CallHistoryDeleteResult.UNCONFIRMED, store.deleteAndAwait(before, ids))
+            assertTrue(store.worker.isActive, "unexpected delete readback exception killed CallHistoryStore worker")
+            store.refresh()
+            assertIs<CallHistoryState.Empty>(store.state.value)
+        } finally { store.close() }
+    }
 }

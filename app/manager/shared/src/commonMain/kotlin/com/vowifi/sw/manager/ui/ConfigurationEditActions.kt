@@ -28,11 +28,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.dropShadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.navigationevent.NavigationEventInfo
@@ -48,39 +46,36 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 /**
  * C9 save bar: pinned above the page bottom inset whenever the draft is dirty or saving, so the action is
- * reachable from any scroll position. Reports its full height so the list can scroll its last row above it.
+ * reachable from any scroll position. The scaffold measures the bar and reserves space through its exit.
  */
 @Composable
 internal fun ConfigurationSaveBar(
     model: ConfigurationEditorModel,
     draft: ConfigurationEditorDraft,
     submit: ConfigurationSubmit,
-    modifier: Modifier = Modifier,
-    onHeightChange: (Dp) -> Unit = {},
 ) {
-    var confirmation by remember(draft) { mutableStateOf<ConfigurationEditConfirmation?>(null) }
-    val enabled = model.enabled && !draft.pending
-    LaunchedEffect(model.instance, enabled) { confirmation = null }
-    ConfigurationCompletionFeedback(draft.completionSequence,
-        draft.completionStatus == ConfigurationEditStatus.Failed || draft.completionStatus == ConfigurationEditStatus.Unconfirmed)
+    val routeActive = LocalAppRouteActive.current
+    var confirmation by remember(draft, routeActive) { mutableStateOf<ConfigurationEditConfirmation?>(null) }
+    val enabled = model.enabled && routeActive && !draft.pending
+    LaunchedEffect(model.instance.configurationEditAuthority(), enabled) { confirmation = null }
+    ConfigurationCompletionFeedback(draft.completionSequence, when (draft.completionStatus) {
+        ConfigurationEditStatus.Failed, ConfigurationEditStatus.Unconfirmed, ConfigurationEditStatus.AdmissionRefused -> true
+        else -> false
+    })
     val visible = configurationEditActionsVisible(draft)
-    val latestHeight = rememberUpdatedState(onHeightChange)
-    LaunchedEffect(visible) { if (!visible) latestHeight.value(0.dp) }
-    val density = LocalDensity.current
     val bottomInset = LocalSubpageBottomContentInset.current
     val spatial = MotionTokens.SpringSpatial
     val offsetSpec = spring<IntOffset>(dampingRatio = spatial.dampingRatio, stiffness = spatial.stiffness)
     val shape = RoundedCornerShape(CardDefaults.CornerRadius)
-    AnimatedVisibility(visible, modifier = modifier,
+    AnimatedVisibility(visible,
         enter = slideInVertically(offsetSpec) { it } + fadeIn(tween(MotionTokens.DurBase, easing = MotionTokens.EaseEnter)),
         exit = slideOutVertically(offsetSpec) { it } + fadeOut(tween(MotionTokens.DurFast, easing = MotionTokens.EaseStandard)),
         label = "configuration-save-bar",
     ) {
-        Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp).padding(bottom = bottomInset + 12.dp)) {
+        Column(Modifier.fillMaxWidth().padding(horizontal = CONFIGURATION_PAGE_INSET).padding(bottom = bottomInset + 12.dp)) {
             Card(
-                // The list already reserves the bottom inset; it only needs the card plus one 12dp gap.
                 // Dark cards match the bar colour and swallow the shadow; the hairline keeps the edge legible.
-                modifier = Modifier.fillMaxWidth().onSizeChanged { latestHeight.value(with(density) { it.height.toDp() } + 12.dp) }
+                modifier = Modifier.fillMaxWidth()
                     .dropShadow(shape) {
                         radius = 16.dp.toPx(); offset = Offset(0f, 4.dp.toPx()); color = Color.Black; alpha = .12f
                     }.border(1.dp, LocalSoftVoWiFiColors.current.separator, shape),
@@ -92,15 +87,17 @@ internal fun ConfigurationSaveBar(
                     Modifier.padding(horizontal = 16.dp),
                     secondary = { m ->
                         ManagerTextAction("放弃修改", ManagerAction.Rejected, onClick = {
-                            if (draft.dirty) confirmation = ConfigurationEditConfirmation.Discard else draft.discard()
-                        }, modifier = m, enabled = draft.dirty && !draft.pending)
+                            if (routeActive && !draft.pending) {
+                                if (draft.dirty) confirmation = ConfigurationEditConfirmation.Discard else draft.discard()
+                            }
+                        }, modifier = m, enabled = routeActive && draft.dirty && !draft.pending)
                     },
                     primary = { m ->
                         ManagerTextAction(
                             configurationSubmitLabel(draft, model.instance.lifecycle), ManagerAction.SaveConfiguration,
                             onClick = {
                                 if (enabled && !draft.pending) {
-                                    if (draft.dirty && draft.validate() && configurationSaveRestarts(model.instance.lifecycle))
+                                    if (draft.dirty && draft.validate() && configurationSaveRestarts(model.instance.lifecycle, draft))
                                         confirmation = ConfigurationEditConfirmation.Restart
                                     else draft.submit(submit)
                                 }
@@ -114,7 +111,7 @@ internal fun ConfigurationSaveBar(
     }
     val selected = confirmation
     OverlayDialog(
-        show = selected != null,
+        show = selected != null && routeActive,
         title = if (selected == ConfigurationEditConfirmation.Discard) "放弃修改？" else "保存并重启实例？",
         summary = if (selected == ConfigurationEditConfirmation.Discard) "恢复最近读取的配置，不修改设备配置。"
             else listOfNotNull("保存后将重启当前引擎实例，连接会暂时中断。", model.callWarning).joinToString(" "),
@@ -129,12 +126,12 @@ internal fun ConfigurationSaveBar(
                     if (selected == ConfigurationEditConfirmation.Discard) ManagerAction.Rejected else ManagerAction.SaveConfiguration,
                     onClick = {
                         confirmation = null
-                        if (!draft.pending) when (selected) {
+                        if (routeActive && !draft.pending) when (selected) {
                             ConfigurationEditConfirmation.Discard -> draft.discard()
                             ConfigurationEditConfirmation.Restart -> if (enabled) draft.submit(submit)
                             null -> Unit
                         }
-                    }, modifier = m, enabled = !draft.pending, primary = true,
+                    }, modifier = m, enabled = routeActive && !draft.pending, primary = true,
                 )
             },
         )
@@ -165,11 +162,11 @@ internal fun ConfigurationLeaveGuard(
             onBackCompleted = { asking = true })
     }
     LaunchedEffect(guarding) { if (!guarding) asking = false }
-    val restart = configurationSaveRestarts(model.instance.lifecycle)
+    val restart = configurationSaveRestarts(model.instance.lifecycle, draft)
     OverlayDialog(
         show = asking && guarding,
         title = "保存修改？",
-        summary = listOfNotNull(configurationLeaveSummary(draft.modifiedCount, model.instance.lifecycle),
+        summary = listOfNotNull(configurationLeaveSummary(draft.modifiedCount, model.instance.lifecycle, draft),
             model.callWarning?.takeIf { restart }).joinToString(" "),
         onDismissRequest = { asking = false },
     ) {
@@ -234,14 +231,14 @@ internal fun ConfigurationActionPair(
 
 private enum class ConfigurationEditConfirmation { Discard, Restart }
 
-internal fun configurationSaveRestarts(lifecycle: ConfigurationLifecycle): Boolean =
-    lifecycle == ConfigurationLifecycle.RUNNING || lifecycle == ConfigurationLifecycle.STARTING
+internal fun configurationSaveRestarts(lifecycle: ConfigurationLifecycle, draft: ConfigurationEditorDraft? = null): Boolean =
+    lifecycle == ConfigurationLifecycle.STARTING || lifecycle == ConfigurationLifecycle.RUNNING && draft?.nextCallSaveOnly != true
 
 internal fun configurationEditActionsVisible(draft: ConfigurationEditorDraft): Boolean = draft.dirty || draft.pending
 
 internal fun configurationSubmitLabel(draft: ConfigurationEditorDraft, lifecycle: ConfigurationLifecycle): String = when {
     draft.pending -> "正在保存"
-    configurationSaveRestarts(lifecycle) -> "保存并重启"
+    configurationSaveRestarts(lifecycle, draft) -> "保存并重启"
     else -> "保存配置"
 }
 
@@ -254,29 +251,38 @@ internal fun configurationSaveBarTitle(draft: ConfigurationEditorDraft): String 
 internal fun configurationSaveBarDetail(draft: ConfigurationEditorDraft, lifecycle: ConfigurationLifecycle): String =
     when (draft.status) {
         ConfigurationEditStatus.Idle, ConfigurationEditStatus.Saved, ConfigurationEditStatus.Unchanged ->
-            configurationApplyConsequence(lifecycle)
-        ConfigurationEditStatus.Invalid -> if (draft.errors.isEmpty()) configurationApplyConsequence(lifecycle)
+            configurationDraftApplyConsequence(draft, lifecycle)
+        ConfigurationEditStatus.Invalid -> if (draft.errors.isEmpty() && draft.signalingError == null && draft.mediaError == null && draft.tunnelError == null && draft.timingError == null && draft.protectionError == null && draft.addressFamilyError == null && draft.selectionError == null && draft.identityError == null && draft.imsTimingError == null) configurationDraftApplyConsequence(draft, lifecycle)
             else configurationEditSummary(draft)
         else -> configurationEditSummary(draft)
     }
 
-internal fun configurationLeaveSummary(count: Int, lifecycle: ConfigurationLifecycle): String =
-    "${count.coerceAtLeast(1)} 项修改尚未保存。" + if (configurationSaveRestarts(lifecycle))
-        "保存后将重启当前引擎实例，连接会暂时中断。" else "保存后下次启动生效。"
+internal fun configurationLeaveSummary(count: Int, lifecycle: ConfigurationLifecycle, draft: ConfigurationEditorDraft? = null): String =
+    "${count.coerceAtLeast(1)} 项修改尚未保存。" + when {
+        lifecycle == ConfigurationLifecycle.RUNNING && draft?.nextCallSaveOnly == true -> "保存成功后用于下次呼叫，不改变当前通话。"
+        configurationSaveRestarts(lifecycle, draft) -> "保存后将重启当前引擎实例，连接会暂时中断。"
+        else -> "保存后下次启动生效。"
+    }
+
+private fun configurationDraftApplyConsequence(draft: ConfigurationEditorDraft, lifecycle: ConfigurationLifecycle): String =
+    if (lifecycle == ConfigurationLifecycle.RUNNING && draft.nextCallSaveOnly)
+        "保存成功后用于下次呼叫；当前通话保持原策略，不支持时不会回退重启。"
+    else configurationApplyConsequence(lifecycle)
 
 internal fun configurationEditFooter(draft: ConfigurationEditorDraft, lifecycle: ConfigurationLifecycle): String =
     listOfNotNull(
         configurationEditSummary(draft),
-        configurationApplyConsequence(lifecycle).takeIf { draft.dirty && !draft.pending },
+        configurationDraftApplyConsequence(draft, lifecycle).takeIf { draft.dirty && !draft.pending },
     ).joinToString("\n")
 
 internal fun configurationEditSummary(draft: ConfigurationEditorDraft): String = when (draft.status) {
     ConfigurationEditStatus.Saving -> "正在保存配置，请稍候"
-    ConfigurationEditStatus.Invalid -> if (draft.errors.isNotEmpty()) "请检查标出的字段；修改尚未保存"
+    ConfigurationEditStatus.Invalid -> if (draft.errors.isNotEmpty() || draft.signalingError != null || draft.mediaError != null || draft.tunnelError != null || draft.timingError != null || draft.protectionError != null || draft.addressFamilyError != null || draft.selectionError != null || draft.identityError != null || draft.imsTimingError != null) "请检查标出的字段；修改尚未保存"
         else if (draft.dirty) "有未保存修改" else "与最近读取的配置一致"
     ConfigurationEditStatus.Failed -> "保存失败，修改已保留；可检查后重试"
     ConfigurationEditStatus.Unconfirmed -> "结果未确认，修改已保留；请先刷新核对，不会自动重试"
     ConfigurationEditStatus.BusyRejected -> "后台正忙，本次未提交；请稍后重试"
+    ConfigurationEditStatus.AdmissionRefused -> "设备正忙或无法确认空闲，修改未保存；草稿已保留"
     ConfigurationEditStatus.Unavailable -> "配置暂不可用，本次未提交；请刷新后重试"
     ConfigurationEditStatus.Saved -> if (draft.dirty) "有未保存修改" else "配置已保存并读回确认"
     ConfigurationEditStatus.Unchanged -> if (draft.dirty) "有未保存修改" else "没有需要保存的修改"

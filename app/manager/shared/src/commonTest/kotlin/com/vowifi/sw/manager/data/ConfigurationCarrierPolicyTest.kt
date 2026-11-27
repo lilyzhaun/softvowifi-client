@@ -98,11 +98,13 @@ class ConfigurationCarrierPolicyTest {
         }
     }
 
-    @Test fun unknownSourcesUseExistingFallbacksAndNeverBecomeCarrierOrUser() {
+    @Test fun explicitUnknownSourcesStayUnknownAndNeverBecomeInheritedOrUser() {
         for (source in listOf("unknown", "Carrier", " carrier", "user ", "carrier/user", "")) {
-            val policy = instance(policyFields.associate { it + "Source" to source }).imsPolicy
-            assertEquals(listOf("default", "default", "home_mcc"), listOf(policy.securitySource, policy.initialSource, policy.countrySource))
+            val row = instance(policyFields.associate { it + "Source" to source })
+            val policy = row.imsPolicy
+            assertEquals(listOf("unknown", "unknown", "unknown"), listOf(policy.securitySource, policy.initialSource, policy.countrySource))
             assertEquals(listOf("", "", ""), listOf(policy.securityOverride, policy.initialOverride, policy.countryOverride))
+            assertEquals("按已有配置（部分参数来源未知）", com.vowifi.sw.manager.ui.configurationSourceSummary(row))
         }
     }
 

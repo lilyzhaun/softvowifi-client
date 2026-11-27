@@ -5,10 +5,10 @@ import com.vowifi.sw.manager.model.ConfigurationFormatException
 import com.vowifi.sw.manager.model.ConfigurationOverrides
 
 internal enum class ConfigurationFieldKey { Smsc, Epdg, Realm, Dns, SipSecurity, PaniInitial, PaniCountry, DigestRealm }
-internal enum class ConfigurationEditStatus { Idle, Invalid, Unchanged, Saving, Saved, Failed, Unconfirmed, BusyRejected, Unavailable }
+internal enum class ConfigurationEditStatus { Idle, Invalid, Unchanged, Saving, Saved, Failed, Unconfirmed, BusyRejected, AdmissionRefused, Unavailable }
 
 internal fun configurationFieldErrors(values: ConfigurationOverrides): Map<ConfigurationFieldKey, String> {
-    val blank = values.copy(smsc = "", epdgFqdn = "", imsRealm = "", dns = "", imsSipSecurity = null, paniInitial = null, paniCountry = null, imsDigestRealm = null, dnsOverrides = emptyMap())
+    val blank = values.copy(smsc = "", epdgFqdn = "", imsRealm = "", dns = "", imsSipSecurity = null, paniInitial = null, paniCountry = null, imsDigestRealm = null, dnsOverrides = emptyMap(), callSignaling = null, callMedia = null, tunnelSecurity = null, tunnelTiming = null, imsProtection = null, epdgAddressFamily = null, epdgSelection = null, tunnelIdentity = null, imsTiming = null, swuAccess = null)
     val fields = mapOf(
         ConfigurationFieldKey.Smsc to blank.copy(smsc = values.smsc),
         ConfigurationFieldKey.Epdg to blank.copy(epdgFqdn = values.epdgFqdn),

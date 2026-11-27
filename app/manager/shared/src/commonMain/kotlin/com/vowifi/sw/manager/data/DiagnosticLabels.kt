@@ -68,6 +68,7 @@ internal object DiagnosticLabels {
                 DiagnosticReason.UNSUPPORTED_CHARACTERS -> "身份包含不支持的字符"
                 DiagnosticReason.LISTENER_FAILED -> "监听注册失败"
                 DiagnosticReason.IO_FAILED -> "本地读写失败"
+                DiagnosticReason.CONFIG_BUSY -> "设备正忙或无法确认空闲，配置未保存"
                 DiagnosticReason.LOCK_BUSY -> "已有诊断写入者"
                 DiagnosticReason.UNSAFE_PATH -> "诊断路径不安全"
                 DiagnosticReason.STORAGE_LIMIT -> "诊断存储超出预算或存在未纳管文件"

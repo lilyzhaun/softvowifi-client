@@ -21,6 +21,8 @@ import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
+import kotlin.test.assertNotNull
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 /**
@@ -31,16 +33,18 @@ import kotlin.test.assertTrue
 class ConfigurationSaveReachabilityRenderTest {
     @Test fun networkChangeSaveActionIsVisibleWithoutScrolling() = onMotionTestThread { runTest {
         val ready = assertIs<ConfigurationUiState.Ready>(FixtureConfigurationSource("ready").state.value)
+        var state: ConfigurationUiState by mutableStateOf(ready)
         val drafts = ConfigurationDraftStore()
         var opened by mutableStateOf<ConfigurationSimHandle?>(null)
-        val actions = SettingsConfigurationActions({ _, _, _ -> ConfigurationApplyAcceptance.Accepted }, {},
+        var submits = 0
+        val actions = SettingsConfigurationActions({ _, _, _ -> submits++; ConfigurationApplyAcceptance.Accepted }, {},
             { error("刷新不属于本用例") }, onOpenSim = { opened = it })
         MotionTestEnvironment(testScheduler, width = WIDTH, height = HEIGHT) {
             SoftVoWiFiTheme(false) {
                 CompositionLocalProvider(LocalDensity provides Density(2.75f)) {
                     val sim = opened
-                    if (sim == null) SettingsConfigurationScreen(ready, null, actions, drafts)
-                    else SettingsConfigurationSimScreen(sim, ready, null, actions, drafts)
+                    if (sim == null) SettingsConfigurationScreen(state, null, actions, drafts)
+                    else SettingsConfigurationSimScreen(sim, state, null, actions, drafts)
                 }
             }
         }.use { e ->
@@ -75,10 +79,26 @@ class ConfigurationSaveReachabilityRenderTest {
             tap("Wi-Fi")
             assertEquals(ConfigurationTransport.WIFI, drafts.draftFor(ready.instances.first()).transport, "前提：真实菜单已改草稿")
             assertSaveVisible("after-network-change")
-            val list = nodes().first { it.config.contains(SemanticsActions.ScrollBy) }
-            requireNotNull(list.config[SemanticsActions.ScrollBy].action).invoke(0f, 50_000f)
+            val list = nodes().first { it.config.contains(SemanticsActions.ScrollToIndex) }
+            val footerIndex = list.config[SemanticsProperties.IndexForKey].invoke("configuration-sim-advanced-note")
+            assertTrue(footerIndex >= 0 && requireNotNull(list.config[SemanticsActions.ScrollToIndex].action).invoke(footerIndex))
             frames()
             assertSaveVisible("scrolled-to-end")
+
+            fun footer() = nodes().firstOrNull {
+                it.config.getOrNull(SemanticsProperties.Text)?.any { t -> t.text.startsWith("高级参数仅在排障") } == true
+            }
+            val atEnd = assertNotNull(footer(), "前提：已滚到读回说明").boundsInRoot
+            assertTrue(atEnd.height > 0f)
+            state = ConfigurationUiState.Loading
+            repeat(4) { e.advanceFrameBy(16) }
+            assertFalse(hasText("保存配置"), "订阅重读期间不得保留旧保存动作")
+            state = ready
+            frames()
+            val restored = assertNotNull(footer(), "同一张 SIM 短暂重读后不得闪回列表顶部").boundsInRoot
+            assertEquals(atEnd.top, restored.top, 2f, "重读保持当前滚动锚点")
+            assertSaveVisible("after-same-sim-refresh")
+            assertEquals(0, submits)
 
             opened = null
             frames()

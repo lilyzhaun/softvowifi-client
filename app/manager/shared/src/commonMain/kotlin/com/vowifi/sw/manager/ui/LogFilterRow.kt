@@ -2,11 +2,19 @@ package com.vowifi.sw.manager.ui
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.vowifi.sw.manager.model.OperationalLogFile
@@ -18,6 +26,7 @@ import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.preference.OverlayDropdownPreference
+import top.yukonga.miuix.kmp.overlay.OverlayBottomSheet
 
 internal data class LogFilterPresentation(
     val files: List<OperationalLogFile>,
@@ -36,7 +45,12 @@ internal fun LogFilterRow(
     presentation: LogFilterPresentation,
     actions: LogFilterActions,
     modifier: Modifier = Modifier,
+    extraActions: @Composable () -> Unit = {},
 ) {
+    var showFilters by remember { mutableStateOf(false) }
+    val active = rememberUpdatedState(LocalAppRouteActive.current)
+    val currentActions = rememberUpdatedState(actions)
+    LaunchedEffect(active.value) { if (!active.value) showFilters = false }
     val files = presentation.files.groupBy { it.groupKey?.let { group -> "group:$group" } ?: "file:${it.id}" }
         .values.map { members -> members.firstOrNull { it.name == "engine.log" } ?: members.first() }
     val selectedFileId = presentation.selectedFileId
@@ -56,7 +70,7 @@ internal fun LogFilterRow(
     }
     Card(
         modifier = modifier.fillMaxWidth(),
-        insideMargin = PaddingValues(vertical = 4.dp),
+        insideMargin = PaddingValues(0.dp),
     ) {
         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
             if (presentation.files.any { it.groupKey == null && it.id !in setOf("app-diagnostics-v1","root-diagnostics-v1","all-diagnostics-v1", SYSTEM_REGISTRATION_LOG_ID) }) Text(
@@ -74,11 +88,22 @@ internal fun LogFilterRow(
                         modifier = Modifier.size(20.dp),
                     )
                 },
-                enabled = files.isNotEmpty(),
+                enabled = files.isNotEmpty() && active.value,
                 onSelectedIndexChange = { index ->
-                    files.getOrNull(if (hasSelectedFile) index else index - 1)?.let(actions.onSelectFile)
+                    if (active.value) files.getOrNull(if (hasSelectedFile) index else index - 1)?.let(currentActions.value.onSelectFile)
                 },
             )
+            FlowRow(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                val count = listOfNotNull(filter.kind, filter.level).size
+                ManagerTextAction(if (count == 0) "筛选" else "筛选 · $count", ManagerAction.ContextAction,
+                    { showFilters = true })
+                extraActions()
+            }
+        }
+    }
+    OverlayBottomSheet(show = showFilters, title = "筛选日志", onDismissRequest = { showFilters = false }) {
+        Column(Modifier.navigationBarsPadding(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             OverlayDropdownPreference(
                 title = "类型",
                 items = kindOptions.map { it.second },
@@ -90,7 +115,9 @@ internal fun LogFilterRow(
                         modifier = Modifier.size(20.dp),
                     )
                 },
-                onSelectedIndexChange = { index -> kindOptions.getOrNull(index)?.let { actions.onKindSelected(it.first) } },
+                enabled = showFilters && active.value,
+                onSelectedIndexChange = { index -> if (showFilters && active.value)
+                    kindOptions.getOrNull(index)?.let { currentActions.value.onKindSelected(it.first) } },
             )
             OverlayDropdownPreference(
                 title = "级别",
@@ -103,8 +130,12 @@ internal fun LogFilterRow(
                         modifier = Modifier.size(20.dp),
                     )
                 },
-                onSelectedIndexChange = { index -> levelOptions.getOrNull(index)?.let { actions.onLevelSelected(it.first) } },
+                enabled = showFilters && active.value,
+                onSelectedIndexChange = { index -> if (showFilters && active.value)
+                    levelOptions.getOrNull(index)?.let { currentActions.value.onLevelSelected(it.first) } },
             )
+            ManagerTextAction("完成", ManagerAction.ContextAction, { showFilters = false },
+                modifier = Modifier.fillMaxWidth(), enabled = showFilters && active.value, primary = true)
         }
     }
 }

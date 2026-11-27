@@ -4,6 +4,7 @@ import com.vowifi.sw.manager.model.EngineLifecycle
 import com.vowifi.sw.manager.model.MessageOrigin
 import com.vowifi.sw.manager.model.MessageUiState
 import kotlin.coroutines.cancellation.CancellationException
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.withLock
 
@@ -40,19 +41,28 @@ internal suspend fun refreshMessageAttachment(session: EngineMessageSession, for
             try {
                 val offlineUnchanged = !force && session.sessions.isEmpty() && running.isEmpty() &&
                     session.fallback is MessageUiState.Ready
+                var detachStorageFailed = false
                 session.sessions.values.filter { line ->
                     val target = targets[line.owner]
                     target == null || target.iccid != line.iccid || target.pid != line.pid || !line.attached
                 }.forEach { line ->
-                    session.detach(line)
-                    session.sessions = session.sessions - line.owner
+                    try {
+                        session.detach(line)
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (_: Exception) {
+                        detachStorageFailed = true
+                    } finally {
+                        session.sessions = session.sessions - line.owner
+                    }
                 }
                 if (!offlineUnchanged) session.fallback = when {
+                    detachStorageFailed -> MessageUiState.Failure(STORAGE_SYNC_NOTICE)
                     running.size != targets.size -> MessageUiState.Failure(MESSAGE_IDENTITY_NOTICE)
                     running.isNotEmpty() -> MessageUiState.Unavailable(MESSAGE_SELECT_OWNER)
                     else -> MessageUiState.Unavailable(ActiveEngineSelector.NONE_MESSAGE)
                 }
-                if (running.isEmpty() && !offlineUnchanged) loadOfflineOwner(session)
+                if (running.isEmpty() && !offlineUnchanged && !detachStorageFailed) loadOfflineOwner(session)
                 targets.forEach { (owner, instance) ->
                   try {
                     val current = session.sessions[owner]
@@ -70,7 +80,7 @@ internal suspend fun refreshMessageAttachment(session: EngineMessageSession, for
                             session.repository.setLastOwner(owner)
                         }
                         session.sessions = session.sessions + (owner to line)
-                        line.disconnectJob = session.scope.launch {
+                        line.disconnectJob = session.scope.launch(start = CoroutineStart.UNDISPATCHED) {
                             line.transport.messageDisconnects.collect { disconnectMessageSession(session, line) }
                         }
                         line.eventJob = session.scope.launch { collectMessageEvents(session, line) }

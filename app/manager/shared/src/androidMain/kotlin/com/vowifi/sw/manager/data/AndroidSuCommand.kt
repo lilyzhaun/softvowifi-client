@@ -92,11 +92,15 @@ internal class AndroidSuCommand @JvmOverloads constructor(
             if (remaining > 0) TimeUnit.NANOSECONDS.timedJoin(inputWorker, remaining)
             timedOut = timedOut || inputWorker.isAlive
         } finally {
-            process.destroyForcibly()
-            process.waitFor(1, TimeUnit.SECONDS)
-            inputWorker.join(1_000)
-            process.inputStream.close()
-            process.errorStream.close()
+            var interrupted = Thread.interrupted()
+            runCatching { process.destroyForcibly() }
+            runCatching { process.outputStream.close() }
+            inputWorker.interrupt()
+            try { process.waitFor(1, TimeUnit.SECONDS) } catch (_: InterruptedException) { interrupted = true }
+            try { inputWorker.join(1_000) } catch (_: InterruptedException) { interrupted = true }
+            runCatching { process.inputStream.close() }
+            runCatching { process.errorStream.close() }
+            if (interrupted) Thread.currentThread().interrupt()
             if (inputWorker.isAlive) throw IOException("Root command input worker did not stop")
         }
         if (timedOut) {

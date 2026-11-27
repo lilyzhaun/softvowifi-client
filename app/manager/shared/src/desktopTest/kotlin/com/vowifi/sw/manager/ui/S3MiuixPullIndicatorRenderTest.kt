@@ -24,10 +24,10 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
-/** R5：2026-10-15用户实机公共指示区反馈及固定20dp紧凑圆环要求；原Home真实指针/像素合同。 */
+/** R5：2026-11-01用户要求恢复官方纵向拉伸、下方文字及环内转点；保留真实指针/读取守护。 */
 @OptIn(ExperimentalComposeUiApi::class, ExperimentalCoroutinesApi::class)
-class S3CompactPullIndicatorRenderTest {
-    @Test fun bothLongArmedPullsKeepTheActualStrokeInsideOne20DpCircle() = onMotionTestThread { runTest {
+class S3MiuixPullIndicatorRenderTest {
+    @Test fun longerArmedPullStretchesTheOfficialOutlineAboveItsCenteredCaption() = onMotionTestThread { runTest {
         val samples = listOf(180f, 300f).map { distance ->
             HomeEntryDriver(testScheduler).use { d ->
                 d.frames(30); d.holdReads = true
@@ -45,7 +45,14 @@ class S3CompactPullIndicatorRenderTest {
                 ink
             }
         }
-        samples.forEach(::assertCompact) // 先完成两个距离的实际UP/一次读取守护，再断言像素几何。
+        samples.forEach { stroke ->
+            assertAboveCaption(stroke)
+            assertTrue(stroke.bounds.height > stroke.diameter + 8f,
+                "达到阈值后继续下拉必须纵向拉伸，不能继续覆盖固定圆环；${stroke.bounds}")
+            assertEquals(stroke.diameter + stroke.diameter / 11f, stroke.bounds.width, 2f)
+        }
+        assertTrue(samples[1].bounds.height > samples[0].bounds.height + 8f,
+            "真实更长下拉必须画出更长轮廓，不能用静态胶囊替代官方跟手")
     } }
 
     @Test fun heldRingReallyRotatesAndFailedReadPersistsUntilItsRealRetry() = onMotionTestThread { runTest {
@@ -57,7 +64,7 @@ class S3CompactPullIndicatorRenderTest {
             val first = stroke(d, "正在刷新", testScheduler.currentTime)
             d.environment.advanceFrameBy(96)
             val rotated = stroke(d, "正在刷新", testScheduler.currentTime)
-            assertCompact(first); assertCompact(rotated)
+            assertRefreshingRing(first); assertRefreshingRing(rotated)
             assertFalse(first.pixels.contentEquals(rotated.pixels), "held真实读取中的环形墨迹必须有旋转变化")
             assertTrue(d.producer?.isActive == true); assertEquals(null, d.readCompletedAtMillis)
             assertEquals(1, d.refreshCalls); assertEquals(owner, d.listIdentity()); d.assertAtTop()
@@ -95,7 +102,7 @@ class S3CompactPullIndicatorRenderTest {
 
     private fun arm(d: HomeEntryDriver, distance: Float) {
         d.beginDownwardDrag(distance); d.assertRealDownwardInput(); d.frames(2)
-        d.environment.advanceFrameBy(MotionTokens.DurFast.toLong()) // 保持持指，兼容新Row原文字淡变；不触发UP或业务。
+        d.environment.advanceFrameBy(MotionTokens.DurFast.toLong()) // 保持持指，不触发UP或业务。
         assertEquals(1f, d.pullProgress(), "前提：真实长下拉已达到公开阈值")
         assertTrue(hasText(d, "松开刷新"), "前提：原公共Threshold文案已呈现")
         assertEquals(0, d.refreshCalls, "UP前只能推进圆环进度，不启动业务")
@@ -160,7 +167,7 @@ class S3CompactPullIndicatorRenderTest {
             val mask = BooleanArray(width * (bottom - top))
             var x0 = right; var x1 = left; var y0 = bottom; var y1 = top
             // 环形底轨和旋转亮段不必与caption同不透明度；按实测canvas对比定位可见笔画。
-            // 沿用caption核心的24级可见门槛与每个连通stroke至少24像素，几何容差不变。
+            // 沿用caption核心的24级对比门槛及外轮廓24像素下限。
             for (y in top until bottom) for (x in left until right)
                 if (rgbDistance(bitmap.getColor(x, y), background) >= 24) {
                     x0 = minOf(x0, x); x1 = maxOf(x1, x); y0 = minOf(y0, y); y1 = maxOf(y1, y)
@@ -169,15 +176,27 @@ class S3CompactPullIndicatorRenderTest {
             val raw = Rect(x0.toFloat(), y0.toFloat(), (x1 + 1).toFloat(), (y1 + 1).toFloat())
             val blobs = strokeComponents(mask, width, left, top)
             val input = if (style.style.color == Color.Unspecified) "unspecified" else hex(style.style.color.toArgb())
-            println("compact-stroke label=$label t=$now layout=$input paint=${hex(color)} canvas=${hex(background)} " +
+            println("miuix-stroke label=$label t=$now layout=$input paint=${hex(color)} canvas=${hex(background)} " +
                 "core=${paint.value} caption=$caption header=[$left,$top,$right,$bottom] raw=$raw " +
                 "intersections=${exclusions.filter { it.second.overlaps(raw) }.take(6)} strokes=$blobs")
-            assertEquals(1, blobs.size, "采样前提：排除caption/其它文字/图标后须唯一真实stroke（各>=24核心像素）")
+            assertEquals(1, blobs.size, "采样前提：排除文字与图标后必须有一个完整外轮廓")
             val bounds = blobs.single()
+            if (label == "正在刷新") {
+                // 20dp环与小点的抗锯齿可能在8邻域连通，不能用两个连通块假定转点存在。
+                // 半径7px的内部区域与外环分离，必须有真实小点墨迹而非空心/填满。
+                var innerInk = 0
+                for (y in bounds.top.toInt() until bounds.bottom.toInt())
+                    for (x in bounds.left.toInt() until bounds.right.toInt()) {
+                        val dx = x + .5f - bounds.center.x
+                        val dy = y + .5f - bounds.center.y
+                        if (dx * dx + dy * dy <= 49f && rgbDistance(bitmap.getColor(x, y), background) >= 24) innerInk++
+                    }
+                assertTrue(innerInk in 4..24, "完整环内必须有小转点，不能用空心环或实心圆代替；innerInk=$innerInk")
+            }
             assertTrue(bounds.left > left && bounds.right < right && bounds.top > top && bounds.bottom < bottom &&
                 exclusions.none { it.second.overlaps(bounds) }, "采样前提：真实stroke完整，不碰扫描/排除区裁剪边界；bounds=$bounds")
             val w = bounds.width.toInt()
-            Stroke(bounds, diameter, IntArray(w * bounds.height.toInt()) { i ->
+            Stroke(bounds, caption, diameter, IntArray(w * bounds.height.toInt()) { i ->
                 bitmap.getColor(bounds.left.toInt() + i % w, bounds.top.toInt() + i / w) })
         } }
     }
@@ -203,12 +222,19 @@ class S3CompactPullIndicatorRenderTest {
         return result
     }
 
-    private fun assertCompact(stroke: Stroke) {
+    private fun assertAboveCaption(stroke: Stroke) {
+        assertEquals(stroke.caption.center.x, stroke.bounds.center.x, 1f,
+            "官方指示器与下方文字必须水平居中，不能横排")
+        assertTrue(stroke.bounds.bottom < stroke.caption.top, "指示器应完整位于文字上方")
+    }
+
+    private fun assertRefreshingRing(stroke: Stroke) {
+        assertAboveCaption(stroke)
         val b = stroke.bounds
         // 各边最多1物理像素栅格/抗锯齿余量，不按拖动距离扩大容限。
         val maximum = ceil(stroke.diameter).toInt() + 2
         assertTrue(b.height <= maximum && b.width <= maximum,
-            "20dp固定圆环的实际stroke不得拉成长轮廓；bounds=$b diameterPx=${stroke.diameter}")
+            "松手进入真实读取后，官方轮廓须恢复圆环；bounds=$b diameterPx=${stroke.diameter}")
         assertTrue(b.width >= floor(stroke.diameter) - 2 && b.height >= floor(stroke.diameter) - 2,
             "实际阈值圆环不能用隐藏/缩小成点通过；bounds=$b")
         assertTrue(abs(b.width - b.height) <= 2f, "实际圆环宽高应接近1，仅容纳像素栅格差；bounds=$b")
@@ -218,5 +244,5 @@ class S3CompactPullIndicatorRenderTest {
         abs((a ushr 16 and 255) - (b ushr 16 and 255)),
         abs((a ushr 8 and 255) - (b ushr 8 and 255)), abs((a and 255) - (b and 255)))
     private fun hex(value: Int) = value.toUInt().toString(16).padStart(8, '0')
-    private data class Stroke(val bounds: Rect, val diameter: Float, val pixels: IntArray)
+    private data class Stroke(val bounds: Rect, val caption: Rect, val diameter: Float, val pixels: IntArray)
 }

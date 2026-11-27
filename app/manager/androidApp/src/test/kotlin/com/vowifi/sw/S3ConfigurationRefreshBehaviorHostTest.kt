@@ -16,6 +16,8 @@ import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeout
 import org.junit.Assert.*
 import org.junit.Test
@@ -85,6 +87,12 @@ internal class S3ConfigurationIoFixture(
     notifyOnWatch: Boolean = false,
     smscRead: suspend (String) -> String? = { null },
     runtimeRead: suspend (String) -> com.vowifi.sw.manager.model.ConfigurationRuntimeFacts? = { null },
+    nextCallApply: suspend (String, String, () -> Boolean) -> ConfigurationNextCallResult =
+        { _, _, _ -> ConfigurationNextCallResult(ConfigurationCommandApplyResult.Unconfirmed) },
+    entitlementRead: AndroidEntitlementCacheRead = AndroidEntitlementCacheRead(),
+    runtimeObservationRead: suspend (String) -> ConfigurationRuntimeObservation? = { key ->
+        runtimeRead(key)?.let { ConfigurationRuntimeObservation(it, Unit, 0L) { true } }
+    },
     outletsRead: suspend () -> ConfigurationNetworkOutlets = { ConfigurationNetworkOutlets(supported = true) },
 ) : AutoCloseable {
     val source: AndroidConfigurationSource
@@ -119,7 +127,9 @@ internal class S3ConfigurationIoFixture(
         source = AndroidConfigurationSource(context, handles, controlledInventory,
             readNetworkOutlets = outletsRead,
             readAutomaticSmsc = smscRead,
-            readRuntimeFacts = runtimeRead,
+            readRuntimeFacts = runtimeObservationRead,
+            applyNextCallPolicy = nextCallApply,
+            entitlementRead = entitlementRead,
             onCreated = { error("不应创建候选") })
     }
     suspend fun ready(): ConfigurationUiState.Ready = withTimeout(3000) {
@@ -139,7 +149,9 @@ internal class S3ConfigurationIoFixture(
             val flight = source.javaClass.getDeclaredField("refreshInFlight").apply { isAccessible = true }.get(source)
             flight?.let { it.javaClass.getDeclaredField("completion").apply { isAccessible = true }.get(it) as Deferred<*> }
         }
-        awaitS3ConfigurationProducer(scope, completion)
+        val gate = checkNotNull(source.javaClass.getDeclaredField("operationGate").apply { isAccessible = true }.get(source))
+        val mutex = gate.javaClass.getDeclaredField("mutex").apply { isAccessible = true }.get(gate) as Mutex
+        awaitS3ConfigurationProducer(scope, completion, mutex)
     }
     fun holdList() = S3IoHold().also { holds += it; S3ConfigurationCommandShadow.nextList.set(it) }
     fun notifySubscriptionsChanged() = subscriptionChanged()
@@ -147,10 +159,13 @@ internal class S3ConfigurationIoFixture(
     override fun close() { holds.forEach { it.release() }; source.close() }
 }
 
-internal suspend fun awaitS3ConfigurationProducer(scope: CoroutineScope, completion: Deferred<*>?) {
+internal suspend fun awaitS3ConfigurationProducer(scope: CoroutineScope, completion: Deferred<*>?, gate: Mutex? = null) {
     // A producer can leave the parent job tree before its completion handler releases the gate.
     completion?.await()
     scope.coroutineContext[Job]!!.children.toList().forEach { it.join() }
+    // refreshInFlight can already be null while its completion handler has not
+    // released the operation mutex. Await the actual release, outside source.lock.
+    gate?.withLock { }
 }
 
 @Implements(value = AndroidSuCommand::class, isInAndroidSdk = false)

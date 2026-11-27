@@ -7,6 +7,7 @@ import android.telephony.SubscriptionInfo
 import android.telephony.SubscriptionManager
 import android.telephony.SmsManager
 import android.content.pm.PackageManager
+import java.util.concurrent.atomic.AtomicReference
 import org.json.JSONObject
 import com.vowifi.sw.root.RootBridge
 import org.robolectric.RuntimeEnvironment
@@ -19,6 +20,9 @@ import org.robolectric.annotation.Resetter
 class RootFrameworkShadow {
     companion object {
         private val watchers = java.util.concurrent.ConcurrentHashMap<Runnable, SubscriptionManager.OnSubscriptionsChangedListener>()
+        private val nextExtras = AtomicReference<S3IoHold?>()
+
+        internal fun holdSubscriptionExtras() = S3IoHold().also { nextExtras.set(it) }
 
         @JvmStatic @Implementation fun watchSubscriptions(watcher: Runnable) {
             val app = RuntimeEnvironment.getApplication()
@@ -36,7 +40,10 @@ class RootFrameworkShadow {
             }
         }
 
-        @JvmStatic @Resetter fun reset() { watchers.clear() }
+        @JvmStatic @Resetter fun reset() {
+            watchers.clear()
+            nextExtras.getAndSet(null)?.release()
+        }
 
         @JvmStatic @Implementation fun activeSubscriptions(): List<SubscriptionInfo> =
             RuntimeEnvironment.getApplication().getSystemService(SubscriptionManager::class.java)
@@ -46,6 +53,7 @@ class RootFrameworkShadow {
             RuntimeEnvironment.getApplication().getSystemService(TelecomManager::class.java)?.isInCall == false
 
         @JvmStatic @Implementation fun subscriptionExtras(subId: Int): JSONObject {
+            nextExtras.getAndSet(null)?.block()
             val app = RuntimeEnvironment.getApplication()
             val result = JSONObject()
             try { result.put("line1", app.getSystemService(SubscriptionManager::class.java).getPhoneNumber(subId)) }

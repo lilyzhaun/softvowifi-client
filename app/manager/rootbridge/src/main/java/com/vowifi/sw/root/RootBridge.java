@@ -26,10 +26,11 @@ public final class RootBridge {
     private static final Handler MAIN = new Handler(Looper.getMainLooper());
     private static final ScheduledExecutorService WORK = Executors.newSingleThreadScheduledExecutor();
     private static final CopyOnWriteArrayList<Runnable> WATCHERS = new CopyOnWriteArrayList<>();
+    private static final java.util.List<Runnable> PENDING_READY = new java.util.ArrayList<>();
     private static volatile IRootBackend backend;
     private static volatile String environment;
     private static boolean binding;
-    private static String subscriptionKey;
+    private static volatile String subscriptionKey;
     private static volatile java.util.function.Consumer<String> nativeEvents;
     private static final INativeRegistrationEvents.Stub NATIVE_EVENTS = new INativeRegistrationEvents.Stub() {
         @Override public void onEvent(String event) {
@@ -43,53 +44,100 @@ public final class RootBridge {
 
     public static void bind(Context context, Runnable ready) {
         synchronized (LOCK) {
-            if (environment != null) { MAIN.post(ready); return; }
+            if (environment != null && backend != null) {
+                if (ready != null) MAIN.post(ready);
+                return;
+            }
+            if (ready != null) PENDING_READY.add(ready);
             if (binding) return;
             binding = true;
         }
         Context app = context.getApplicationContext();
-        RootService.bind(new Intent(app, RootBackendService.class), new ServiceConnection() {
-            @Override public void onServiceConnected(ComponentName name, IBinder service) {
-                backend = IRootBackend.Stub.asInterface(service);
-                WORK.execute(() -> {
-                    try {
-                        String prepared = backend.prepareRuntime();
-                        synchronized (LOCK) { environment = prepared; LOCK.notifyAll(); }
-                        MAIN.post(ready);
-                        notifyWatchers();
-                    } catch (RemoteException | RuntimeException error) {
-                        disconnected();
-                    }
-                });
+        try {
+            RootService.bind(new Intent(app, RootBackendService.class), new ServiceConnection() {
+                private volatile IRootBackend attached;
+
+                @Override public void onServiceConnected(ComponentName name, IBinder service) {
+                    IRootBackend connected = IRootBackend.Stub.asInterface(service);
+                    attached = connected;
+                    synchronized (LOCK) { environment = null; backend = connected; }
+                    WORK.execute(() -> {
+                        try {
+                            String prepared = connected.prepareRuntime();
+                            java.util.List<Runnable> callbacks;
+                            boolean reattachNative;
+                            synchronized (LOCK) {
+                                if (backend != connected) return;
+                                environment = prepared;
+                                binding = false;
+                                callbacks = new java.util.ArrayList<>(PENDING_READY);
+                                PENDING_READY.clear();
+                                reattachNative = nativeEvents != null;
+                                LOCK.notifyAll();
+                            }
+                            if (reattachNative) {
+                                try {
+                                    connected.observeNativeRegistration(NATIVE_EVENTS);
+                                    if (nativeEvents == null) connected.observeNativeRegistration(null);
+                                } catch (RemoteException | RuntimeException ignored) { }
+                            }
+                            for (Runnable callback : callbacks) MAIN.post(callback);
+                            notifyWatchers();
+                        } catch (RemoteException | RuntimeException error) {
+                            disconnected(connected);
+                        }
+                    });
+                }
+
+                @Override public void onServiceDisconnected(ComponentName name) {
+                    disconnected(attached);
+                }
+            });
+        } catch (RuntimeException error) {
+            synchronized (LOCK) {
+                binding = false;
+                PENDING_READY.clear();
             }
-            @Override public void onServiceDisconnected(ComponentName name) { disconnected(); }
-        });
+            throw error;
+        }
     }
 
-    private static void disconnected() {
-        synchronized (LOCK) { environment = null; backend = null; binding = false; LOCK.notifyAll(); }
-        notifyWatchers();
+    private static void disconnected(IRootBackend expected) {
+        boolean changed;
+        synchronized (LOCK) {
+            if (expected != null && backend != expected) return;
+            changed = backend != null || environment != null || binding;
+            environment = null;
+            backend = null;
+            binding = false;
+            subscriptionKey = null;
+            PENDING_READY.clear();
+            LOCK.notifyAll();
+        }
+        if (changed) notifyWatchers();
     }
 
     static {
         com.topjohnwu.superuser.Shell.enableVerboseLogging = false;
         com.topjohnwu.superuser.Shell.setDefaultBuilder(com.topjohnwu.superuser.Shell.Builder.create().setTimeout(15));
-        WORK.scheduleWithFixedDelay(() -> {
-            if (backend == null || WATCHERS.isEmpty()) return;
-            try {
-                StringBuilder key = new StringBuilder();
-                for (SubscriptionInfo info : backend.activeSubscriptions()) {
-                    key.append(info.getSubscriptionId()).append(':').append(info.getSimSlotIndex())
-                        .append(':').append(info.getIccId()).append(';');
-                }
-                String next = key.toString();
-                if (!next.equals(subscriptionKey)) {
-                    subscriptionKey = next;
-                    notifyWatchers();
-                    if (nativeEvents != null) backend.observeNativeRegistration(NATIVE_EVENTS);
-                }
-            } catch (RemoteException | RuntimeException error) { notifyWatchers(); }
-        }, 5, 5, TimeUnit.SECONDS);
+        WORK.scheduleWithFixedDelay(() -> checkSubscriptions(backend), 5, 5, TimeUnit.SECONDS);
+    }
+
+    static void checkSubscriptions(IRootBackend service) {
+        if (service == null || WATCHERS.isEmpty()) return;
+        try {
+            StringBuilder key = new StringBuilder();
+            for (SubscriptionInfo info : service.activeSubscriptions()) {
+                key.append(info.getSubscriptionId()).append(':').append(info.getSimSlotIndex())
+                    .append(':').append(Math.max(-1, info.getPortIndex())).append(':').append(info.getIccId()).append(';');
+            }
+            String next = key.toString();
+            if (!next.equals(subscriptionKey)) {
+                subscriptionKey = next;
+                notifyWatchers();
+                if (nativeEvents != null) service.observeNativeRegistration(NATIVE_EVENTS);
+            }
+        } catch (RemoteException | RuntimeException error) { notifyWatchers(); }
     }
 
     public static void watchSubscriptions(Runnable watcher) { WATCHERS.add(watcher); }
@@ -97,9 +145,10 @@ public final class RootBridge {
     private static void notifyWatchers() { for (Runnable watcher : WATCHERS) MAIN.post(watcher); }
 
     private static IRootBackend requireBackend() {
-        IRootBackend service = backend;
-        if (service == null || environment == null) throw new IllegalStateException("Root 后端尚未连接");
-        return service;
+        synchronized (LOCK) {
+            if (backend == null || environment == null) throw new IllegalStateException("Root 后端尚未连接");
+            return backend;
+        }
     }
 
     public static List<SubscriptionInfo> activeSubscriptions() {
@@ -117,6 +166,13 @@ public final class RootBridge {
         catch (RemoteException | org.json.JSONException error) { throw new IllegalStateException("系统 IMS 状态读取失败", error); }
     }
 
+    public static org.json.JSONObject registeredAccess() {
+        try {
+            String value = requireBackend().registeredAccess();
+            return value == null ? null : new org.json.JSONObject(value);
+        } catch (RemoteException | RuntimeException | org.json.JSONException error) { return null; }
+    }
+
     /** Busy and unavailable both deny audio admission; no native call is modified. */
     public static boolean nativeCallsIdle() {
         try { return requireBackend().nativeCallsIdle(); }
@@ -132,16 +188,43 @@ public final class RootBridge {
     /** Keeps the existing manager command runners and their cancellation/output limits. */
     public static Process startCommand(String command) throws IOException {
         long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(15);
+        String prepared;
         synchronized (LOCK) {
-            while (environment == null && binding) {
+            // Activity read sources can start before the Observer's first bind.
+            // That ordering uses the same bounded wait as an in-flight bind.
+            while (environment == null || backend == null) {
                 long remaining = deadline - System.nanoTime();
                 if (remaining <= 0) break;
                 try { TimeUnit.NANOSECONDS.timedWait(LOCK, remaining); }
                 catch (InterruptedException error) { Thread.currentThread().interrupt(); throw new IOException("Root 连接已取消", error); }
             }
+            prepared = backend == null ? null : environment;
         }
-        String prepared = environment;
-        if (prepared == null || backend == null) throw new IOException("Root 后端尚未连接，请授予 Root 权限");
+        if (prepared == null) throw new IOException("Root 后端尚未连接，请授予 Root 权限");
+        return startPrepared(prepared, command);
+    }
+
+    /** A multi-step read must never borrow the next RootService after reconnecting. */
+    public static CommandSession captureCommandSession() {
+        synchronized (LOCK) {
+            return backend == null || environment == null ? null : new CommandSession(backend, environment);
+        }
+    }
+
+    public static final class CommandSession {
+        private final IRootBackend owner;
+        private final String prepared;
+        private CommandSession(IRootBackend owner, String prepared) { this.owner = owner; this.prepared = prepared; }
+        public boolean isCurrent() {
+            synchronized (LOCK) { return backend == owner && environment == prepared; }
+        }
+        public Process start(String command) throws IOException {
+            if (!isCurrent()) throw new IOException("Root 连接已变化");
+            return startPrepared(prepared, command);
+        }
+    }
+
+    private static Process startPrepared(String prepared, String command) throws IOException {
         return new ProcessBuilder("su", "-c", prepared + "\n" + command).redirectErrorStream(true).start();
     }
 
@@ -161,8 +244,10 @@ public final class RootBridge {
             requireBackend().attachEngineStream(iccid, audio, pair[1]);
             return socket;
         } catch (RemoteException | RuntimeException | IOException error) {
-            if (socket != null) socket.close(); else pair[0].close();
+            try { if (socket != null) socket.close(); else pair[0].close(); } catch (IOException ignored) { }
             throw new IOException("Root 引擎通道不可用", error);
-        } finally { pair[1].close(); }
+        } finally {
+            try { pair[1].close(); } catch (IOException ignored) { }
+        }
     }
 }

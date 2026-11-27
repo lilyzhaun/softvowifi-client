@@ -1,6 +1,7 @@
 package com.vowifi.sw.root;
 
 import android.os.IBinder;
+import android.os.SystemClock;
 import android.telephony.SubscriptionInfo;
 import java.lang.reflect.Method;
 import java.util.List;
@@ -50,6 +51,18 @@ final class RootTelephony {
                 .put("registered", booleanCall(phone, binder, "isImsRegistered", info.getSubscriptionId())));
         }
         return cards.toString();
+    }
+
+    static String registeredAccess() throws Exception {
+        Class<?> phone = Class.forName("com.android.internal.telephony.ITelephony");
+        Object binder = service("phone", phone);
+        Method state = phone.getMethod("getServiceStateForSlot", int.class, boolean.class, boolean.class,
+            String.class, String.class);
+        JSONObject observed = RootRegisteredAccess.read(RootTelephony::activeSubscriptions,
+            slot -> state.invoke(binder, slot, true, true, "root", null),
+            subId -> phone.getMethod("getEquivalentHomePlmns", int.class, String.class, String.class)
+                .invoke(binder, subId, "root", null), SystemClock::elapsedRealtime);
+        return observed == null ? null : observed.toString();
     }
 
     // Same read-only native-call gate as the exported CellularPhone adapter.

@@ -56,7 +56,13 @@ internal data class SimActiveJoinInput(
     val lastFour: String? = null,
     val homeCarrierLabel: String? = null,
     val subscriptionId: Int? = null,
-)
+    val portIndex: Int? = null,
+) {
+    val attachment: SimAttachment get() = SimAttachment(slotIndex, subscriptionId, portIndex)
+}
+
+/** Process-local attachment; moving a card does not change its persistent history owner. */
+internal data class SimAttachment(val slotIndex: Int, val subscriptionId: Int?, val portIndex: Int?)
 
 internal data class SimEngineJoinInput(
     val key: String,

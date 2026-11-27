@@ -38,6 +38,26 @@ class DiagnosticConfigurationHostTest {
         assertFalse(events.toString().contains("private-synthetic-message"))
     }
 
+    @Test fun aConfirmedBusySaveIsNotAnIoFailure() = runBlocking {
+        val events = mutableListOf<DiagnosticEvent>()
+        val result = commands("""{"ok":false,"code":"BUSY","message":"private-synthetic-reason: Permission denied"}""", 9, events)
+            .applyTracked(key, "{}")
+        assertEquals("Busy", result.name)
+        assertTrue(events.any { it.stage == DiagnosticStage.CONFIG_APPLY && it.result == DiagnosticResult.FAILURE && it.reason == DiagnosticReason.CONFIG_BUSY })
+        assertFalse(events.any { it.reason == DiagnosticReason.IO_FAILED })
+        assertFalse(events.toString().contains("private-synthetic-reason"))
+        events.clear()
+        val malformed = commands("""{"ok":"false","code":"BUSY","message":"test"}""", 9, events).applyTracked(key, "{}")
+        assertEquals(ConfigurationCommandApplyResult.Unconfirmed, malformed)
+        assertTrue(events.any { it.reason == DiagnosticReason.UNCONFIRMED })
+        assertFalse(events.any { it.reason == DiagnosticReason.CONFIG_BUSY })
+        events.clear()
+        val denied = commands("""{"ok":false,"code":"BUSY","message":"Permission denied"}""", 1, events).applyTracked(key, "{}")
+        assertEquals(ConfigurationCommandApplyResult.Unconfirmed, denied)
+        assertTrue(events.any { it.reason == DiagnosticReason.ROOT_DENIED })
+        assertFalse(events.any { it.reason == DiagnosticReason.CONFIG_BUSY })
+    }
+
     @Test fun identityRefreshCannotReportSuccessOnNonzeroExit() = runBlocking {
         val events = mutableListOf<DiagnosticEvent>()
         val result = commands("""{"ok":true,"code":"APPLIED","message":"applied"}""", 1, events)

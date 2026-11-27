@@ -106,6 +106,20 @@ class LogStateLanguageTest {
         }
     }
 
+    @Test fun freshPartialReadsAndCaptureLossDoNotPretendToBeOldSnapshots() {
+        val partial = requireNotNull(operationalLogDataWarningSpec(OperationalLogUiState.Ready(emptyList(),
+            loadInfo = OperationalLogLoadInfo(issue = "合成读取缺口", fresh = true))))
+        assertEquals("部分日志未读全", partial.title)
+        assertTrue(partial.description.contains("本次读取"))
+        assertFalse(partial.description.contains("上次"))
+        val loss = requireNotNull(operationalLogDataWarningSpec(OperationalLogUiState.Ready(emptyList(),
+            loadInfo = OperationalLogLoadInfo(notice = "内存/频率限制 12 条", fresh = true))))
+        assertEquals(StatePanelTone.WARNING, loss.tone)
+        assertEquals("部分过程未记录", loss.title)
+        assertTrue(loss.description.contains("12 条"))
+        assertFalse(loss.description.contains("读取未完成"))
+    }
+
     @Test
     fun logExportActionProvidesConfirmHapticAndExactPointNinetySixPressScaleWhenEnabled() {
         // Given

@@ -49,7 +49,7 @@ internal class AndroidConfigurationCommands(
                     ConfigurationControlCommand.APPLY_TIMEOUT_SECONDS,
                 ) }.toOutcome()
                 val result = configurationApplyResult(observed)
-                observe(observed, DiagnosticStage.CONFIG_APPLY, null, null)
+                observe(observed, DiagnosticStage.CONFIG_APPLY, null, null, result)
                 result
             } catch (_: IOException) {
                 failed(DiagnosticStage.CONFIG_APPLY, DiagnosticReason.IO_FAILED)
@@ -156,14 +156,19 @@ internal class AndroidConfigurationCommands(
             stage, DiagnosticResult.FAILURE, reason, slot?.takeIf { it in 0..1 }))
     }
 
-    private fun observe(outcome: ConfigurationCommandOutcome, stage: DiagnosticStage, slot: Int?, read: CommandRead?) {
+    private fun observe(
+        outcome: ConfigurationCommandOutcome, stage: DiagnosticStage, slot: Int?, read: CommandRead?,
+        applyResult: ConfigurationCommandApplyResult? = if (stage == DiagnosticStage.CONFIG_APPLY) configurationApplyResult(outcome) else null,
+    ) {
         val envelope = ConfigurationCodec.result(outcome.output)
         val code = envelope?.code
         val reason = when {
+            applyResult == ConfigurationCommandApplyResult.Busy -> DiagnosticReason.CONFIG_BUSY
             outcome.output.isPermissionDenied() -> DiagnosticReason.ROOT_DENIED
             outcome.timedOut -> DiagnosticReason.TIMEOUT
             outcome.overflowed -> DiagnosticReason.INVALID_RESPONSE
             outcome.writeFailed -> DiagnosticReason.IO_FAILED
+            stage == DiagnosticStage.CONFIG_APPLY && (code == "BUSY" || outcome.exitCode == 9) -> DiagnosticReason.UNCONFIRMED
             code == "IDENTITY_MISMATCH" || code == "IDENTITY_STALE" -> DiagnosticReason.IDENTITY_MISMATCH
             code == "IDENTITY_UNREADABLE" -> DiagnosticReason.UNAVAILABLE
             code == "TARGET_RUNNING" -> DiagnosticReason.TARGET_RUNNING
@@ -174,7 +179,7 @@ internal class AndroidConfigurationCommands(
             outcome.exitCode != 0 -> DiagnosticReason.IO_FAILED
             envelope?.ok == false -> DiagnosticReason.UNKNOWN
             read is CommandRead.Mapped -> if (read.writeUnconfirmed) DiagnosticReason.UNCONFIRMED else DiagnosticReason.UNKNOWN
-            read == null && configurationApplyResult(outcome) == ConfigurationCommandApplyResult.Unconfirmed -> DiagnosticReason.UNCONFIRMED
+            read == null && applyResult == ConfigurationCommandApplyResult.Unconfirmed -> DiagnosticReason.UNCONFIRMED
             else -> DiagnosticReason.NONE
         }
         if (reason == DiagnosticReason.IDENTITY_MISMATCH || code == "IDENTITY_UNREADABLE") {

@@ -10,7 +10,7 @@ import java.time.format.ResolverStyle
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 
-internal data class OperationalLogGroupRead(val tail: OperationalLogTail, val issue: String? = null)
+internal data class OperationalLogGroupRead(val tail: OperationalLogTail, val issue: String? = null, val notice: String? = null)
 internal data class OperationalLogGroupSelection(val id: String?, val sameGroup: Boolean)
 
 /** Only trusted catalog identities form a group; suffixes and line bodies never establish ownership. */

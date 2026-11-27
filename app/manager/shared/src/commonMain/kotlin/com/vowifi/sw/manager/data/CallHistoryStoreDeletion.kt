@@ -53,7 +53,9 @@ internal suspend fun CallHistoryStore.processDelete(request: CallHistoryDeletion
         if (!accepted) return
         try {
             requireNotNull(repository).deleteByIds(request.selection.owner, request.ids)
-        } catch (_: CallHistoryStorageException) {
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
             result = CallHistoryDeleteResult.FAILED
             return
         }
@@ -63,7 +65,9 @@ internal suspend fun CallHistoryStore.processDelete(request: CallHistoryDeletion
             if (records.any { it.recordId in request.ids }) return
             publish(request.selection, records, HistoryChangeReason.USER_DELETE, request.ids)
             result = CallHistoryDeleteResult.COMMITTED
-        } catch (_: CallHistoryStorageException) {
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
             // The write returned, but its readback is not confirmed. Keep the confirmed view.
         }
     } catch (cancelled: CancellationException) {

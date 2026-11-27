@@ -28,6 +28,7 @@ public final class RootBackendService extends RootService {
     private volatile String streamStatus = "not_started";
     private final java.util.Map<Long, RootStream> streams = new java.util.concurrent.ConcurrentHashMap<>();
     private final java.util.concurrent.atomic.AtomicLong streamIds = new java.util.concurrent.atomic.AtomicLong();
+    private boolean destroyed;
     private final RootRuntime runtime = new RootRuntime(this);
     private final RootNativeObservation nativeObservation = new RootNativeObservation(this);
 
@@ -133,6 +134,13 @@ public final class RootBackendService extends RootService {
             catch (Exception error) { throw new IllegalStateException("native_call_state_unavailable"); }
             finally { Binder.restoreCallingIdentity(token); }
         }
+        @Override public String registeredAccess() {
+            requireCaller();
+            long token = Binder.clearCallingIdentity();
+            try { return RootTelephony.registeredAccess(); }
+            catch (Exception error) { throw new IllegalStateException("registered_access_unavailable"); }
+            finally { Binder.restoreCallingIdentity(token); }
+        }
 
         @Override public void observeNativeRegistration(INativeRegistrationEvents events) {
             requireCaller();
@@ -149,6 +157,7 @@ public final class RootBackendService extends RootService {
             RootStream relay = null;
             try {
                 synchronized (streams) {
+                    if (destroyed) throw new IllegalStateException("service_destroyed");
                     if (streams.size() >= 16) throw new IllegalStateException("engine_stream_limit");
                     relay = new RootStream(iccid, audio, descriptor, () -> streams.remove(id));
                     streams.put(id, relay);
@@ -258,7 +267,13 @@ public final class RootBackendService extends RootService {
     @Override public void onDestroy() {
         nativeObservation.close();
         runtime.stopOwnedEngines();
-        for (RootStream relay : streams.values()) relay.close();
+        java.util.List<RootStream> activeStreams;
+        synchronized (streams) {
+            destroyed = true;
+            activeStreams = new java.util.ArrayList<>(streams.values());
+            streams.clear();
+        }
+        for (RootStream relay : activeStreams) relay.close();
         java.lang.Process process = child;
         if (process != null) process.destroyForcibly();
         ParcelFileDescriptor fd = stream;

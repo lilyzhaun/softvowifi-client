@@ -52,21 +52,40 @@ internal class AndroidCallAudioController(
         }
         stop()
         val focusLost = AtomicBoolean(false)
-        val devices = AndroidCallAudioDevices.create(appContext,
-            onLost = { synchronized(lock) {
-                // A recording/focus failure must either reject startup or interrupt its published
-                // owner. Serialize the marker and publication; there must be no empty-session gap.
-                focusLost.set(true)
-                interrupt(session)
-            } },
-            onRoute = { route -> mutableControls.value = route.copy(muted = mutableControls.value.muted) },
-            playbackOnly = session.mode == CallAudioMode.Progress)
+        val routeOwner = RouteOwner()
+        val devices = try {
+            AndroidCallAudioDevices.create(appContext,
+                onLost = { synchronized(lock) {
+                    // A recording/focus failure must either reject startup or interrupt its published
+                    // owner. Serialize the marker and publication; there must be no empty-session gap.
+                    focusLost.set(true)
+                    interrupt(session)
+                } },
+                onRoute = { route ->
+                    synchronized(lock) {
+                        if (routeOwner.active) {
+                            val current = this.session
+                            if (current != null && current.routeOwner === routeOwner) {
+                                mutableControls.value = route.copy(muted = mutableControls.value.muted)
+                            } else if (!routeOwner.published) {
+                                routeOwner.pendingRoute = route
+                            }
+                        }
+                    }
+                },
+                playbackOnly = session.mode == CallAudioMode.Progress)
+        } catch (error: Exception) {
+            synchronized(lock) { routeOwner.active = false }
+            throw error
+        }
         val socket = try {
             if (session.mode == CallAudioMode.Progress && session.earlyMediaRevision == 0L) null else AndroidCallAudioSocket.connect(session.iccid)
         } catch (error: CancellationException) {
+            synchronized(lock) { routeOwner.active = false }
             devices.close()
             throw error
         } catch (_: Exception) {
+            synchronized(lock) { routeOwner.active = false }
             devices.close()
             throw AndroidCallAudioException()
         }
@@ -83,20 +102,27 @@ internal class AndroidCallAudioController(
             }
             if (focusLost.get() || !microphone.permits(session)) throw AndroidCallAudioException()
         } catch (error: Exception) {
+            synchronized(lock) { routeOwner.active = false }
             socket?.close()
             devices.close()
             if (error is CancellationException) throw error
             throw AndroidCallAudioException()
         }
-        val next = Session(socket, devices, session)
+        val next = Session(socket, devices, session, routeOwner)
         synchronized(lock) {
             if (focusLost.get() || released.get() || !microphone.permits(session)) {
+                routeOwner.active = false
                 next.closeFromStop()
                 throw AndroidCallAudioException()
             }
-            this.session?.closeFromStop()
+            this.session?.let { previous ->
+                previous.routeOwner.active = false
+                previous.closeFromStop()
+            }
+            routeOwner.published = true
             this.session = next
             lastOwner = session
+            mutableControls.value = routeOwner.pendingRoute.copy(muted = false)
         }
         try {
             if (session.mode == CallAudioMode.Conversation) executor.execute { captureLoop(next) }
@@ -111,7 +137,10 @@ internal class AndroidCallAudioController(
         synchronized(lock) {
             endTone?.close()
             endTone = null
-            session?.closeFromStop()
+            session?.let { current ->
+                current.routeOwner.active = false
+                current.closeFromStop()
+            }
             session = null
             mutableControls.value = CallAudioControls()
         }
@@ -128,8 +157,10 @@ internal class AndroidCallAudioController(
     }
     override fun stopIf(session: CallAudioSession) {
         synchronized(lock) {
-            if (this.session?.owner?.sameSession(session) != true) return
-            this.session?.closeFromStop()
+            val current = this.session
+            if (current?.owner?.sameSession(session) != true) return
+            current.routeOwner.active = false
+            current.closeFromStop()
             this.session = null
             mutableControls.value = CallAudioControls()
         }
@@ -223,6 +254,7 @@ internal class AndroidCallAudioController(
 
     private fun onWorkerEnd(current: Session) {
         val emitEnded = synchronized(lock) {
+            current.routeOwner.active = false
             val emit = current.closeFromWorker()
             if (session === current) {
                 session = null
@@ -243,10 +275,17 @@ internal class AndroidCallAudioController(
         }
     }
 
+    private class RouteOwner {
+        var active: Boolean = true
+        var published: Boolean = false
+        var pendingRoute: CallAudioControls = CallAudioControls()
+    }
+
     private class Session(
         val socket: AndroidCallAudioSocket?,
         val devices: AndroidCallAudioDevices,
         val owner: CallAudioSession,
+        val routeOwner: RouteOwner,
     ) {
         val closed = AtomicBoolean(false)
         val pcmWritten = AtomicBoolean(false)

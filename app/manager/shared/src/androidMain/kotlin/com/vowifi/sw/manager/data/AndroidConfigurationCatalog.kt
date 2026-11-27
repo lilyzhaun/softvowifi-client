@@ -16,7 +16,7 @@ internal class AndroidConfigurationCatalog(
     private val ownerFor: (String) -> SimOwnerId? = { null },
     private val networkOutlets: () -> ConfigurationNetworkOutlets = { ConfigurationNetworkOutlets() },
     private val readAutomaticSmsc: suspend (String) -> String? = { null },
-    private val readRuntimeFacts: suspend (String) -> ConfigurationRuntimeFacts? = { null },
+    private val readRuntimeFacts: suspend (String) -> ConfigurationRuntimeObservation? = { null },
 ) {
     private val lock = Any()
     private val iccidByHandle = linkedMapOf<String, String>()
@@ -71,17 +71,19 @@ internal class AndroidConfigurationCatalog(
             }
         }
         val instanceIds = replaceHandles(listed)
+        val observations = mutableMapOf<ConfigurationInstanceId, ConfigurationRuntimeObservation>()
         val instances = snapshots.mapIndexed { selectedIndex, snapshot ->
             val index = included[selectedIndex]
             val key = listed[index].iccid
             val owner = ownerFor(key)
             val running = snapshot.lifecycle == ConfigurationLifecycle.RUNNING && discoveries[index] is SubscriptionDiscovery.Matched
-            val runtime = if (running) readRuntimeFacts(key) else null
+            val observation = if (running) readRuntimeFacts(key)?.takeIf { it.isCurrent() } else null
+            val runtime = observation?.facts
             val automaticSmsc = if (snapshot.smsc.isEmpty() && running) {
-                if (runtime != null) runtime.loaded.fields.firstOrNull { it.field == "smsc" && it.source == "sim" }?.value.orEmpty()
-                else readAutomaticSmsc(key).orEmpty()
+                runtime?.simReportedSmsc() ?: readAutomaticSmsc(key).orEmpty()
             } else ""
-            val stillMatched = !running || owner == ownerFor(key)
+            val stillMatched = !running || owner == ownerFor(key) && observation?.isCurrent() != false
+            if (observation != null && stillMatched) observations[instanceIds[index]] = observation
             ConfigurationEvaluator.instance(instanceIds[index], snapshot, discoveries[index])
                 .copy(draftOwnerId = owner, resolvedSmsc = automaticSmsc.takeIf { stillMatched }.orEmpty(),
                     runtimeFacts = runtime.takeIf { stillMatched })
@@ -97,6 +99,7 @@ internal class AndroidConfigurationCatalog(
         return ConfigurationCatalogSnapshot(
             state = ConfigurationEvaluator.ready(instances, networkOutlets = networkOutlets()),
             existingKeys = listed.map { it.iccid }.toSet(),
+            runtimeObservations = observations,
         )
     }
 
@@ -111,9 +114,13 @@ internal class AndroidConfigurationCatalog(
         }
 }
 
+internal fun ConfigurationRuntimeFacts.simReportedSmsc(): String =
+    loaded.fields.firstOrNull { it.field == "smsc" && it.source == "sim" }?.value.orEmpty()
+
 internal class ConfigurationCatalogSnapshot(
     val state: ConfigurationUiState,
     val existingKeys: Set<String>,
+    val runtimeObservations: Map<ConfigurationInstanceId, ConfigurationRuntimeObservation> = emptyMap(),
 ) {
     override fun toString(): String = "ConfigurationCatalogSnapshot"
 }

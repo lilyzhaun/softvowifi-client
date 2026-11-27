@@ -13,7 +13,8 @@ internal class AndroidSubscriptionInventory @JvmOverloads constructor(
     private val lock = Any()
     private val watchers = mutableListOf<Watcher>()
     private var platformRegistered = false
-    private var registerInFlight = false
+    private var reconciling = false
+    private var registerEpoch = 0L
     private val listener = Runnable {
             observe(DiagnosticStage.LISTENER, DiagnosticResult.OBSERVED)
             val snapshot = synchronized(lock) { watchers.toList() }
@@ -42,53 +43,66 @@ internal class AndroidSubscriptionInventory @JvmOverloads constructor(
 
     override fun startWatching(onChanged: () -> Unit): SubscriptionWatch {
         val watcher = Watcher(onChanged)
-        val claimRegister = synchronized(lock) {
+        val shouldReconcile = synchronized(lock) {
             watchers += watcher
-            if (platformRegistered || registerInFlight) {
+            registerEpoch++
+            if (reconciling || platformRegistered) {
                 false
             } else {
-                registerInFlight = true
+                reconciling = true
                 true
             }
         }
-        if (claimRegister) {
-            val registered = addPlatformListener()
-            val undo = synchronized(lock) {
-                registerInFlight = false
-                when {
-                    watchers.isEmpty() -> {
-                        if (registered) {
-                            platformRegistered = false
-                            true
-                        } else {
-                            false
-                        }
-                    }
-                    registered -> {
-                        platformRegistered = true
-                        false
-                    }
-                    else -> false
-                }
-            }
-            if (undo) ignoreWatchFailure { removePlatformListener() }
-        }
+        if (shouldReconcile) reconcilePlatformListener()
         return SubscriptionWatch {
-            val unregister = synchronized(lock) {
+            val shouldReconcileStop = synchronized(lock) {
                 if (!watchers.remove(watcher)) {
                     false
-                } else if (watchers.isEmpty() && platformRegistered) {
-                    platformRegistered = false
+                } else if (watchers.isEmpty() && platformRegistered && !reconciling) {
+                    reconciling = true
                     true
                 } else {
                     false
                 }
             }
-            if (unregister) {
-                val stopped = watchAttempt { removePlatformListener() }
-                observe(DiagnosticStage.LISTENER, if (stopped is WatchAttempt.Ok) DiagnosticResult.STOPPED else DiagnosticResult.FAILURE,
-                    when (stopped) { WatchAttempt.Ok -> DiagnosticReason.NONE; WatchAttempt.Denied -> DiagnosticReason.PERMISSION_DENIED; WatchAttempt.Failed -> DiagnosticReason.LISTENER_FAILED })
+            if (shouldReconcileStop) reconcilePlatformListener()
+        }
+    }
+
+    private fun reconcilePlatformListener() {
+        try {
+            while (true) {
+                val (wantRegister, attemptEpoch) = synchronized(lock) {
+                    when {
+                        watchers.isNotEmpty() && !platformRegistered -> true to registerEpoch
+                        watchers.isEmpty() && platformRegistered -> false to registerEpoch
+                        else -> {
+                            reconciling = false
+                            return
+                        }
+                    }
+                }
+                if (wantRegister) {
+                    val registered = addPlatformListener()
+                    synchronized(lock) {
+                        if (registered) {
+                            platformRegistered = true
+                        } else if (watchers.isEmpty() || registerEpoch == attemptEpoch) {
+                            reconciling = false
+                            return
+                        }
+                    }
+                } else {
+                    val stopped = watchAttempt { removePlatformListener() }
+                    observe(DiagnosticStage.LISTENER, if (stopped is WatchAttempt.Ok) DiagnosticResult.STOPPED else DiagnosticResult.FAILURE,
+                        when (stopped) { WatchAttempt.Ok -> DiagnosticReason.NONE; WatchAttempt.Denied -> DiagnosticReason.PERMISSION_DENIED; WatchAttempt.Failed -> DiagnosticReason.LISTENER_FAILED })
+                    synchronized(lock) {
+                        platformRegistered = false
+                    }
+                }
             }
+        } finally {
+            synchronized(lock) { reconciling = false }
         }
     }
 
@@ -135,6 +149,7 @@ internal class AndroidSubscriptionInventory @JvmOverloads constructor(
             lastFour = fourDigitTail(key),
             homeCarrierLabel = subscriptionHomeCarrierLabel(context, info.subscriptionId),
             subscriptionId = info.subscriptionId,
+            portIndex = info.portIndex.takeIf { it >= 0 },
         )
     }
 

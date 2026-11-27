@@ -74,6 +74,6 @@ internal class EngineCapabilitiesHostFixture : AutoCloseable {
         const val OTHER_KEY = "abcdefabcdefabcdefabcdefabcdefab"
         fun metadata(key: String = KEY): JsonObject = JsonObject(
             Json.parseToJsonElement(CANONICAL).jsonObject + ("instance" to buildJsonObject { put("key", key) }))
-        private const val CANONICAL = """{"schema":1,"protocol":{"version":1,"engineVersion":"0.1.0"},"instance":{"key":"00647499b77a2163531b4fa05e1014fb"},"capabilities":["config.metadata.v1","rpc.getConfig","rpc.getStatus","rpc.ping","rpc.stop"],"configMetadata":[{"field":"imsSipSecurity","value":"tcp_ipsec_3gpp","source":"default","decision":"inherited"},{"field":"paniInitial","value":"absent","source":"default","decision":"inherited"},{"field":"paniCountry","value":"","source":"home_mcc","decision":"inherited"},{"field":"imsDigestRealm","value":"","source":"identity","decision":"inherited"}]}"""
+        private const val CANONICAL = """{"schema":1,"protocol":{"version":1,"engineVersion":"0.1.0"},"instance":{"key":"00647499b77a2163531b4fa05e1014fb"},"capabilities":["config.metadata.v1","rpc.getConfig","rpc.getStatus","rpc.ping","rpc.stop","status.tunnel-sa-proof.v1"],"configMetadata":[{"field":"imsSipSecurity","value":"tcp_ipsec_3gpp","source":"default","decision":"inherited"},{"field":"paniInitial","value":"absent","source":"default","decision":"inherited"},{"field":"paniCountry","value":"","source":"home_mcc","decision":"inherited"},{"field":"imsDigestRealm","value":"","source":"identity","decision":"inherited"}]}"""
     }
 }

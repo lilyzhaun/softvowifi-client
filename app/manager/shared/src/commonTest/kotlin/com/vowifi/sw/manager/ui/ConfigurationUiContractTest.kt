@@ -1,5 +1,6 @@
 package com.vowifi.sw.manager.ui
 
+import com.vowifi.sw.manager.model.ConfigurationCallSignaling
 import com.vowifi.sw.manager.model.ConfigurationImsPolicy
 import com.vowifi.sw.manager.model.ConfigurationInstance
 import com.vowifi.sw.manager.model.ConfigurationInstanceId
@@ -7,6 +8,7 @@ import com.vowifi.sw.manager.model.ConfigurationLifecycle
 import com.vowifi.sw.manager.model.ConfigurationTransport
 import com.vowifi.sw.manager.ui.navigation.AppRoute
 import com.vowifi.sw.manager.ui.navigation.AppRouteCodec
+import com.vowifi.sw.manager.ui.navigation.ConfigurationSection
 import com.vowifi.sw.manager.ui.navigation.ConfigurationSimHandle
 import com.vowifi.sw.manager.ui.navigation.RouteDecodeResult
 import kotlin.test.Test
@@ -97,6 +99,61 @@ class ConfigurationUiContractTest {
         assertNull(ConfigurationSimHandle.parse("8986 0000 0000 0000 0000"))
         assertNull(ConfigurationSimHandle.parse(""))
         assertIs<RouteDecodeResult.Failure>(AppRouteCodec.decode("""{"type":"SettingsConfigurationSim","sim":"../x"}"""))
+
+        for (section in ConfigurationSection.entries) {
+            val sectionRoute = AppRoute.SettingsConfigurationSimSection(route.sim, section)
+            val sectionEncoded = AppRouteCodec.encode(sectionRoute)
+            assertEquals(sectionRoute, assertIs<RouteDecodeResult.Success>(AppRouteCodec.decode(sectionEncoded)).route)
+            assertEquals("SettingsConfigurationSimSection", sectionRoute.toString())
+            assertFalse(sectionRoute.toString().contains("sim-2"))
+            assertEquals(sectionTitle(section), sectionRoute.topBarTitle)
+        }
+        assertIs<RouteDecodeResult.Failure>(AppRouteCodec.decode("""{"type":"SettingsConfigurationSimSection","sim":"../x","section":"CONNECTION"}"""))
+        assertIs<RouteDecodeResult.Failure>(AppRouteCodec.decode("""{"type":"SettingsConfigurationSimSection","sim":"sim-2","section":"UNKNOWN"}"""))
+    }
+
+    @Test
+    fun sectionSummariesAndResetToAutomaticPreserveTransportAndUnknownGroups() {
+        val customized = instance(
+            lifecycle = ConfigurationLifecycle.RUNNING,
+            transport = ConfigurationTransport.WIFI,
+        ).copy(
+            epdgFqdn = "epdg.custom.invalid",
+            dns = "192.0.2.53:53",
+            dnsOverrides = mapOf("wifi" to "192.0.2.53:53"),
+            imsPolicy = ConfigurationImsPolicy(
+                security = "swu_udp_aka",
+                securitySource = "user",
+                country = "NZ",
+                countrySource = "home_mcc",
+            ),
+            callSignaling = ConfigurationCallSignaling(includePANI = false),
+            callMedia = null,
+        )
+        val draft = ConfigurationEditorDraft(customized)
+        assertEquals(
+            "001 / 01 · •••• 1001\n运行中 · 底层网络 Wi-Fi\n已自定义 4 项高级参数",
+            configurationSimEntrySummary(customized, draft, "001 / 01 · •••• 1001"),
+        )
+        assertEquals("已自定义 4 项高级参数", configurationModeSummary(configurationTotalAdvancedOverrides(draft.snapshotValues()), draft.advancedModified))
+        assertEquals("已自定义 2 项", configurationSectionState(customized, draft, ConfigurationSection.CONNECTION).summary)
+        assertEquals("已自定义 1 项", configurationSectionState(customized, draft, ConfigurationSection.VOICE).summary)
+        assertEquals("已自定义 1 项", configurationSectionState(customized, draft, ConfigurationSection.PROTOCOL).summary)
+        assertTrue(configurationSectionState(customized, draft, ConfigurationSection.STATUS).summary.startsWith("运行中"))
+
+        assertTrue(draft.resetAdvancedToAutomatic())
+        assertEquals(ConfigurationTransport.WIFI, draft.transport, "恢复高级参数必须保留底层网络")
+        assertEquals("", draft.epdgFqdn.text.toString())
+        assertEquals("", draft.dns.text.toString())
+        assertEquals("", draft.imsSipSecurity)
+        assertEquals(ConfigurationCallSignaling(), draft.callSignaling)
+        assertNull(draft.callMedia, "后端未知组不得在恢复自动时被私自改写")
+        assertTrue(draft.dirty)
+        assertTrue(draft.advancedModified)
+        assertEquals(0, configurationTotalAdvancedOverrides(draft.snapshotValues()))
+        assertEquals("已恢复全部自动 · 未保存", configurationModeSummary(0, draft.advancedModified))
+        assertEquals("已恢复自动 · 未保存", configurationSectionState(customized, draft, ConfigurationSection.CONNECTION).summary)
+        assertFalse(draft.resetAdvancedToAutomatic(), "已全部自动后重复调用应为无操作")
     }
 
     private fun instance(

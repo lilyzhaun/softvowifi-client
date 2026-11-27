@@ -1,6 +1,8 @@
 package com.vowifi.sw.manager.ui
 
 import com.vowifi.sw.manager.ui.navigation.AppRoute
+import com.vowifi.sw.manager.ui.navigation.ConfigurationSection
+import com.vowifi.sw.manager.ui.navigation.ConfigurationSimHandle
 import com.vowifi.sw.manager.ui.navigation.ConversationHandle
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -19,6 +21,8 @@ class AppSubpageSceneTest {
             AppRoute.NewMessage to 0.92f,
             AppRoute.SettingsAppearance to foldedHomeAlpha,
             AppRoute.SettingsConfiguration to foldedHomeAlpha,
+            AppRoute.SettingsConfigurationSim(requireNotNull(ConfigurationSimHandle.parse("sim-1"))) to foldedHomeAlpha,
+            AppRoute.SettingsConfigurationSimSection(requireNotNull(ConfigurationSimHandle.parse("sim-1")), ConfigurationSection.CONNECTION) to foldedHomeAlpha,
             AppRoute.SettingsDiagnostics to foldedHomeAlpha,
             AppRoute.SettingsLogs to foldedHomeAlpha,
             AppRoute.SettingsCallNotifications to foldedHomeAlpha,

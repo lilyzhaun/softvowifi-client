@@ -7,12 +7,9 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.runtime.key
-import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import top.yukonga.miuix.kmp.preference.OverlayDropdownPreference
-import com.vowifi.sw.manager.data.DiagnosticExportWindow
 import com.vowifi.sw.manager.model.OperationalLogEntry
 import com.vowifi.sw.manager.model.OperationalLogFilter
 import com.vowifi.sw.manager.model.OperationalLogUiState
@@ -112,11 +109,10 @@ private fun LazyListScope.operationalLogDataItems(
             OperationalLogDataSection.WARNING -> {
                 if (warning != null) {
                     item(key = "operational-logs-warning") {
-                        StatePanel(
-                            spec = warning.copy(retryDescription =
-                                if (loadInfo.issue != null && onRetry != null) "重试读取日志" else null),
-                              onRetry = if (loadInfo.issue != null) onRetry else null,
-                             retryEnabled = retryEnabled,
+                        LogReadNotice(
+                            spec = warning,
+                            onRetry = if (loadInfo.issue != null) onRetry else null,
+                            retryEnabled = retryEnabled,
                             modifier = Modifier.padding(bottom = gap),
                         )
                     }
@@ -132,6 +128,7 @@ private fun LazyListScope.operationalLogDataItems(
                             onLevelSelected = actions.setLevel,
                         ),
                         modifier = Modifier.padding(bottom = gap),
+                        extraActions = { LogExportAction(actions, filteredEntries, exportBusy) },
                     )
                 }
             }
@@ -146,7 +143,7 @@ private fun LazyListScope.operationalLogDataItems(
                     )
                     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                           if (sourceEntries.any { it.technical } && onShowTechnical != null) {
-                              Text(if (showTechnical) "显示当前窗口的全部步骤" else "关键记录 · 已收起 $technicalCount 条技术步骤",
+                               Text(if (showTechnical) "全部记录 · ${displayed.size} 条" else "关键记录 · ${displayed.size} 条 · 已收起 $technicalCount 条步骤",
                                   color = LocalSoftVoWiFiColors.current.textSecondary, fontSize = 14.sp, lineHeight = 20.sp)
                               ManagerTextAction(if (showTechnical) "返回关键记录" else "查看全部步骤", ManagerAction.ContextAction,
                                   { onShowTechnical(!showTechnical) }, modifier = Modifier.padding(bottom = gap))
@@ -177,37 +174,11 @@ private fun LazyListScope.operationalLogDataItems(
                     }
                 }
             }
-            OperationalLogDataSection.EXPORT -> {
-                 item(key = "operational-logs-export") {
-                     val colors = LocalSoftVoWiFiColors.current
-                     val export = logExportPresentation(actions.fullDiagnosticExport || filteredEntries.isNotEmpty(), exportBusy)
-                     val exportAllowed = rememberUpdatedState(export.enabled && LocalAppRouteActive.current)
-                    Column(
-                         modifier = Modifier.fillMaxWidth().padding(bottom = gap),
-                        verticalArrangement = Arrangement.spacedBy(8.dp),
-                     ) {
-                        if(actions.fullDiagnosticExport) {
-                            OverlayDropdownPreference(title="导出时间范围", items=DiagnosticExportWindow.entries.map { it.label },
-                                selectedIndex=actions.exportWindow.ordinal,enabled=!exportBusy,onSelectedIndexChange={index->
-                                    DiagnosticExportWindow.entries.getOrNull(index)?.let(actions.setExportWindow)
-                                })
-                            Text("导出所选时间内已保留的应用与连接记录，包含技术步骤，不受页面筛选或最近记录窗口限制。系统 IMS 注册记录请切换到对应来源后导出。",color=colors.textSecondary,fontSize=14.sp,lineHeight=20.sp)
-                        }
-                        LogExportButton(
-                             presentation = export,
-                             onClick = { if (exportAllowed.value) actions.onExport(filteredEntries) },
-                        )
-                        Text(
-                            text = logPrivacyNote(),
-                            modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
-                            color = colors.textSecondary,
-                            fontSize = 12.sp,
-                            lineHeight = 16.sp,
-                        )
-                    }
-                }
-            }
         }
+    }
+    if (!actions.fullDiagnosticExport) item(key = "operational-log-privacy") {
+        Text(logPrivacyNote(), modifier = Modifier.padding(top = gap, start = 4.dp, end = 4.dp),
+            color = LocalSoftVoWiFiColors.current.textSecondary, fontSize = 12.sp, lineHeight = 16.sp)
     }
 }
 
@@ -259,14 +230,22 @@ internal fun operationalLogDataWarningSpec(state: OperationalLogUiState): StateP
     }
     val readFailed = loadInfo.issue != null
     val parseCount = (state as? OperationalLogUiState.Warning)?.issues?.size ?: 0
-    if (!readFailed && parseCount == 0) return null
+    if (!readFailed && parseCount == 0 && loadInfo.notice == null) return null
     return managerStatus(
         kind = if (readFailed) ManagerStatusKind.Failure else ManagerStatusKind.Warning,
-        title = if (readFailed) "日志读取失败" else "部分日志无法解析",
+        title = when {
+            readFailed && !loadInfo.fresh -> "日志读取失败"
+            readFailed -> "部分日志未读全"
+            parseCount > 0 -> "部分日志无法解析"
+            else -> "部分过程未记录"
+        },
         summary = buildString {
             append("已显示可用的运行事件。")
             if (parseCount > 0) append("有${parseCount}处日志格式无法解析。")
-            if (readFailed) append("当前仍是上次读取的记录。本次日志读取未完成，请刷新重试。")
+            if (readFailed) {
+                append(if (loadInfo.fresh) "当前显示本次读取到的记录，部分来源未读全。" else "当前仍是上次读取的记录。本次日志读取未完成，请刷新重试。")
+            }
+            loadInfo.notice?.let { append(it) }
         },
     ).toStatePanelSpec()
 }

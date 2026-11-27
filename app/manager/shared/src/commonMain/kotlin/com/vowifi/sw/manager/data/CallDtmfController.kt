@@ -2,7 +2,9 @@ package com.vowifi.sw.manager.data
 
 import com.vowifi.sw.manager.model.*
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.buildJsonObject
@@ -21,29 +23,44 @@ internal suspend fun EngineCallSource.performDtmf(expected: CallBinding, digit: 
         publish()
         nextOperation
     }
-    val response = try {
-        control.request(expected.owner, "sendDtmf", buildJsonObject {
-            put("callId", expected.token)
-            put("digit", digit.toString())
-        }, CallProtocolCodec.CONTROL_TIMEOUT_MILLIS)
-    } catch (error: CancellationException) { throw error }
-    catch (_: Exception) { null }
     var query: EngineMessageTransport? = null
-    mutex.withLock {
-        if (!owns(expected) || dtmfOperation != operation || session.phase != CallPhase.InCall) return
-        dtmfOperation = null
-        val ok = response?.error == null &&
-            (response?.result?.get("sent") as? JsonPrimitive)?.takeIf { !it.isString }?.booleanOrNull == true
-        if (!ok) {
-            if (response?.error?.code == 2004) dtmfSupported = false
-            if (response?.error?.code in setOf(1001, 3002) || response == null) {
-                sync = CallSyncState.Recovering
-                query = activeTransport
-            }
-            session = session.copy(operationMessage = if (response == null) CallFailureMessages.NETWORK
-                else if (response.error == null) CallFailureMessages.INVALID else CallProtocolCodec.messageOf(response.error))
+    try {
+        val response = try {
+            control.request(expected.owner, "sendDtmf", buildJsonObject {
+                put("callId", expected.token)
+                put("digit", digit.toString())
+            }, CallProtocolCodec.CONTROL_TIMEOUT_MILLIS)
+        } catch (error: CancellationException) {
+            throw error
+        } catch (_: Exception) {
+            null
         }
-        publish()
+        mutex.withLock {
+            if (!owns(expected) || dtmfOperation != operation || session.phase != CallPhase.InCall) return
+            dtmfOperation = null
+            val ok = response?.error == null &&
+                (response?.result?.get("sent") as? JsonPrimitive)?.takeIf { !it.isString }?.booleanOrNull == true
+            if (!ok) {
+                if (response?.error?.code == 2004) dtmfSupported = false
+                if (response?.error?.code in setOf(1001, 3002) || response == null) {
+                    sync = CallSyncState.Recovering
+                    query = activeTransport
+                }
+                session = session.copy(operationMessage = if (response == null) CallFailureMessages.NETWORK
+                    else if (response.error == null) CallFailureMessages.INVALID else CallProtocolCodec.messageOf(response.error))
+            }
+            publish()
+        }
+    } catch (error: CancellationException) {
+        withContext(NonCancellable) {
+            mutex.withLock {
+                if (!closed && dtmfOperation == operation) {
+                    dtmfOperation = null
+                    publish()
+                }
+            }
+        }
+        throw error
     }
     query?.let { fetchSnapshot(it) }
 }

@@ -15,24 +15,43 @@ final class RootNativeObservation implements AutoCloseable {
     private final Context context;
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
     private final List<RegistrationObserver> observers = new ArrayList<>();
+    private INativeRegistrationEvents currentEvents;
+    private long generation;
+    private boolean closed;
 
     RootNativeObservation(Context context) { this.context = context; }
 
     synchronized void observe(INativeRegistrationEvents events) throws Exception {
         stop();
-        if (events == null) return;
+        if (closed || events == null) {
+            currentEvents = null;
+            generation++;
+            return;
+        }
+        final long gen = ++generation;
+        currentEvents = events;
         for (SubscriptionInfo info : RootTelephony.activeSubscriptions()) {
             try {
                 RegistrationObserver observer = new RegistrationObserver(info.getSubscriptionId(), info.getSimSlotIndex(),
                     context.getSystemService(ImsManager.class).getImsMmTelManager(info.getSubscriptionId()), executor, event -> {
+                        synchronized (RootNativeObservation.this) {
+                            if (closed || generation != gen || currentEvents != events) return;
+                        }
                         try { events.onEvent(event); }
-                        catch (RemoteException error) { stop(); }
+                        catch (RemoteException error) { stopIfGeneration(gen); }
                     });
                 if (observer.start()) observers.add(observer);
             } catch (RuntimeException error) {
                 // A missing/replaced subscription must not skip the other line.
                 android.util.Log.w("SoftVoWiFiObserver", "observer_unavailable_framework");
             }
+        }
+    }
+
+    private synchronized void stopIfGeneration(long gen) {
+        if (generation == gen) {
+            currentEvents = null;
+            stop();
         }
     }
 
@@ -44,5 +63,13 @@ final class RootNativeObservation implements AutoCloseable {
         observers.clear();
     }
 
-    @Override public void close() { stop(); executor.shutdownNow(); }
+    @Override public void close() {
+        synchronized (this) {
+            closed = true;
+            currentEvents = null;
+            generation++;
+            stop();
+        }
+        executor.shutdownNow();
+    }
 }

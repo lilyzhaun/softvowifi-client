@@ -85,6 +85,7 @@ class RootBinderCallerHostTest {
             "call state" to { backend.nativeCallsIdle(); Unit },
             "registration" to { backend.observeNativeRegistration(null) },
             "engine stream" to { backend.attachEngineStream("invalid", false, null) },
+            "registered access" to { backend.registeredAccess(); Unit },
         )
         methods.forEach { (name, call) ->
             try { call(); fail("unauthorized method accepted: $name") }
@@ -119,7 +120,7 @@ class RootBinderCallerHostTest {
         permissionChecks = 0
         permissionGranted = false
         assertAllMethodsDeny("synthetic_permission_denied")
-        assertEquals(10, permissionChecks)
+        assertEquals(11, permissionChecks)
         permissionGranted = true
         assertEquals("not_started", backend.getProbeStreamStatus())
     }

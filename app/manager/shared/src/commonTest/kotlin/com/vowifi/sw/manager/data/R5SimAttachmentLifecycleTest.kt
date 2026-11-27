@@ -69,5 +69,34 @@ class R5SimAttachmentLifecycleTest {
         assertNotEquals(old, current)
         handles.reconcileActive(listOf(row.copy(subscriptionId = 2)))
         assertEquals(current, handles.handleFor(row.key))
+        handles.reconcileActive(listOf(row.copy(subscriptionId = 2, portIndex = 0)))
+        val known = handles.handleFor(row.key)
+        assertNotEquals(current, known, "未知端口不等于端口 0")
+        handles.reconcileActive(listOf(row.copy(subscriptionId = 2)))
+        assertEquals(null, handles.keyFor(known))
+        assertNotEquals(current, handles.handleFor(row.key))
+    }
+
+    @Test fun movingOnlyThePortRetiresTheOldActionAndKeepsTheOtherLine() = runTest {
+        val first = SimActiveJoinInput("0000000000000000001", 0, subscriptionId = 7, portIndex = 0)
+        val other = SimActiveJoinInput("0000000000000000002", 1, subscriptionId = 8, portIndex = 0)
+        val inventory = FakeSubscriptionInventory(SubscriptionInventoryResult.Active(listOf(first, other)))
+        val engine = FakeEngineControlSource(engineReady(engineRow(first.key, EngineLifecycle.STOPPED),
+            engineRow(other.key, EngineLifecycle.STOPPED)))
+        val source = simControlSource(inventory, engine, parentContext = coroutineContext)
+        try {
+            runCurrent()
+            val (old, stable) = readyInstances(source.state.value).map { it.handle }
+            inventory.result = SubscriptionInventoryResult.Active(listOf(first.copy(portIndex = 1), other))
+            inventory.emitChange()
+            runCurrent()
+            source.start(old)
+            assertTrue(engine.started.isEmpty(), "旧端口的操作仍启动了新附件")
+            val (fresh, stillStable) = readyInstances(source.state.value).map { it.handle }
+            assertNotEquals(old, fresh)
+            assertEquals(stable, stillStable)
+            source.start(fresh)
+            assertEquals(listOf(first.key), engine.started)
+        } finally { source.close() }
     }
 }

@@ -60,6 +60,7 @@ class AndroidOperationalLogSource internal constructor(
     private var displayed: OperationalLogTail? = null
     private var refreshRequest: Request? = null
     private var readIssue: String? = null
+    private var readNotice: String? = null
     private var blockingFailure: OperationalLogUiState? = null
     private var moduleIssue: String? = null
 
@@ -104,7 +105,7 @@ class AndroidOperationalLogSource internal constructor(
     override fun selectFile(fileId: String): Unit = synchronized(lock) {
         if (closed || selected == fileId || catalog.files.none { it.id == fileId }) return
         selected = fileId
-        readIssue = null; blockingFailure = null
+        readIssue = null; readNotice = null; blockingFailure = null
         enqueue(relist = false)
         Unit
     }
@@ -116,13 +117,15 @@ class AndroidOperationalLogSource internal constructor(
         active?.cancel()
         val snapshot = if (legacy || relist) null else cache[selected]
         val hot = snapshot != null && nowMillis() - snapshot.at < 5000
+        if (!relist) readNotice = snapshot?.notice
         val request = Request(generation, relist, hot,
             if (relist) CompletableDeferred(scope.coroutineContext[Job]) else null)
         if (relist) refreshRequest = request
         requests.trySend(request)
         // 同 file 的展示快照与已失效的 IO cache 分开；只有选择才允许 hot 命中。
         publish(if (relist) displayedTail() else snapshot?.tail,
-            OperationalLogLoadInfo(reading = !hot, cached = snapshot != null, legacy = legacy, issue = readIssue))
+            OperationalLogLoadInfo(reading = !hot, cached = snapshot != null, legacy = legacy, issue = readIssue,
+                notice = readNotice, fresh = hot))
         return request
     }
 
@@ -148,6 +151,7 @@ class AndroidOperationalLogSource internal constructor(
                         cached = snapshot != null,
                         legacy = legacy,
                         issue = error.safeMessage,
+                        notice = readNotice,
                     ))
                 }
                 finish(request, if (error.state is OperationalLogUiState.Unavailable) RefreshResult.Unsupported
@@ -176,11 +180,11 @@ class AndroidOperationalLogSource internal constructor(
             catalog = result.catalog.copy(files = files)
             legacy = result.legacy
             cache.keys.retainAll(catalog.files.map { it.id }.toSet())
-            if (!choice.sameGroup) readIssue = null
+            if (!choice.sameGroup) { readIssue = null; readNotice = null }
             else if (choice.id != selected) displayed = displayed?.copy(id = requireNotNull(choice.id))
             selected = choice.id
             if (selected == null) blockingFailure = null
-            publish(displayedTail(), OperationalLogLoadInfo(reading = selected != null, legacy = legacy, issue = readIssue))
+            publish(displayedTail(), OperationalLogLoadInfo(reading = selected != null, legacy = legacy, issue = readIssue, notice = readNotice))
             if (selected == null && completeEmpty) finish(request, RefreshResult.Completed)
             selected != null
         }
@@ -198,7 +202,7 @@ class AndroidOperationalLogSource internal constructor(
             if (registration != null && identity.first == SYSTEM_REGISTRATION_LOG_ID) registration.read()
             else if (local != null && identity.first == LocalDiagnosticLogReader.ID) {
                 val read = local.read()
-                read.copy(issue = listOfNotNull(moduleIssue, read.issue).takeIf { it.isNotEmpty() }?.joinToString("；"))
+                read.copy(notice = listOfNotNull(moduleIssue, read.notice).takeIf { it.isNotEmpty() }?.joinToString("；"))
             } else if(rootDiagnostics!=null && identity.first==RootDiagnosticLogReader.ID) runInterruptible { rootDiagnostics.read() }
             else if(rootDiagnostics!=null && identity.first==RootDiagnosticLogReader.ALL_ID) runInterruptible { rootDiagnostics.combined() }
             else groups.read(identity.first, identity.second, identity.third)
@@ -213,11 +217,11 @@ class AndroidOperationalLogSource internal constructor(
             if (!current(request)) return
             val tail = result.tail
             if (!legacy && result.issue == null) {
-                cache[identity.first] = Snapshot(tail, nowMillis())
+                cache[identity.first] = Snapshot(tail, nowMillis(), result.notice)
                 while (cache.size > 32) cache.remove(cache.keys.first())
             }
-            readIssue = result.issue; blockingFailure = null
-            publish(tail, OperationalLogLoadInfo(legacy = legacy, issue = readIssue))
+            readIssue = result.issue; readNotice = result.notice; blockingFailure = null
+            publish(tail, OperationalLogLoadInfo(legacy = legacy, issue = readIssue, notice = readNotice, fresh = true))
             finish(request, result.issue?.let { RefreshResult.Failed(it) } ?: RefreshResult.Completed)
         }
     }
@@ -276,5 +280,5 @@ class AndroidOperationalLogSource internal constructor(
         val hot: Boolean,
         val completion: CompletableDeferred<RefreshResult>?,
     )
-    private data class Snapshot(val tail: OperationalLogTail, val at: Long)
+    private data class Snapshot(val tail: OperationalLogTail, val at: Long, val notice: String? = null)
 }

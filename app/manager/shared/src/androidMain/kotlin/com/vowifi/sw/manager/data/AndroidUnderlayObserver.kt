@@ -15,11 +15,13 @@ import android.os.SystemClock
 import android.provider.Settings
 import android.telephony.SubscriptionManager
 import java.net.InetAddress
+import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runInterruptible
 import org.json.JSONArray
@@ -31,6 +33,7 @@ class AndroidUnderlayObserver(
     private val publish: (String) -> Boolean = ::publishUnderlay,
     private val now: () -> Long = SystemClock::elapsedRealtime,
     private val diagnostic: (DiagnosticEvent) -> Unit = { AndroidDiagnosticLog.emit(it) },
+    private val registeredAccess: () -> JSONObject? = com.vowifi.sw.root.RootBridge::registeredAccess,
 ) {
     private val appContext = context.applicationContext
     private val manager = appContext.getSystemService(ConnectivityManager::class.java)
@@ -39,7 +42,7 @@ class AndroidUnderlayObserver(
     private val entries = LinkedHashMap<Network, Entry>()
     private var defaultHandle = 0L
     private var accessGeneration = 0L
-    private var handler: Handler? = null
+    @Volatile private var handler: Handler? = null
     private var thread: HandlerThread? = null
     private var scope: CoroutineScope? = null
     @Volatile private var updates: Channel<String>? = null
@@ -95,7 +98,23 @@ class AndroidUnderlayObserver(
         scope = CoroutineScope(SupervisorJob() + Dispatchers.IO).also { scope ->
             scope.launch {
                 for (state in updates) {
-                    val sent = runInterruptible { publish(state) }
+                    val access = try {
+                        runInterruptible { registeredAccess() }
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (_: Exception) {
+                        null
+                    }
+                    // Binder reads may finish after cancellation; never publish that old generation.
+                    ensureActive()
+                    val payload = JSONObject(state).put("registeredAccess", access ?: JSONObject.NULL).toString()
+                    val sent = try {
+                        runInterruptible { publish(payload) }
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (_: Exception) {
+                        false
+                    }
                     diagnostic(DiagnosticEvent(DiagnosticComponent.UNDERLAY,
                         if (sent) DiagnosticLevel.INFO else DiagnosticLevel.WARN, DiagnosticName.OBSERVED,
                         DiagnosticStage.PUBLISH, if (sent) DiagnosticResult.SUCCESS else DiagnosticResult.FAILURE,
@@ -120,6 +139,13 @@ class AndroidUnderlayObserver(
             diagnostic(DiagnosticEvent(DiagnosticComponent.UNDERLAY, DiagnosticLevel.WARN, DiagnosticName.REJECTED,
                 DiagnosticStage.LISTENER, DiagnosticResult.FAILURE, DiagnosticReason.PERMISSION_DENIED))
             stop()
+        } catch (_: RuntimeException) {
+            diagnostic(DiagnosticEvent(DiagnosticComponent.UNDERLAY, DiagnosticLevel.WARN, DiagnosticName.REJECTED,
+                DiagnosticStage.LISTENER, DiagnosticResult.FAILURE, DiagnosticReason.LISTENER_FAILED))
+            stop()
+        } catch (error: Throwable) {
+            stop()
+            throw error
         }
     }
 
@@ -127,9 +153,9 @@ class AndroidUnderlayObserver(
     fun stop() {
         val handler = handler ?: return
         this.handler = null
-        try { manager?.unregisterNetworkCallback(callback) } catch (_: IllegalArgumentException) { /* Not registered. */ }
-        try { manager?.unregisterNetworkCallback(defaultCallback) } catch (_: IllegalArgumentException) { /* Not registered. */ }
-        try { appContext.unregisterReceiver(accessReceiver) } catch (_: IllegalArgumentException) { /* Not registered. */ }
+        try { manager?.unregisterNetworkCallback(callback) } catch (_: RuntimeException) { /* Not registered or binder unavailable. */ }
+        try { manager?.unregisterNetworkCallback(defaultCallback) } catch (_: RuntimeException) { /* Not registered or binder unavailable. */ }
+        try { appContext.unregisterReceiver(accessReceiver) } catch (_: RuntimeException) { /* Not registered or binder unavailable. */ }
         handler.removeCallbacksAndMessages(null)
         updates?.close()
         scope?.cancel()

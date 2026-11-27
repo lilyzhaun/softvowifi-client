@@ -17,6 +17,7 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.intOrNull
@@ -75,6 +76,7 @@ object ConfigurationCodec {
         ) throw ConfigurationFormatException.Unparseable()
         val digestSource = policySource(wire.imsDigestRealmSource.takeIf { wire.imsDigestRealm != null }, setOf("user", "carrier", "identity"), "identity")
         val digestRealm = wire.imsDigestRealm ?: wire.resolvedImsRealm
+        val facts = ConfigurationFactsCodec.local(obj["configuration"], revision)
         return ConfigurationSnapshot(
             displayLabel = displayLabelOf(wire.displayLabel),
             lifecycle = lifecycleOf(wire.lifecycle),
@@ -93,7 +95,17 @@ object ConfigurationCodec {
             formatState = format,
             configVersion = version,
             configRevision = revision,
-            facts = ConfigurationFactsCodec.local(obj["configuration"], revision),
+            facts = facts,
+            callSignaling = ConfigurationCallSignalingCodec.read(facts),
+            callMedia = ConfigurationCallMediaCodec.read(facts),
+            tunnelSecurity = ConfigurationTunnelSecurityCodec.read(facts),
+            tunnelTiming = ConfigurationTunnelTimingCodec.read(facts),
+            imsProtection = ConfigurationImsProtectionCodec.read(facts),
+            epdgAddressFamily = ConfigurationAddressFamilyCodec.read(facts),
+            epdgSelection = ConfigurationEpdgSelectionCodec.read(facts),
+            tunnelIdentity = ConfigurationTunnelIdentityCodec.read(obj["tunnelIdentityOverride"], facts),
+            imsTiming = ConfigurationImsTimingCodec.read(facts),
+            swuAccess = ConfigurationSwuAccessCodec.read(facts),
             simAttributeReadStatus = simAttributeReadStatus(obj["simAttributeReadStatus"]),
             imsPolicy = ConfigurationImsPolicy(
                 security = sipSecurityValue(wire.imsSipSecurity).ifEmpty { "tcp_ipsec_3gpp" },
@@ -129,15 +141,73 @@ object ConfigurationCodec {
         overrides.paniInitial?.let { fields["paniInitial"] = JsonPrimitive(paniInitialValue(it)) }
         overrides.paniCountry?.let { fields["paniCountry"] = JsonPrimitive(paniCountryValue(it)) }
         overrides.imsDigestRealm?.let { fields["imsDigestRealm"] = JsonPrimitive(digestRealmValue(it)) }
+        overrides.callSignaling?.let { fields["callSignaling"] = ConfigurationCallSignalingCodec.encode(it) }
+        overrides.callMedia?.let { fields["callMedia"] = ConfigurationCallMediaCodec.encode(it) }
+        overrides.tunnelSecurity?.let { fields["tunnelSecurity"] = ConfigurationTunnelSecurityCodec.encode(it) }
+        overrides.tunnelTiming?.let { fields["tunnelTiming"] = ConfigurationTunnelTimingCodec.encode(it) }
+        overrides.imsTiming?.let { fields["imsTiming"] = ConfigurationImsTimingCodec.encode(it) }
+        overrides.swuAccess?.let { fields["swuAccess"] = ConfigurationSwuAccessCodec.encode(it) }
+        overrides.tunnelIdentity?.let { fields["tunnelIdentity"] = ConfigurationTunnelIdentityCodec.encode(it) }
+        overrides.imsProtection?.let {
+            if (it.suites != null && overrides.imsSipSecurity == "swu_udp_aka") throw ConfigurationFormatException.InvalidImsProtection()
+            fields["imsProtection"] = ConfigurationImsProtectionCodec.encode(it)
+        }
+        overrides.epdgAddressFamily?.let { fields["epdgAddressFamily"] = ConfigurationAddressFamilyCodec.encode(it) }
+        overrides.epdgSelection?.let {
+            ConfigurationEpdgSelectionCodec.validate(it, overrides.epdgFqdn)
+            fields["epdgSelection"] = ConfigurationEpdgSelectionCodec.encode(it)
+        }
         return JsonObject(fields).toString()
     }
 
     fun encodeChanges(previous: ConfigurationOverrides, next: ConfigurationOverrides): String {
         val before = parseObject(encode(previous))
         val after = parseObject(encode(next))
+        if (previous.callSignaling == null && next.callSignaling != null && after["callSignaling"] != JsonNull) {
+            throw ConfigurationFormatException.UnknownCallSignaling()
+        }
+        if (previous.callMedia == null && next.callMedia != null && after["callMedia"] != JsonNull) {
+            throw ConfigurationFormatException.UnknownCallMedia()
+        }
+        if (previous.tunnelSecurity == null && next.tunnelSecurity != null && after["tunnelSecurity"] != JsonNull) {
+            throw ConfigurationFormatException.UnknownTunnelSecurity()
+        }
+        if (previous.tunnelTiming == null && next.tunnelTiming != null && after["tunnelTiming"] != JsonNull) {
+            throw ConfigurationFormatException.UnknownTunnelTiming()
+        }
+        if (previous.imsTiming == null && next.imsTiming?.policy != null) {
+            throw ConfigurationFormatException.UnknownImsTiming()
+        }
+        if (previous.swuAccess == null && next.swuAccess?.policy != null) {
+            throw ConfigurationFormatException.UnknownSwuAccess()
+        }
+        if (previous.tunnelIdentity == null && next.tunnelIdentity?.policy != null) {
+            throw ConfigurationFormatException.UnknownTunnelIdentity()
+        }
+        if (previous.imsProtection == null && next.imsProtection != null && after["imsProtection"] != JsonNull) {
+            throw ConfigurationFormatException.UnknownImsProtection()
+        }
+        if (previous.epdgAddressFamily == null && !next.epdgAddressFamily.isNullOrEmpty()) {
+            throw ConfigurationFormatException.UnknownAddressFamily()
+        }
+        if (previous.epdgSelection == null && next.epdgSelection?.candidates != null) {
+            throw ConfigurationFormatException.UnknownEpdgSelection()
+        }
         // Unchanged empty UI overrides may represent non-empty derived values on disk.
         val payload = JsonObject(buildMap {
             (before.keys + after.keys).forEach { key ->
+                // A missing next group preserves what we could not safely read;
+                // only an explicit empty group produces the JSON null clear.
+                if (key == "callSignaling" && next.callSignaling == null) return@forEach
+                if (key == "callMedia" && next.callMedia == null) return@forEach
+                if (key == "tunnelSecurity" && next.tunnelSecurity == null) return@forEach
+                if (key == "tunnelTiming" && next.tunnelTiming == null) return@forEach
+                if (key == "imsTiming" && next.imsTiming == null) return@forEach
+                if (key == "swuAccess" && next.swuAccess == null) return@forEach
+                if (key == "tunnelIdentity" && next.tunnelIdentity == null) return@forEach
+                if (key == "imsProtection" && next.imsProtection == null) return@forEach
+                if (key == "epdgAddressFamily" && next.epdgAddressFamily == null) return@forEach
+                if (key == "epdgSelection" && next.epdgSelection == null) return@forEach
                 val old = before[key] ?: JsonPrimitive("")
                 val nextValue = after[key] ?: JsonPrimitive("")
                 if (old != nextValue) put(key, nextValue)
@@ -351,4 +421,4 @@ private fun isIpv6(text: String): Boolean {
 }
 
 private fun policySource(value: String?, allowed: Set<String>, fallback: String): String =
-    value?.takeIf { it in allowed } ?: fallback
+    if (value == null) fallback else value.takeIf { it in allowed } ?: "unknown"

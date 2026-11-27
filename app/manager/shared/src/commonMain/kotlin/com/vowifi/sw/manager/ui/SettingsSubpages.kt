@@ -32,7 +32,9 @@ internal data class SettingsConfigurationActions(
     val onProvision: (SimHandle) -> Unit,
     val onRefresh: suspend () -> RefreshResult,
     val onOpenSim: (com.vowifi.sw.manager.ui.navigation.ConfigurationSimHandle) -> Unit = {},
+    val onOpenSection: ((com.vowifi.sw.manager.ui.navigation.ConfigurationSimHandle, com.vowifi.sw.manager.ui.navigation.ConfigurationSection) -> Unit)? = null,
     val onRebuild: ((SimHandle) -> Boolean)? = null,
+    val readEntitlement: com.vowifi.sw.manager.model.EntitlementCacheReader? = null,
 )
 
 internal data class SettingsLogsActions(
@@ -68,7 +70,7 @@ internal fun SettingsConfigurationScreen(
     val empty = rememberManagerEmptyFade(!loading.hidden && !loading.showLoading && presentation.panelKind == ConfigurationPanelKind.EMPTY)
     AppPageScaffold(title = "SIM 与网络配置", showTopBar = false, contentHorizontalInset = CONFIGURATION_PAGE_INSET,
         refreshController = refresh,
-        refreshRotation = rotation, contentAlpha = loading.alpha, emptyAlpha = empty) {
+        contentAlpha = loading.alpha, emptyAlpha = empty) {
         managerRefreshResultItem(refresh, "configuration-refresh-result")
         configurationItems(
             state = state,
@@ -108,7 +110,7 @@ internal fun SettingsDiagnosticsScreen(
         state is EnvironmentDiagnosticsUiState.Ready)
     val inlineRefresh = LocalSubpageTopBarAction.current == null
     AppPageScaffold(title = "诊断", showTopBar = false, refreshController = refresh,
-        refreshRotation = rotation, contentAlpha = loading.alpha) {
+        contentAlpha = loading.alpha) {
         managerRefreshResultItem(refresh, "diagnostics-refresh-result")
         if (!loading.hidden) diagnosticItems(if (loading.showLoading) EnvironmentDiagnosticsUiState.Loading else state,
             onRetry = if (refresh.enabled) ({ refresh.request() }) else null,
@@ -161,10 +163,19 @@ internal fun SettingsLogsScreen(
         is OperationalLogUiState.Warning -> state.filter
         else -> null
     }
+    val readFailed = when (state) {
+        is OperationalLogUiState.Ready -> state.loadInfo.issue != null
+        is OperationalLogUiState.Warning -> state.loadInfo.issue != null
+        is OperationalLogUiState.Failure, is OperationalLogUiState.PermissionDenied, is OperationalLogUiState.Unavailable -> true
+        else -> false
+    }
     key(selectionScope) {
         AppPageScaffold(title = "运行日志", showTopBar = false, scrollResetCondition = filter to showTechnical, refreshController = refresh,
-            refreshRotation = rotation, refreshIndicator = indicator, contentAlpha = loading.alpha, emptyAlpha = empty) {
-            managerRefreshResultItem(refresh, "logs-refresh-result")
+            refreshIndicator = indicator, contentAlpha = loading.alpha, emptyAlpha = empty) {
+            // The source owns read failures; do not repeat the same failure in generic refresh chrome.
+            if (!readFailed) {
+                managerRefreshResultItem(refresh, "logs-refresh-result")
+            }
             if (exportFailed) item(key = "logs-export-failure") {
                 top.yukonga.miuix.kmp.basic.BasicComponent(title = "无法写入导出文件", summary = "请重新选择目标后导出。")
             }

@@ -93,12 +93,12 @@ class ConfigurationDesignCaptureTest {
                 SettingsConfigurationSimScreen(route.sim, state, null, actions, dirty)
             }
         }
-        capture("field-dialog", steps = { scene, settle -> click(scene, settle, "ePDG 地址"); settle() }) {
+        capture("field-dialog", steps = { scene, settle -> click(scene, settle, "连接与接入"); settle(); click(scene, settle, "ePDG 地址"); settle() }) {
             AppSubpageScene(route, spec, onBack = {}) {
                 SettingsConfigurationSimScreen(route.sim, state, null, actions, ConfigurationDraftStore())
             }
         }
-        capture("security-menu", steps = { scene, settle -> click(scene, settle, "SIP 安全策略"); settle() }) {
+        capture("security-menu", steps = { scene, settle -> click(scene, settle, "协议与安全"); settle(); click(scene, settle, "SIP 安全策略"); settle() }) {
             AppSubpageScene(route, spec, onBack = {}) {
                 SettingsConfigurationSimScreen(route.sim, state, null, actions, ConfigurationDraftStore())
             }

@@ -2,17 +2,18 @@ package com.vowifi.sw.manager.data
 
 import com.vowifi.sw.manager.model.SimHandle
 import com.vowifi.sw.manager.model.SimActiveJoinInput
+import com.vowifi.sw.manager.model.SimAttachment
 
 internal class OpaqueIccidHandleStore {
     private val handlesByKey = LinkedHashMap<String, SimHandle>()
     private val keysByHandle = LinkedHashMap<SimHandle, String>()
     private var nextOrdinal = 1
-    private var attachments: Map<String, Pair<Int, Int?>>? = null
+    private var attachments: Map<String, SimAttachment>? = null
 
     /** Retire process-local action handles, never persistent history owners. */
     @Synchronized
     fun reconcileActive(rows: List<SimActiveJoinInput>) {
-        val next = rows.associate { it.key to (it.slotIndex to it.subscriptionId) }
+        val next = rows.associate { it.key to it.attachment }
         attachments?.forEach { (key, previous) ->
             if (next[key] != previous) handlesByKey.remove(key)?.let(keysByHandle::remove)
         }
@@ -31,6 +32,9 @@ internal class OpaqueIccidHandleStore {
 
     @Synchronized
     fun keyFor(handle: SimHandle): String? = keysByHandle[handle]?.takeIf { key -> attachments?.containsKey(key) != false }
+
+    @Synchronized
+    fun attachmentFor(handle: SimHandle): SimAttachment? = keysByHandle[handle]?.let { attachments?.get(it) }
 
     @Synchronized
     fun clear() {

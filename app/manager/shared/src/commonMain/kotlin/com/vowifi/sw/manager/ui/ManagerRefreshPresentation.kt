@@ -6,15 +6,20 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.State
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.MotionDurationScale
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.layout.padding
 import androidx.compose.ui.Modifier
 import com.vowifi.sw.manager.data.RefreshResult
+import top.yukonga.miuix.kmp.basic.PullToRefreshState
+import top.yukonga.miuix.kmp.basic.RefreshState
 import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.Refresh
 import kotlin.math.floor
@@ -103,6 +108,26 @@ internal fun LazyListScope.managerRefreshResultItem(controller: ManagerRefreshCo
             onRetry = { controller.request() },
         )
     }
+}
+
+/** Only adapt result text; miuix owns the entire indicator, layout and animation. */
+@Composable
+internal fun rememberManagerPullRefreshTexts(
+    state: PullToRefreshState,
+    controller: ManagerRefreshController,
+    isRefreshing: Boolean,
+): List<String> {
+    val sequence = controller.sequence
+    var sequenceFloor by remember(state, controller) { mutableLongStateOf(sequence) }
+    // An unaccepted new pull cannot replay the previous request's completion.
+    val floor = when {
+        isRefreshing -> (sequence - 1L).coerceAtLeast(0L)
+        state.refreshState == RefreshState.Idle || state.refreshState == RefreshState.Pulling ||
+            state.refreshState == RefreshState.ThresholdReached -> sequence
+        else -> sequenceFloor
+    }
+    SideEffect { sequenceFloor = floor }
+    return managerRefreshTexts(if (sequence > floor) controller.result else null)
 }
 
 internal fun managerRefreshTexts(result: RefreshResult?): List<String> = listOf(

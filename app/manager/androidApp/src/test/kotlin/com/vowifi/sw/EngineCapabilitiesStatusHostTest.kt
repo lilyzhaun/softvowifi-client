@@ -25,6 +25,7 @@ class EngineCapabilitiesStatusHostTest {
             // Then
             assertEquals("REGISTERED", instance.runtime?.ims)
             val capabilities = (instance.clientCapabilities as ClientCapabilitiesResult.Ready).capabilities
+            assertTrue("status.tunnel-sa-proof.v1" in capabilities.capabilities)
             assertEquals("", capabilities.configMetadata.last().value)
             assertEquals(MetadataSource.Identity, capabilities.configMetadata.last().source)
             assertEquals(listOf("hello", "getStatus", "getClientCapabilities"), backend.methods.toList())

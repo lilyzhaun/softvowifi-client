@@ -15,6 +15,7 @@ private val noProvisioning: StateFlow<ConfigurationProvisionState> = MutableStat
 
 interface ConfigurationSource {
     val state: StateFlow<ConfigurationUiState>
+    val entitlementCacheReader: com.vowifi.sw.manager.model.EntitlementCacheReader? get() = null
     val provisioning: StateFlow<ConfigurationProvisionState> get() = noProvisioning
     fun refresh()
     suspend fun refreshAndAwait(): RefreshResult = RefreshResult.Unsupported

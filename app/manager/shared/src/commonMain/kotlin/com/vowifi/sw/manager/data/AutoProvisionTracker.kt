@@ -43,6 +43,10 @@ internal class AutoProvisionTracker {
         return selected
     }
 
+    fun releaseUnstarted(keys: List<String>) {
+        attemptedKeys.removeAll(keys)
+    }
+
     override fun toString(): String = "AutoProvisionTracker"
 }
 

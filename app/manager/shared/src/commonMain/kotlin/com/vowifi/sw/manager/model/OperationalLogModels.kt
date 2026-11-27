@@ -128,4 +128,8 @@ data class OperationalLogLoadInfo(
     val cached: Boolean = false,
     val legacy: Boolean = false,
     val issue: String? = null,
+    /** Capture health is independent of whether this read completed. */
+    val notice: String? = null,
+    /** This request produced the displayed records, even when a source was incomplete. */
+    val fresh: Boolean = false,
 )

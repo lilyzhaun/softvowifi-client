@@ -267,6 +267,7 @@ internal val AppRoute.topBarTitle: String
         AppRoute.SettingsAppearance -> "外观"
         AppRoute.SettingsConfiguration -> "SIM 与网络配置"
         is AppRoute.SettingsConfigurationSim -> "SIM 配置"
+        is AppRoute.SettingsConfigurationSimSection -> sectionTitle(section)
         AppRoute.SettingsDiagnostics -> "诊断"
         AppRoute.SettingsLogs -> "运行日志"
         AppRoute.SettingsCallNotifications -> "通知设置"

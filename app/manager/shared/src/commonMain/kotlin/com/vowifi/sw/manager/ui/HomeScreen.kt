@@ -54,7 +54,6 @@ fun HomeScreen(
         title = appRootTitle(AppRoute.Home),
         contentTopInset = homeContentTopInset(),
         refreshController = refresh,
-        refreshRotation = rotation,
         contentAlpha = loading.alpha,
         emptyAlpha = emptyFade,
         actions = {

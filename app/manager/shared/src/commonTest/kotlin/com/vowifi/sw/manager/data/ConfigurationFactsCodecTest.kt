@@ -39,9 +39,12 @@ class ConfigurationFactsCodecTest {
         })!!
         assertNull(runtime.registrationSeconds)
         assertTrue(configurationApplicationSummary(instance.copy(runtimeFacts = runtime)).contains("已加载"))
-        assertTrue(configurationApplicationSummary(instance.copy(runtimeFacts = runtime.copy(
-            loaded = runtime.loaded.copy(configRevision = "r1_ponmlkjihgfedcbaponmlkjihgfedcba"),
-        ))).contains("尚未用于"))
+        val other = local.copy(configRevision = "r1_ponmlkjihgfedcbaponmlkjihgfedcba")
+        val differs = "读到的保存版与运行版不同；请刷新核对。"
+        assertEquals(differs, configurationApplicationSummary(instance.copy(runtimeFacts = runtime.copy(loaded = other))))
+        assertEquals(differs, configurationApplicationSummary(instance.copy(
+            facts = other, configRevision = other.configRevision, runtimeFacts = runtime,
+        )))
         assertTrue(configurationApplicationSummary(instance.copy(runtimeFacts = runtime.copy(
             loaded = runtime.loaded.copy(resolutionRevision = "rf1_" + "b".repeat(64)),
         ))).contains("目录已变化"))
@@ -64,6 +67,34 @@ class ConfigurationFactsCodecTest {
             assertFailsWith<ConfigurationFormatException> {
                 ConfigurationFactsCodec.runtime(buildJsonObject {
                     put("configuration", buildJsonObject { put("schema", 1); put("loaded", facts(revision)); put("negotiated", Json.parseToJsonElement(raw)) })
+                })
+            }
+        }
+    }
+
+    @Test fun negotiatedRegistrationSecondsAcceptsFullRfc3261Uint32RangeAndRejectsOutOfRange() {
+        val revision = "r1_abcdefghijklmnopabcdefghijklmnop"
+        for (value in listOf(2_147_483_648L, 4_294_967_295L)) {
+            val decoded = ConfigurationFactsCodec.runtime(buildJsonObject {
+                put("configuration", buildJsonObject {
+                    put("schema", 1); put("loaded", facts(revision))
+                    put("negotiated", buildJsonObject { put("registrationSeconds", value) })
+                })
+            })!!
+            assertEquals(value, decoded.registrationSeconds)
+        }
+        for (raw in listOf(
+            """{"registrationSeconds":-1}""",
+            """{"registrationSeconds":0}""",
+            """{"registrationSeconds":4294967296}""",
+            """{"registrationSeconds":"600"}""",
+            """{"registrationSeconds":600.5}""",
+        )) {
+            assertFailsWith<ConfigurationFormatException> {
+                ConfigurationFactsCodec.runtime(buildJsonObject {
+                    put("configuration", buildJsonObject {
+                        put("schema", 1); put("loaded", facts(revision)); put("negotiated", Json.parseToJsonElement(raw))
+                    })
                 })
             }
         }

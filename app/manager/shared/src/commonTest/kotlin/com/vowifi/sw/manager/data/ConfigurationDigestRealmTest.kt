@@ -140,7 +140,7 @@ class ConfigurationDigestRealmTest {
         assertEquals("identity", instance(source = "carrier").imsPolicy.digestRealmSource)
         assertEquals("", instance(source = "user").imsPolicy.digestRealmOverride)
         for (source in listOf(null, "unknown", "Carrier", "user ")) {
-            assertEquals("identity", instance("public.test", source).imsPolicy.digestRealmSource)
+            assertEquals(if (source == null) "identity" else "unknown", instance("public.test", source).imsPolicy.digestRealmSource)
             assertEquals("", instance("public.test", source).imsPolicy.digestRealmOverride)
         }
         val values = ConfigurationEditorDraft(instance()).overrides().copy(imsDigestRealm = null)

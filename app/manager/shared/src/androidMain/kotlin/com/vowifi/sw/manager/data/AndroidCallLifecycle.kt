@@ -44,10 +44,7 @@ class AndroidCallLifecycle(
         scope.launch { source.state.collect { state ->
             val ready = state as? CallUiState.Ready
             if (ready?.binding?.owner != lineOwner) { lineOwner = ready?.binding?.owner; refreshLine() }
-            val owned = boundChild?.state?.value as? CallUiState.Ready
-            if (pending == null && leaseKey != null && (owned == null || owned.phase == CallPhase.Idle ||
-                    owned.sync != CallSyncState.Ready || owned.binding?.generation != boundGeneration ||
-                    boundChild?.closed == true || boundChild?.activeTransport !== boundTransport || owned.audio is CallAudioState.Failed)) release()
+            if (shouldReleaseLease()) release()
             updateProximity()
         } }
         scope.launch { audioControls.collect { updateProximity() } }
@@ -123,13 +120,12 @@ class AndroidCallLifecycle(
                     boundGeneration = child.bindingGeneration
                     boundAudioGeneration = generation
                 }
-                started.complete(allowed)
                 allowed
             }
             when (action) {
-                MicrophoneCallAction.Dial -> child.dialPrepared(binding, number!!, grant)
-                MicrophoneCallAction.Answer -> child.answerPrepared(binding, grant)
-                MicrophoneCallAction.Restore -> child.resumePreparedAudio(binding, grant)
+                MicrophoneCallAction.Dial -> child.dialPrepared(binding, number!!, grant, started)
+                MicrophoneCallAction.Answer -> child.answerPrepared(binding, grant, started)
+                MicrophoneCallAction.Restore -> child.resumePreparedAudio(binding, grant, started)
             }
             if (withTimeoutOrNull(3_000) { started.await() } != true) {
                 feedback.value = "通话状态已变化，请重试"; release(); return false
@@ -146,9 +142,18 @@ class AndroidCallLifecycle(
             pending = null
             busy.value = false
             aggregate?.finishPreparation(binding)
-            val current = child.state.value as? CallUiState.Ready
-            if (current?.phase == CallPhase.Idle && current.binding?.generation != binding.generation) release()
+            if (shouldReleaseLease()) release()
+            updateProximity()
         }
+    }
+
+    private fun shouldReleaseLease(): Boolean {
+        if (pending != null || leaseKey == null) return false
+        val owned = boundChild?.state?.value as? CallUiState.Ready
+        return owned == null || owned.phase == CallPhase.Idle ||
+            owned.sync != CallSyncState.Ready || owned.binding?.generation != boundGeneration ||
+            boundChild?.closed == true || boundChild?.activeTransport !== boundTransport ||
+            owned.audio is CallAudioState.Failed
     }
 
     fun acceptsService(key: String?): Boolean = key != null && key == leaseKey && pending?.isCompleted == false

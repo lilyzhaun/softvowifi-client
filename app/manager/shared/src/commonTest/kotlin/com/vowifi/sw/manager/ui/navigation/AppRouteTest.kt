@@ -33,6 +33,8 @@ class AppRouteTest {
             AppRoute.Dialpad,
             AppRoute.SettingsAppearance,
             AppRoute.SettingsConfiguration,
+            AppRoute.SettingsConfigurationSim(requireNotNull(ConfigurationSimHandle.parse("sim-1"))),
+            AppRoute.SettingsConfigurationSimSection(requireNotNull(ConfigurationSimHandle.parse("sim-1")), ConfigurationSection.CONNECTION),
             AppRoute.SettingsDiagnostics,
             AppRoute.SettingsLogs,
             AppRoute.SettingsCallNotifications,
@@ -76,5 +78,19 @@ class AppRouteTest {
         assertEquals("引擎信息", AppRoute.SettingsEngineInformation.topBarTitle)
         assertEquals(engine, restored.state)
         assertEquals(about, AppNavigator.back(restored.state))
+    }
+
+    @Test fun simSectionRestoresAndReturnsToItsSimOverviewParent() {
+        val simHandle = requireNotNull(ConfigurationSimHandle.parse("sim-2"))
+        val config = AppNavigator.push(AppNavigationState.initial(AppRoute.Settings), AppRoute.SettingsConfiguration)
+        val sim = AppNavigator.open(config, AppRoute.SettingsConfigurationSim(simHandle))
+        val section = AppNavigator.open(sim, AppRoute.SettingsConfigurationSimSection(simHandle, ConfigurationSection.PROTOCOL))
+        val restored = assertIs<NavigationRestoreResult.Success>(
+            AppNavigationState.restore(section.save(), AppNavigationState.initial()),
+        )
+        assertEquals("协议与安全", AppRoute.SettingsConfigurationSimSection(simHandle, ConfigurationSection.PROTOCOL).topBarTitle)
+        assertEquals(section, restored.state)
+        assertEquals(sim, AppNavigator.back(restored.state))
+        assertEquals(config, AppNavigator.back(AppNavigator.back(restored.state)))
     }
 }

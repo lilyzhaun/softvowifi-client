@@ -8,6 +8,7 @@ import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.semantics.getOrNull
 import com.vowifi.sw.manager.desktop.FixtureConfigurationSource
 import com.vowifi.sw.manager.model.*
+import com.vowifi.sw.manager.ui.navigation.ConfigurationSection
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -23,11 +24,14 @@ class ConfigurationNetworkMenuRenderTest {
         val outlets = ConfigurationNetworkOutlets(supported = true,
             automaticDns = mapOf("wifi" to "192.0.2.53:53", "sim1" to "[2001:db8::53]:53"))
         var submissions = 0
+        val currentSection = mutableStateOf<ConfigurationSection?>(null)
         val scene = ImageComposeScene(width = 375, height = 2200) {
             SoftVoWiFiTheme(false) { Scaffold {
                 ConfigurationSimEditor(ConfigurationEditorModel(instance,
                     ConfigurationUiState.Ready(listOf(instance), networkOutlets = outlets), true, null), draft,
-                    onSubmit = { _, _, _ -> submissions++; ConfigurationApplyAcceptance.Unavailable })
+                    onSubmit = { _, _, _ -> submissions++; ConfigurationApplyAcceptance.Unavailable },
+                    section = currentSection.value,
+                    onOpenSection = { currentSection.value = it })
             } }
         }
         var frame = 0L
@@ -39,6 +43,7 @@ class ConfigurationNetworkMenuRenderTest {
         }
         try {
             render()
+            click(scene, "连接与接入"); render()
             assertTrue(hasText("自动：192.0.2.53:53（所选网络）"))
             assertTrue(hasText("自动：+19995550123（SIM 卡）"))
             click(scene, "DNS"); render()
@@ -46,8 +51,10 @@ class ConfigurationNetworkMenuRenderTest {
             assertEmptyEditor()
             click(scene, "取消"); render()
             assertFalse(draft.dirty)
+            currentSection.value = null; render()
             click(scene, "底层网络"); render()
             click(scene, "SIM 1 数据"); render()
+            click(scene, "连接与接入"); render()
             assertTrue(hasText("自动：[2001:db8::53]:53（所选网络）"))
             click(scene, "短信中心"); render()
             assertTrue(hasText("以 + 开头的短信中心号码。留空则使用自动值：+19995550123（SIM 卡）。"))

@@ -4,7 +4,8 @@ import com.vowifi.sw.manager.model.*
 import kotlinx.serialization.json.*
 
 object EngineClientCapabilitiesCodec {
-    private val approved = setOf("config.metadata.v1", "rpc.getConfig", "rpc.getStatus", "rpc.ping", "rpc.stop")
+    private val approved = setOf("config.metadata.v1", "rpc.getConfig", "rpc.getStatus", "rpc.ping", "rpc.stop",
+        "rpc.setConfig", "config.call-signaling.next-call.v1", "config.call-media.next-call.v1", "config.call-media.packetization.v1", "config.call-media.inactivity.v1", "config.call-media.pcmu.v1", "config.call-media.sdes.v1")
     private val requiredMetadata = setOf("config.metadata.v1")
     private val capabilityId = Regex("[A-Za-z0-9][A-Za-z0-9._-]{0,63}")
     private val instanceKey = Regex("[0-9a-f]{32}")

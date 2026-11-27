@@ -7,8 +7,11 @@ internal class AndroidConfigurationProvisioner(
     private val commands: AndroidConfigurationCommands,
     private val diagnostic: (DiagnosticEvent) -> Unit = { AndroidDiagnosticLog.emit(it) },
 ) {
-    suspend fun refreshIdentity(iccid: String): ConfigurationUiState? {
-        val prepared = when (val candidate = prepare(identityReader.read(iccid))) {
+    // Only returns failure feedback; the caller checks its generation before using the result.
+    suspend fun refreshIdentity(iccid: String, canSubmit: () -> Boolean): ConfigurationUiState? {
+        val candidate = prepare(identityReader.read(iccid))
+        if (!canSubmit()) return null
+        val prepared = when (candidate) {
             is PreparedCandidate.Ready -> candidate
             is PreparedCandidate.Failed -> return candidate.state
         }
@@ -19,11 +22,13 @@ internal class AndroidConfigurationProvisioner(
         }
     }
 
-    suspend fun attempt(iccid: String): ProvisionAttempt {
+    suspend fun attempt(iccid: String, canSubmit: () -> Boolean = { true }): ProvisionAttempt {
         if (!ConfigurationControlCommand.digitsOnly(iccid)) {
             return ProvisionAttempt.Failed(ConfigurationEvaluator.failure(CREATE_FAILED))
         }
-        val prepared = when (val candidate = prepare(identityReader.read(iccid))) {
+        val candidate = prepare(identityReader.read(iccid))
+        if (!canSubmit()) return ProvisionAttempt.NotStarted
+        val prepared = when (candidate) {
             is PreparedCandidate.Ready -> candidate
             is PreparedCandidate.Failed -> return ProvisionAttempt.Failed(candidate.state)
         }
@@ -44,9 +49,11 @@ internal class AndroidConfigurationProvisioner(
         }
     }
 
-    suspend fun rebuild(iccid: String): ProvisionAttempt {
+    suspend fun rebuild(iccid: String, canSubmit: () -> Boolean): ProvisionAttempt {
         if (!ConfigurationControlCommand.digitsOnly(iccid)) return ProvisionAttempt.Failed(ConfigurationEvaluator.failure("无法重建配置"))
-        val prepared = when (val candidate = prepare(identityReader.read(iccid))) {
+        val candidate = prepare(identityReader.read(iccid))
+        if (!canSubmit()) return ProvisionAttempt.NotStarted
+        val prepared = when (candidate) {
             is PreparedCandidate.Ready -> candidate
             is PreparedCandidate.Failed -> return ProvisionAttempt.Failed(candidate.state)
         }
@@ -65,15 +72,16 @@ internal class AndroidConfigurationProvisioner(
         var created = false
         var existed = false
         var failure: ConfigurationUiState? = null
-        for (key in keys) {
-            if (aborted()) break
-            when (val attempt = attempt(key)) {
+        for ((index, key) in keys.withIndex()) {
+            val attempt = if (aborted()) ProvisionAttempt.NotStarted else attempt(key) { !aborted() }
+            when (attempt) {
+                ProvisionAttempt.NotStarted -> return AutoProvisionBatch(created, existed, failure, keys.drop(index))
                 ProvisionAttempt.Created -> created = true
                 ProvisionAttempt.AlreadyExists -> existed = true
                 is ProvisionAttempt.Failed -> if (failure == null) failure = attempt.state
             }
         }
-        return AutoProvisionBatch(created = created, existed = existed, failure = failure)
+        return AutoProvisionBatch(created, existed, failure, emptyList())
     }
 
     private fun prepare(read: SubscriptionIdentityRead): PreparedCandidate = prepareCandidate(read).also { prepared ->
@@ -87,6 +95,7 @@ internal class AndroidConfigurationProvisioner(
 }
 
 internal sealed interface ProvisionAttempt {
+    data object NotStarted : ProvisionAttempt
     data object Created : ProvisionAttempt
     data object AlreadyExists : ProvisionAttempt
     class Failed(val state: ConfigurationUiState, val unconfirmed: Boolean = false) : ProvisionAttempt {
@@ -98,6 +107,7 @@ internal class AutoProvisionBatch(
     val created: Boolean,
     val existed: Boolean,
     val failure: ConfigurationUiState?,
+    val unstarted: List<String>,
 ) {
     override fun toString(): String = "AutoProvisionBatch"
 }

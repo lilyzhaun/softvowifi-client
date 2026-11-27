@@ -39,6 +39,18 @@ data class ConfigurationOverrides(
     // Per-transport DNS overrides; [dns] replaces the entry for [transport] when encoded.
     val dnsOverrides: Map<String, String> = emptyMap(),
     val expectedRevision: String? = null,
+    // null means preserve an unknown/unread group, not clear its persisted choices.
+    val callSignaling: ConfigurationCallSignaling? = null,
+    val callMedia: ConfigurationCallMedia? = null,
+    val tunnelSecurity: ConfigurationTunnelSecurity? = null,
+    val tunnelTiming: ConfigurationTunnelTiming? = null,
+    val imsProtection: ConfigurationImsProtection? = null,
+    // null preserves unknown input; an empty string explicitly clears this override.
+    val epdgAddressFamily: String? = null,
+    val epdgSelection: ConfigurationEpdgSelection? = null,
+    val tunnelIdentity: ConfigurationTunnelIdentity? = null,
+    val imsTiming: ConfigurationImsTiming? = null,
+    val swuAccess: ConfigurationSwuAccess? = null,
 ) {
     override fun toString(): String = "ConfigurationOverrides"
 }
@@ -79,6 +91,16 @@ data class ConfigurationSnapshot(
     val configRevision: String? = null,
     val facts: ConfigurationFacts? = null,
     val simAttributeReadStatus: SIMAttributeReadStatus? = null,
+    val callSignaling: ConfigurationCallSignaling? = null,
+    val callMedia: ConfigurationCallMedia? = null,
+    val tunnelSecurity: ConfigurationTunnelSecurity? = null,
+    val tunnelTiming: ConfigurationTunnelTiming? = null,
+    val imsProtection: ConfigurationImsProtection? = null,
+    val epdgAddressFamily: String? = null,
+    val epdgSelection: ConfigurationEpdgSelection? = null,
+    val tunnelIdentity: ConfigurationTunnelIdentity? = null,
+    val imsTiming: ConfigurationImsTiming? = null,
+    val swuAccess: ConfigurationSwuAccess? = null,
 ) {
     override fun toString(): String = "ConfigurationSnapshot"
 }
@@ -122,6 +144,16 @@ data class ConfigurationInstance(
     val facts: ConfigurationFacts? = null,
     val runtimeFacts: ConfigurationRuntimeFacts? = null,
     val simAttributeReadStatus: SIMAttributeReadStatus? = null,
+    val callSignaling: ConfigurationCallSignaling? = null,
+    val callMedia: ConfigurationCallMedia? = null,
+    val tunnelSecurity: ConfigurationTunnelSecurity? = null,
+    val tunnelTiming: ConfigurationTunnelTiming? = null,
+    val imsProtection: ConfigurationImsProtection? = null,
+    val epdgAddressFamily: String? = null,
+    val epdgSelection: ConfigurationEpdgSelection? = null,
+    val tunnelIdentity: ConfigurationTunnelIdentity? = null,
+    val imsTiming: ConfigurationImsTiming? = null,
+    val swuAccess: ConfigurationSwuAccess? = null,
 ) {
     override fun toString(): String = "ConfigurationInstance"
 }
@@ -169,4 +201,23 @@ sealed class ConfigurationFormatException(
     class InvalidPaniCountry : ConfigurationFormatException("国家参数须为两个 ASCII 字母")
     class InvalidDigestRealm : ConfigurationFormatException("Digest 认证域格式无效")
     class InvalidDns : ConfigurationFormatException("DNS 须为 IP 或 IP:端口")
+    class InvalidCallSignaling : ConfigurationFormatException("通话信令覆盖无效或相互冲突")
+    class UnknownCallSignaling : ConfigurationFormatException("通话信令覆盖尚未完整确认，请刷新核对或明确清除整组")
+    class UnknownCallMedia : ConfigurationFormatException("通话媒体覆盖尚未完整确认，请刷新核对或明确清除整组")
+    class InvalidTunnelSecurity : ConfigurationFormatException("隧道报价不完整、重复或组合冲突")
+    class UnknownTunnelSecurity : ConfigurationFormatException("隧道安全报价尚未完整确认，请刷新核对或明确清除整组")
+    class InvalidTunnelTiming : ConfigurationFormatException("隧道期限未完整填写、超出范围或相互冲突")
+    class UnknownTunnelTiming : ConfigurationFormatException("隧道期限尚未完整确认，请刷新核对或明确清除整组")
+    class InvalidTunnelIdentity : ConfigurationFormatException("身份类型或对端约束无效；请核对格式，KEY_ID 使用标准 Base64")
+    class UnknownTunnelIdentity : ConfigurationFormatException("身份策略尚未完整确认，请刷新核对或明确清除整组")
+    class InvalidImsProtection : ConfigurationFormatException("IMS 保护组合不完整、重复或与 SIP 安全策略冲突")
+    class UnknownImsProtection : ConfigurationFormatException("IMS 保护组合尚未完整确认，请刷新核对或明确清除整组")
+    class InvalidImsTiming : ConfigurationFormatException("IMS 计时未完整填写、超出范围或相互冲突")
+    class UnknownImsTiming : ConfigurationFormatException("IMS 计时尚未完整确认，请刷新核对或明确清除整组")
+    class InvalidSwuAccess : ConfigurationFormatException("SWu 接入参数无效；仅支持 IMS 用途、ASCII APN 标签、1280–1500 的内层接口 MTU 及完整的本地/漫游 IPv4、IPv6 或双栈策略")
+    class UnknownSwuAccess : ConfigurationFormatException("SWu 接入参数尚未完整确认，请刷新核对或明确清除整组")
+    class InvalidAddressFamily : ConfigurationFormatException("ePDG 地址族策略无效，请重新选择支持的选项")
+    class UnknownAddressFamily : ConfigurationFormatException("ePDG 地址族尚未确认，请刷新核对或明确清除覆盖")
+    class InvalidEpdgSelection : ConfigurationFormatException("ePDG 候选不完整、重复或与单地址覆盖冲突")
+    class UnknownEpdgSelection : ConfigurationFormatException("ePDG 候选策略尚未确认，请刷新核对或明确清除整组")
 }

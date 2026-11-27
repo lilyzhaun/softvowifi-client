@@ -14,4 +14,5 @@ interface IRootBackend {
     void observeNativeRegistration(INativeRegistrationEvents events);
     String prepareRuntime();
     void attachEngineStream(String iccid, boolean audio, in ParcelFileDescriptor descriptor);
+    String registeredAccess();
 }

@@ -10,6 +10,13 @@ import com.vowifi.sw.manager.data.AsyncDiagnosticWriter
 import com.vowifi.sw.manager.data.AndroidSuResult
 import com.vowifi.sw.manager.data.LocalDiagnosticLogReader
 import com.vowifi.sw.manager.data.LogCommand
+import com.vowifi.sw.manager.data.DiagnosticEvent
+import com.vowifi.sw.manager.data.DiagnosticComponent
+import com.vowifi.sw.manager.data.DiagnosticLevel
+import com.vowifi.sw.manager.data.DiagnosticName
+import com.vowifi.sw.manager.data.DiagnosticStage
+import com.vowifi.sw.manager.data.DiagnosticResult
+import com.vowifi.sw.manager.data.RefreshResult
 import com.vowifi.sw.manager.model.OperationalLogUiState
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -70,7 +77,9 @@ class GlobalDiagnosticLogSourceHostTest {
             assertEquals(LocalDiagnosticLogReader.ID, state.selectedFileId)
             assertEquals(listOf("app.jsonl"), state.files.map { it.name })
             assertTrue(state.entries.any { it.safeDetail.contains("process_started") })
-            assertTrue(state.loadInfo.issue.orEmpty().contains("Root 后端日志读取失败"))
+            assertNull(state.loadInfo.issue)
+            assertTrue(state.loadInfo.notice.orEmpty().contains("Root 后端日志读取失败"))
+            assertEquals(RefreshResult.Completed, withTimeout(5000) { source.refreshAndAwait() })
         } finally { source.close() }
     }
 
@@ -88,6 +97,35 @@ class GlobalDiagnosticLogSourceHostTest {
             assertTrue(state.files.any { it.id == LocalDiagnosticLogReader.ID })
             assertEquals(LocalDiagnosticLogReader.ID, state.selectedFileId)
             assertTrue(state.entries.any { it.safeDetail.contains("process_started") })
+        } finally { source.close() }
+    }
+
+    @Test fun historicalRateLimitDropsDoNotFailRepeatedReadsOfFreshAppRecords() = runBlocking {
+        val app = RuntimeEnvironment.getApplication()
+        shadowOf(app.getSystemService(UserManager::class.java)).setUserUnlocked(true)
+        val reader = LocalDiagnosticLogReader(app)
+        repeat(64) { count ->
+            AndroidDiagnosticLog.emit(DiagnosticEvent(DiagnosticComponent.APP, DiagnosticLevel.INFO,
+                DiagnosticName.OBSERVED, DiagnosticStage.SNAPSHOT, DiagnosticResult.OBSERVED, count = count))
+        }
+        val writer = writerField.get(null) as AsyncDiagnosticWriter
+        writer.close()
+        withTimeout(5000) { writer.awaitClosed() }
+        assertTrue("fixture must actually hit the admission limit", writer.status().memory.dropped > 0)
+        assertNull("capture loss is not a read failure", reader.read().issue)
+        val source = AndroidOperationalLogSource(
+            LogCommand { AndroidSuResult(false, 0, """{"ok":true,"rotatedCount":0,"files":[]}""", false) },
+            CoroutineScope(SupervisorJob() + Dispatchers.Default), local = reader,
+        )
+        try {
+            repeat(2) {
+                assertEquals(RefreshResult.Completed, withTimeout(5000) { source.refreshAndAwait() })
+                val state = source.state.value as OperationalLogUiState.Ready
+                assertTrue(state.entries.isNotEmpty())
+                assertNull(state.loadInfo.issue)
+                assertTrue(state.loadInfo.fresh)
+                assertTrue("capture loss must remain disclosed", state.loadInfo.notice.orEmpty().contains("内存/频率限制"))
+            }
         } finally { source.close() }
     }
 }

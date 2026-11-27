@@ -14,9 +14,14 @@ internal class RootDiagnosticLogReader(context: Context, private val stream: And
         } } catch (interrupted: InterruptedException) {throw interrupted}
         catch (_: java.io.IOException) {RootDiagnosticReceipt(false,total.toLong(),0,1)}
         catch (_: IllegalStateException) {RootDiagnosticReceipt(false,total.toLong(),0,1)}
-        val issue=if(!receipt.complete || receipt.unavailable>0 || receipt.invalid>0)
-            "Root读取不完整或后端不支持；已拒绝${receipt.invalid}条无效事件。App全局源仍可独立读取。" else null
-        return OperationalLogGroupRead(OperationalLogTail(ID,total>50,entries.sortedBy { it.wall }.map { local.entry(it,root=true) },emptyList()),issue)
+        val issue = if (!receipt.complete || receipt.unavailable > 0 || receipt.invalid > 0) buildString {
+            append("Root读取不完整：已读取 ${entries.size} 条最近连接记录。")
+            if (receipt.unavailable > 0) append("${receipt.unavailable} 个来源暂不可读。")
+            if (receipt.invalid > 0) append("已跳过 ${receipt.invalid} 条无效记录。")
+            append("应用运行日志可独立查看。")
+        } else null
+        return OperationalLogGroupRead(OperationalLogTail(ID,total>50,entries.sortedBy { it.wall }.map { local.entry(it,root=true) },emptyList()),issue,
+            notice = issue)
     }
     fun combined(): OperationalLogGroupRead {
         val app=local.read()
@@ -30,7 +35,8 @@ internal class RootDiagnosticLogReader(context: Context, private val stream: And
             selected.addFirst(entry);bytes+=size
         }
         return OperationalLogGroupRead(OperationalLogTail(ALL_ID,app.tail.truncated || root.tail.truncated || selected.size<candidates.size,
-            selected.toList(),app.tail.issues+root.tail.issues),listOfNotNull(app.issue,root.issue).takeIf { it.isNotEmpty() }?.joinToString("；"))
+            selected.toList(),app.tail.issues+root.tail.issues),listOfNotNull(app.issue,root.issue).takeIf { it.isNotEmpty() }?.joinToString("；"),
+            notice = listOfNotNull(app.notice, root.notice).takeIf { it.isNotEmpty() }?.joinToString("；"))
     }
     companion object {
         const val ID="root-diagnostics-v1";val FILE=OperationalLogFile(ID,"diagnostic.jsonl","")

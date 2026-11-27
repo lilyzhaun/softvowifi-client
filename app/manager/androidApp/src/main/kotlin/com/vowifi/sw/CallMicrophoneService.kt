@@ -38,17 +38,23 @@ class CallMicrophoneService : Service() {
                 current.calls.state.value as? CallUiState.Ready))
             val owner = ActiveStart(key, startId)
             activeStart = owner
-            if (!current.calls.lifecycle.serviceStarted(key) {
-                    if (activeStart === owner) {
-                        activeStart = null
-                        // DETACH can force a deferred CallStyle to be reposted after its FGS
-                        // owner is gone. Remove that notification; Coordinator owns the plain one.
-                        retire(STOP_FOREGROUND_REMOVE)
-                        stopSelf(owner.lastStartId)
-                        current.notifications.setMicrophoneRunning(false)
-                    }
-                }) { retire(STOP_FOREGROUND_REMOVE); stopSelf(startId) }
-            else current.notifications.setMicrophoneRunning(true)
+            val accepted = current.calls.lifecycle.serviceStarted(key) {
+                if (activeStart === owner) {
+                    activeStart = null
+                    // DETACH can force a deferred CallStyle to be reposted after its FGS
+                    // owner is gone. Remove that notification; Coordinator owns the plain one.
+                    retire(STOP_FOREGROUND_REMOVE)
+                    stopSelf(owner.lastStartId)
+                    current.notifications.setMicrophoneRunning(false)
+                }
+            }
+            if (!accepted) {
+                if (activeStart === owner) activeStart = null
+                retire(STOP_FOREGROUND_REMOVE)
+                stopSelf(startId)
+            } else if (activeStart === owner) {
+                current.notifications.setMicrophoneRunning(true)
+            }
         } catch (_: SecurityException) {
             current.calls.lifecycle.serviceFailed(key); stopSelf(startId)
         } catch (_: IllegalStateException) {

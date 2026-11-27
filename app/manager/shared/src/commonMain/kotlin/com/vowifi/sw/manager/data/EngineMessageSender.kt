@@ -3,8 +3,12 @@ package com.vowifi.sw.manager.data
 import com.vowifi.sw.manager.model.EngineProtocolFrame
 import com.vowifi.sw.manager.model.HistoryChangeReason
 import kotlin.coroutines.cancellation.CancellationException
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 
 internal suspend fun sendMessage(session: EngineMessageSession, line: MessageLiveSession, number: String, text: String) {
     val planned = session.mutex.withLock {
@@ -27,6 +31,7 @@ internal suspend fun sendMessage(session: EngineMessageSession, line: MessageLiv
     } catch (_: TimeoutCancellationException) {
         persistUnknownOutcome(session, planned)
     } catch (error: CancellationException) {
+        withContext(NonCancellable) { persistCancelledOutcome(session, planned) }
         throw error
     } catch (_: Exception) {
         persistUnknownOutcome(session, planned)
@@ -37,8 +42,15 @@ private suspend fun persistQueuedMessage(session: EngineMessageSession, planned:
     val line = planned.line
     try {
         session.repository.insertQueued(planned.owner, planned.messageId, planned.number, planned.text, session.runtime.clock())
-    } catch (error: CancellationException) { throw error
+    } catch (error: CancellationException) {
+        line.submitted = null
+        line.pendingSent = emptyList()
+        line.sendBusy = false
+        session.publishRecords(line)
+        throw error
     } catch (_: Exception) {
+        line.submitted = null
+        line.pendingSent = emptyList()
         line.sendBusy = false
         line.attachmentNotice = STORAGE_NOTICE
         session.publishRecords(line)
@@ -46,8 +58,14 @@ private suspend fun persistQueuedMessage(session: EngineMessageSession, planned:
     }
     try {
         line.records = session.repository.listByOwner(planned.owner)
-    } catch (error: CancellationException) { throw error
+    } catch (error: CancellationException) {
+        line.pendingSent = emptyList()
+        line.sendBusy = false
+        line.storageHealthy = false
+        session.publishRecords(line)
+        throw error
     } catch (_: Exception) {
+        line.pendingSent = emptyList()
         line.sendBusy = false
         line.storageHealthy = false
         line.attachmentNotice = STORAGE_NOTICE
@@ -76,11 +94,26 @@ private suspend fun applySendResponse(session: EngineMessageSession, planned: Pl
 }
 
 private suspend fun persistUnknownOutcome(session: EngineMessageSession, planned: PlannedMessageSend) {
+    withContext(NonCancellable) {
+        session.mutex.withLock {
+            val line = planned.line
+            if (!session.isCurrent(line) || !line.sendBusy || line.submitted !== planned) return@withLock
+            persistSendOutcome(session, line) {
+                session.repository.markUnknown(planned.owner, planned.messageId, session.runtime.clock())
+                line.records = session.repository.listByOwner(planned.owner)
+            }
+        }
+    }
+    currentCoroutineContext().ensureActive()
+}
+
+private suspend fun persistCancelledOutcome(session: EngineMessageSession, planned: PlannedMessageSend) {
     session.mutex.withLock {
-        if (!session.isCurrent(planned.line)) return
-        persistSendOutcome(session, planned.line) {
+        val line = planned.line
+        if (!session.isCurrent(line) || !line.sendBusy || line.submitted !== planned) return
+        persistSendOutcome(session, line) {
             session.repository.markUnknown(planned.owner, planned.messageId, session.runtime.clock())
-            planned.line.records = session.repository.listByOwner(planned.owner)
+            line.records = session.repository.listByOwner(planned.owner)
         }
     }
 }

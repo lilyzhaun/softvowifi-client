@@ -26,11 +26,11 @@ internal class CancelLogShellRun(
                 val worker = thread(start = false, isDaemon = true, name = "log-shell") {
                     try {
                         val result = execute(command, cancelled)
-                        continuation.resume(result)
-                    } catch (error: IOException) {
-                        continuation.resumeWithException(error)
+                        if (continuation.isActive) continuation.resume(result)
                     } catch (_: InterruptedException) {
                         continuation.cancel()
+                    } catch (error: Throwable) {
+                        if (continuation.isActive) continuation.resumeWithException(error)
                     } finally {
                         stopped.complete(Unit)
                     }
@@ -87,8 +87,8 @@ internal class CancelLogShellRun(
         } finally {
             Thread.interrupted()
             try {
-                process.destroyForcibly()
-                process.waitFor(1, TimeUnit.SECONDS)
+                runCatching { process.destroyForcibly() }
+                try { process.waitFor(1, TimeUnit.SECONDS) } catch (_: InterruptedException) { } catch (_: RuntimeException) { }
             } finally {
                 Thread.interrupted()
                 closeStream { process.outputStream.close() }

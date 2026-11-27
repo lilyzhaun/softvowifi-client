@@ -1,6 +1,7 @@
 package com.vowifi.sw.manager.ui
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.key
 import com.vowifi.sw.manager.model.ConfigurationIdentitySource
 import com.vowifi.sw.manager.model.ConfigurationInstance
 import top.yukonga.miuix.kmp.basic.BasicComponent
@@ -46,7 +47,7 @@ internal fun ConfigurationImsAdvancedRows(
 
 /** Short value on the trailing side; the longer meaning of each option lives in the menu item's summary. */
 @Composable
-private fun ConfigurationChoicePreference(
+internal fun ConfigurationChoicePreference(
     title: String,
     choices: List<ConfigurationChoice>,
     selected: String,
@@ -55,16 +56,19 @@ private fun ConfigurationChoicePreference(
     enabled: Boolean,
     onSelect: (String) -> Unit,
 ) {
-    OverlayDropdownPreference(
-        entry = DropdownEntry(choices.map { choice ->
-            DropdownItem(text = choice.label, selected = choice.value == selected, summary = choice.summary,
-                onClick = { onSelect(choice.value) })
-        }),
-        title = title,
-        summary = summary,
-        summaryColor = configurationSummaryColor(modified, error = false),
-        enabled = enabled,
-    )
+    // Retire the menu's private expanded state when the editor stops accepting changes.
+    key(enabled) {
+        OverlayDropdownPreference(
+            entry = DropdownEntry(choices.map { choice ->
+                DropdownItem(text = choice.label, selected = choice.value == selected, summary = choice.summary,
+                    onClick = { onSelect(choice.value) })
+            }),
+            title = title,
+            summary = summary,
+            summaryColor = configurationSummaryColor(modified, error = false),
+            enabled = enabled,
+        )
+    }
 }
 
 internal fun configurationSecurityLabel(value: String): String = when (value) {

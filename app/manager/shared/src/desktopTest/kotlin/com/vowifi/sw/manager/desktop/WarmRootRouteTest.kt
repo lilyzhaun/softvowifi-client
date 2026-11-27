@@ -112,6 +112,8 @@ class WarmRootRouteTest {
             driver.route(AppRoute.Calls)
             assertEquals(listOf<AppRoute>(AppRoute.Calls), driver.consumed)
             driver.assertVisible("搜索通话记录")
+            driver.assertVisible("通话记录线路")
+            driver.assertVisible("通话不可用")
             assertFalse(driver.isVisible("拨号盘"), "无注册引擎仍应隐藏创建入口")
             driver.assertSelected(1)
         }

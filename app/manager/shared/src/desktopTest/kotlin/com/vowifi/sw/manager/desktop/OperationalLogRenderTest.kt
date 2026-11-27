@@ -79,6 +79,8 @@ class OperationalLogRenderTest {
             frame(scene)
             assertTrue(hasText(scene, "显示上次读取的记录，刷新可更新。"))
             screenshot(scene, "cache")
+            click(scene, "筛选")
+            frame(scene)
             click(scene, "级别")
             frame(scene)
             click(scene, "错误")

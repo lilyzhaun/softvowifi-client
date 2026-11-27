@@ -62,6 +62,16 @@ sealed interface AppRoute : NavKey {
         override fun toString(): String = "SettingsConfigurationSim"
     }
 
+    /** One grouped detail subpage under a SIM configuration editor; shares the SIM's live draft. */
+    @Serializable
+    @SerialName("SettingsConfigurationSimSection")
+    data class SettingsConfigurationSimSection(
+        val sim: ConfigurationSimHandle,
+        val section: ConfigurationSection,
+    ) : Subpage {
+        override fun toString(): String = "SettingsConfigurationSimSection"
+    }
+
     @Serializable
     @SerialName("SettingsDiagnostics")
     data object SettingsDiagnostics : Subpage
@@ -128,6 +138,14 @@ value class ConfigurationSimHandle private constructor(val value: String) {
     }
 }
 
+@Serializable
+enum class ConfigurationSection {
+    CONNECTION,
+    VOICE,
+    PROTOCOL,
+    STATUS,
+}
+
 val AppRoute.Root.destination: AppDestination
     get() = when (this) {
         AppRoute.Home -> AppDestination.HOME
@@ -151,6 +169,7 @@ internal val AppRoute.Subpage.root: AppRoute.Root
         AppRoute.SettingsAppearance,
         AppRoute.SettingsConfiguration,
         is AppRoute.SettingsConfigurationSim,
+        is AppRoute.SettingsConfigurationSimSection,
         AppRoute.SettingsDiagnostics,
         AppRoute.SettingsLogs,
         AppRoute.SettingsCallNotifications,

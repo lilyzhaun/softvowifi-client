@@ -35,6 +35,7 @@ import com.vowifi.sw.manager.model.ConfigurationInstanceId
 import com.vowifi.sw.manager.model.ConfigurationLifecycle
 import com.vowifi.sw.manager.model.ConfigurationTransport
 import com.vowifi.sw.manager.model.ConfigurationUiState
+import com.vowifi.sw.manager.ui.navigation.ConfigurationSection
 import com.vowifi.sw.manager.ui.testing.MotionTestEnvironment
 import com.vowifi.sw.manager.ui.testing.onMotionTestThread
 import kotlinx.coroutines.test.TestCoroutineScheduler
@@ -88,14 +89,157 @@ class ConfigurationStateMotionRenderTest {
         }
     } }
 
-    @Test fun lastRowScrollsClearOfThePinnedBar() = onMotionTestThread { runTest {
+    @Test fun saveBarKeepsLastRowStableDuringExitAndImmediateReversal() = onMotionTestThread { runTest {
+        Fixture(testScheduler, section = ConfigurationSection.STATUS).use { f ->
+            f.editSmscDraft("+123")
+            f.advance(1000)
+            val scroll = f.nodes().first { it.config.contains(SemanticsActions.ScrollBy) }
+            fun bottom() {
+                requireNotNull(scroll.config[SemanticsActions.ScrollBy].action).invoke(0f, 20_000f)
+                f.advance(1000)
+            }
+            val footer = "以上为最近一次读取的快照，可用顶栏刷新核对。加载配置或取得注册结果，不代表短信或通话已成功。"
+            bottom()
+            val reserved = f.text(footer).boundsInRoot
+            assertTrue(reserved.bottom + 16f <= f.text("1 项修改未保存").boundsInRoot.top)
+
+            f.draft.discard()
+            f.advance(48)
+            assertTrue(f.hasText("保存配置"), "前提：固定栏还在退出")
+            assertEquals(reserved.top, f.text(footer).boundsInRoot.top, 1f, "固定栏退出未完，列表末项不得先跳向底部")
+
+            f.editSmscDraft("+123")
+            bottom()
+            assertEquals(reserved.top, f.text(footer).boundsInRoot.top, 1f, "快速反向后预留空间不能丢失")
+            f.draft.discard()
+            bottom()
+            assertFalse(f.hasText("保存配置"))
+            assertTrue(f.text(footer).boundsInRoot.bottom > reserved.bottom + 16f, "完全退场后不留空洞")
+            assertEquals(0, f.submissions)
+        }
+    } }
+
+    @Test fun returningToAConfigurationPageDoesNotReopenAnAbandonedFieldDialog() = onMotionTestThread { runTest {
+        Fixture(testScheduler, section = ConfigurationSection.CONNECTION).use { f ->
+            f.editSmscDraft("+123")
+            f.advance(1000)
+            f.tapText("短信中心")
+            f.advance(400)
+            f.setDialogText("+456")
+            assertTrue(f.nodes().any { it.config.contains(SemanticsActions.SetText) }, "前提：字段弹窗已打开")
+            f.routeActive = false
+            f.advance(48)
+            f.routeActive = true
+            f.advance(600)
+            assertFalse(f.nodes().any { it.config.contains(SemanticsActions.SetText) }, "返回配置页面不得闪回旧弹窗")
+            assertEquals("+123", f.draft.smsc.text.toString(), "已确认到草稿的值仍保留")
+            assertEquals(0, f.submissions)
+        }
+    } }
+
+    @Test fun returningToConfigurationDoesNotRestoreAnAbandonedDropdown() = onMotionTestThread { runTest {
+        for ((targetSection, itemKey, row, option) in listOf(
+            listOf(null, "configuration-sim-network", "底层网络", "Wi-Fi"),
+            listOf(ConfigurationSection.PROTOCOL, "configuration-sim-ims", "SIP 安全策略", "SWu 内 UDP + AKA"),
+        )) Fixture(testScheduler, section = targetSection as ConfigurationSection?).use { f ->
+            val sectionKey = itemKey as String
+            val rowLabel = row as String
+            val optionLabel = option as String
+            val list = f.nodes().first { it.config.contains(SemanticsActions.ScrollToIndex) }
+            val index = list.config[SemanticsProperties.IndexForKey].invoke(sectionKey)
+            assertTrue(index >= 0 && requireNotNull(list.config[SemanticsActions.ScrollToIndex].action).invoke(index))
+            f.advance(800)
+            fun click(label: String) {
+                val action = generateSequence(f.text(label)) { it.parent }
+                    .firstNotNullOf { it.config.getOrNull(SemanticsActions.OnClick)?.action }
+                assertTrue(action(), "前提：实际菜单操作 $label 可点击")
+                f.advance(600)
+            }
+            f.editSmscDraft("+123")
+            f.advance(400)
+            assertFalse(f.hasText(optionLabel))
+            click(rowLabel)
+            assertTrue(f.hasText(optionLabel), "前提：$rowLabel 的真实菜单已打开")
+
+            f.routeActive = false
+            f.advance(48)
+            f.routeActive = true
+            f.advance(600)
+            assertFalse(f.hasText(optionLabel), "页面恢复后不得重新打开 $rowLabel 菜单")
+            assertEquals("+123", f.draft.smsc.text.toString(), "已确认的草稿修改仍保留")
+            assertEquals(ConfigurationTransport.AUTO, f.draft.transport)
+            assertEquals("", f.draft.imsSipSecurity)
+            assertEquals(0, f.submissions)
+
+            click(rowLabel)
+            click(optionLabel)
+            if (sectionKey == "configuration-sim-network") assertEquals(ConfigurationTransport.WIFI, f.draft.transport)
+            else assertEquals("swu_udp_aka", f.draft.imsSipSecurity)
+            assertEquals(0, f.submissions, "菜单只修改草稿")
+        }
+    } }
+
+    @Test fun returningToConfigurationDoesNotRestoreAnAbandonedDiscardConfirmation() = onMotionTestThread { runTest {
         Fixture(testScheduler).use { f ->
+            f.editSmscDraft("+123")
+            f.editorEnabled = false
+            f.advance(600)
+            f.tapText("放弃修改")
+            f.advance(600)
+            assertTrue(f.hasText("放弃修改？"), "前提：另一线路保存期间仍可打开本卡放弃确认弹窗")
+
+            f.routeActive = false
+            f.advance(48)
+            f.routeActive = true
+            f.advance(600)
+            assertFalse(f.hasText("放弃修改？"), "返回配置页面不得闪回未确认的放弃弹窗")
+            assertEquals("+123", f.draft.smsc.text.toString(), "已确认到草稿的值仍保留")
+            assertEquals(0, f.submissions)
+
+            f.tapText("放弃修改")
+            f.advance(600)
+            assertTrue(f.hasText("放弃修改？"), "返回后再次主动点击放弃修改仍可打开确认弹窗")
+            f.tapLast("放弃修改")
+            f.advance(600)
+            assertFalse(f.draft.dirty, "主动确认后应恢复最近读取的配置")
+            assertEquals(0, f.submissions)
+        }
+    } }
+
+    @Test fun networkHeadingAlignsWithItsPreferenceAtNormalAndLargeTextSizes() = onMotionTestThread { runTest {
+        for ((width, scale) in listOf(440 to 1f, 320 to 2f)) Fixture(testScheduler, width = width, fontScale = scale).use { f ->
+            val list = f.nodes().first { it.config.contains(SemanticsActions.ScrollToIndex) }
+            val index = list.config[SemanticsProperties.IndexForKey].invoke("configuration-sim-basic-title")
+            assertTrue(index >= 0 && requireNotNull(list.config[SemanticsActions.ScrollToIndex].action).invoke(index))
+            f.advance(1000)
+            val title = f.text("常用设置").boundsInRoot
+            val row = f.text("底层网络").boundsInRoot
+            assertTrue(title.height > 0f && row.height > 0f && title.bottom <= row.top)
+            assertEquals(row.left, title.left, 1f, "配置分区标题与参数文字起始边错位：$width dp，字号 $scale")
+        }
+    } }
+
+    @Test fun lastRowScrollsClearOfThePinnedBar() = onMotionTestThread { runTest {
+        Fixture(testScheduler, section = ConfigurationSection.PROTOCOL).use { f ->
+            f.editSmscDraft("+123")
+            f.advance(1000)
+            val list = f.nodes().first { it.config.contains(SemanticsActions.ScrollBy) }
+            val imsIndex = list.config[SemanticsProperties.IndexForKey].invoke("configuration-sim-ims")
+            assertTrue(imsIndex >= 0, "前提：IMS高级参数卡片存在")
+            assertTrue(requireNotNull(list.config[SemanticsActions.ScrollToIndex].action).invoke(imsIndex))
+            f.advance(1000)
+            val digest = f.text("Digest 认证域").boundsInRoot
+            val originalBarTop = f.text("1 项修改未保存").boundsInRoot.top
+            assertTrue(digest.height > 0f && digest.bottom + 16f <= originalBarTop,
+                "原 Digest 行仍须完整可达且不被保存栏遮挡：digest=$digest barTop=$originalBarTop")
+        }
+        Fixture(testScheduler, section = ConfigurationSection.STATUS).use { f ->
             f.editSmscDraft("+123")
             f.advance(1000)
             val list = f.nodes().first { it.config.contains(SemanticsActions.ScrollBy) }
             requireNotNull(list.config[SemanticsActions.ScrollBy].action).invoke(0f, 20_000f)
             f.advance(1000)
-            val last = f.text("Digest 认证域").boundsInRoot
+            val last = f.text("以上为最近一次读取的快照，可用顶栏刷新核对。加载配置或取得注册结果，不代表短信或通话已成功。").boundsInRoot
             val barTop = f.nodes().filter { it.config.getOrNull(SemanticsProperties.Text)?.any { t -> t.text == "1 项修改未保存" } == true }
                 .single().boundsInRoot.top
             // The bar title sits 16dp inside the card; the row must end above the card, not merely above the title.
@@ -104,7 +248,7 @@ class ConfigurationStateMotionRenderTest {
     } }
 
     @Test fun fieldDialogValidatesBeforeWritingAndLegalInputClearsTheErrorWithoutAnotherConfirm() = onMotionTestThread { runTest {
-        Fixture(testScheduler).use { f ->
+        Fixture(testScheduler, section = ConfigurationSection.CONNECTION).use { f ->
             f.tapText("短信中心")
             f.advance(1000)
             f.setDialogText("invalid")
@@ -127,7 +271,7 @@ class ConfigurationStateMotionRenderTest {
     } }
 
     @Test fun cancellingTheFieldDialogLeavesTheDraftUntouched() = onMotionTestThread { runTest {
-        Fixture(testScheduler).use { f ->
+        Fixture(testScheduler, section = ConfigurationSection.CONNECTION).use { f ->
             f.tapText("DNS")
             f.advance(1000)
             f.setDialogText("dns.user.invalid")
@@ -140,7 +284,7 @@ class ConfigurationStateMotionRenderTest {
     } }
 
     @Test fun pendingSaveFreezesRowsAndDiscardAndFailureKeepsTheDraft() = onMotionTestThread { runTest {
-        Fixture(testScheduler).use { f ->
+        Fixture(testScheduler, section = ConfigurationSection.CONNECTION).use { f ->
             f.editSmscDraft("+123")
             f.advance(1000)
             f.tapText("保存配置")
@@ -177,6 +321,25 @@ class ConfigurationStateMotionRenderTest {
             f.advance(1000)
             assertTrue(f.hasText("保存并重启实例？"))
             assertEquals(0, f.submissions, "确认前不得提交")
+            f.tapLast("保存并重启")
+            assertEquals(1, f.submissions)
+            assertTrue(f.draft.pending)
+        }
+    } }
+
+    @Test fun anAutomaticSmscReadDoesNotDismissThePendingRestartConfirmation() = onMotionTestThread { runTest {
+        Fixture(testScheduler, lifecycle = ConfigurationLifecycle.RUNNING).use { f ->
+            f.resolvedSmsc = "+19995550123"
+            f.advance(1000)
+            f.editSmscDraft("+123")
+            f.advance(1000)
+            f.tapText("保存并重启")
+            f.advance(1000)
+            assertTrue(f.hasText("保存并重启实例？"))
+            f.resolvedSmsc = ""
+            f.advance(1000)
+            assertTrue(f.hasText("保存并重启实例？"), "SIM 自动值转未知不能关闭正在等待用户的确认")
+            assertEquals(0, f.submissions)
             f.tapLast("保存并重启")
             assertEquals(1, f.submissions)
             assertTrue(f.draft.pending)
@@ -265,6 +428,8 @@ class ConfigurationStateMotionRenderTest {
         val width: Int = 440,
         val height: Int = 900,
         callWarning: String? = null,
+        fontScale: Float = 1f,
+        section: ConfigurationSection? = null,
     ) : AutoCloseable {
         val instance = ConfigurationInstance(
             ConfigurationInstanceId("sim-1"), TITLE, lifecycle,
@@ -277,6 +442,9 @@ class ConfigurationStateMotionRenderTest {
         var fallbackBacks = 0
         var completion: ((ConfigurationApplyOutcome) -> Unit)? = null
         var remount by mutableStateOf(0)
+        var routeActive by mutableStateOf(true)
+        var editorEnabled by mutableStateOf(true)
+        var resolvedSmsc by mutableStateOf("")
         val haptics = mutableListOf<HapticFeedbackType>()
         val viewport = Rect(0f, 0f, width.toFloat(), height.toFloat())
         val backController = SubpageBackController { leaves++ }
@@ -290,8 +458,9 @@ class ConfigurationStateMotionRenderTest {
         private val model = ConfigurationEditorModel(instance, ConfigurationUiState.Ready(listOf(instance)), true, null, callWarning)
         val environment = MotionTestEnvironment(scheduler, width = width, height = height, durationScale = durationScale) {
             SoftVoWiFiTheme(false) {
-                CompositionLocalProvider(LocalDensity provides Density(1f), LocalHapticFeedback provides recorder,
-                    LocalNavigationEventDispatcherOwner provides back, LocalSubpageBackController provides backController) {
+                CompositionLocalProvider(LocalDensity provides Density(1f, fontScale), LocalHapticFeedback provides recorder,
+                    LocalNavigationEventDispatcherOwner provides back, LocalSubpageBackController provides backController,
+                    LocalAppRouteActive provides routeActive) {
                     Scaffold(Modifier.fillMaxSize()) {
                         Box(Modifier.fillMaxSize().testTag(SUBJECT)) {
                             val submit: com.vowifi.sw.manager.model.ConfigurationSubmit = { _, _, complete ->
@@ -300,7 +469,8 @@ class ConfigurationStateMotionRenderTest {
                                 completeWith?.let(complete)
                                 ConfigurationApplyAcceptance.Accepted
                             }
-                            key(remount) { ConfigurationSimEditor(model, draft, submit) }
+                            val current = model.instance.copy(resolvedSmsc = resolvedSmsc)
+                            key(remount) { ConfigurationSimEditor(model.copy(instance = current, enabled = editorEnabled), draft, submit, section = section) }
                         }
                     }
                 }

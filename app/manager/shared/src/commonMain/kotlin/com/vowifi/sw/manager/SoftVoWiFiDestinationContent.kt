@@ -19,6 +19,7 @@ import com.vowifi.sw.manager.ui.SettingsAppearanceScreen
 import com.vowifi.sw.manager.ui.SettingsConfigurationActions
 import com.vowifi.sw.manager.ui.SettingsConfigurationScreen
 import com.vowifi.sw.manager.ui.SettingsConfigurationSimScreen
+import com.vowifi.sw.manager.ui.SettingsConfigurationSimSectionScreen
 import com.vowifi.sw.manager.ui.SettingsDiagnosticsScreen
 import com.vowifi.sw.manager.ui.SettingsLogsActions
 import com.vowifi.sw.manager.ui.SettingsLogsScreen
@@ -230,6 +231,24 @@ internal fun SoftVoWiFiDestinationContent(
             activeCallSims = sources.simControl.activeCallSims(state.calls),
             provisioning = sources.configuration.provisioning,
             actions = SettingsConfigurationActions(
+                readEntitlement = sources.configuration.entitlementCacheReader,
+                onProvision = sources::provisionSim,
+                onSubmit = sources.configuration::submit,
+                onRefresh = sources.configuration::refreshIdentitiesAndAwait,
+                onOpenSection = { sim, section -> actions.onOpenSubpage(AppRoute.SettingsConfigurationSimSection(sim, section)) },
+                onRebuild = sources.configuration.takeIf { it.supportsRebuild }?.let { it::rebuild },
+            ),
+        )
+        is AppRoute.SettingsConfigurationSimSection -> SettingsConfigurationSimSectionScreen(
+            handle = route.sim,
+            section = route.section,
+            state = state.configuration,
+            simState = state.simControl,
+            drafts = actions.configurationDrafts,
+            activeCallSims = sources.simControl.activeCallSims(state.calls),
+            provisioning = sources.configuration.provisioning,
+            actions = SettingsConfigurationActions(
+                readEntitlement = sources.configuration.entitlementCacheReader,
                 onProvision = sources::provisionSim,
                 onSubmit = sources.configuration::submit,
                 onRefresh = sources.configuration::refreshIdentitiesAndAwait,

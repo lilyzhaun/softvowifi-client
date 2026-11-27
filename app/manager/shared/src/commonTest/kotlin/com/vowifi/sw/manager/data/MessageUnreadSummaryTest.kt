@@ -169,6 +169,35 @@ class MessageUnreadSummaryTest {
         repository.applyOutgoingStatus(OWNER_A, "engine-outgoing", SmsEngineStatus.DELIVERED, 3)
         assertEquals(5L, repository.countUnreadIncoming())
     }
+
+    @Test
+    fun transientUnexpectedExceptionRetainsLastCountAndKeepsSummaryWorkerAlive() =
+        runTest(UnconfinedTestDispatcher()) {
+            val backing = seededUnreadRepository()
+            var throwUnexpected = false
+            val repository = object : MessageRepository by backing {
+                override suspend fun countUnreadByOwner(): Map<SimOwnerId, Long> {
+                    if (throwUnexpected) {
+                        throwUnexpected = false
+                        throw IllegalStateException("synth-transient-db")
+                    }
+                    return backing.countUnreadByOwner()
+                }
+            }
+            val source = unreadSource(repository, this)
+            try {
+                assertEquals(expectedUnreadSummary(2, 3), source.unreadSummary.value)
+                throwUnexpected = true
+                source.markVisibleRead(unreadRequest(OWNER_A, "a-1"))
+                runCurrent()
+                assertEquals(MessageUnreadSummary.Unavailable(5), source.unreadSummary.value)
+                source.refresh()
+                runCurrent()
+                assertEquals(expectedUnreadSummary(1, 3), source.unreadSummary.value)
+            } finally {
+                source.close()
+            }
+        }
 }
 
 internal suspend fun seededUnreadRepository(): FakeMessageRepository = FakeMessageRepository().also { repository ->

@@ -28,7 +28,7 @@ class ProducerCapabilitiesContractTest {
         assertEquals(listOf(MetadataSource.Default, MetadataSource.Default, MetadataSource.HomeMcc, MetadataSource.Identity),
             result.configMetadata.map { it.source })
         assertTrue(result.configMetadata.all { it.decision == MetadataDecision.Inherited })
-        assertEquals(listOf("config.metadata.v1", "rpc.getConfig", "rpc.getStatus", "rpc.ping", "rpc.stop"), result.capabilities)
+        assertEquals(listOf("config.metadata.v1", "rpc.getConfig", "rpc.getStatus", "rpc.ping", "rpc.stop", "status.tunnel-sa-proof.v1"), result.capabilities)
     }
 
     @Test

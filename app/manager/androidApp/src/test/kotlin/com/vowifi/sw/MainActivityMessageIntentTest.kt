@@ -22,6 +22,23 @@ import org.robolectric.util.ReflectionHelpers
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [33], application = SoftVoWiFiApplication::class, shadows = [RuntimeApplicationShadow::class, CallCoordinatorShadow::class, MessageSourceShadow::class])
 class MainActivityMessageIntentTest {
+    @Test fun warmHomeAndCallsReachExactRootChannelWithoutWindowPrivileges() {
+        Robolectric.buildActivity(MainActivity::class.java, Intent().putExtra("destination", "home")).use { controller ->
+            controller.create().start().resume()
+            val activity = controller.get()
+            val routes = ReflectionHelpers.getField<Channel<AppRoute>>(activity, "incomingRoutes")
+            assertTrue(routes.tryReceive().isFailure)
+            for ((alias, expected) in listOf("home" to AppRoute.Home, "calls" to AppRoute.Calls)) {
+                controller.newIntent(Intent().putExtra("destination", alias))
+                assertEquals(expected, routes.tryReceive().getOrNull())
+                assertTrue(routes.tryReceive().isFailure)
+                assertFalse(shadowOf(activity).showWhenLocked)
+                assertFalse(shadowOf(activity).turnScreenOn)
+            }
+            controller.pause().stop().destroy()
+        }
+    }
+
     @Test fun arbitraryCallsDestinationNeverUnlocksManagementWindow() {
         Robolectric.buildActivity(MainActivity::class.java, calls()).use { controller ->
             controller.create().start().resume()

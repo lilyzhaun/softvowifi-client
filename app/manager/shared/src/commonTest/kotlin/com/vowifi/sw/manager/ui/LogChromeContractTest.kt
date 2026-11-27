@@ -37,7 +37,6 @@ class LogChromeContractTest {
         assertEquals(
             listOf(
                 OperationalLogDataSection.FILTERS,
-                OperationalLogDataSection.EXPORT,
                 OperationalLogDataSection.EVENTS,
             ),
             operationalLogDataSectionOrder(hasWarning = false),
@@ -46,7 +45,6 @@ class LogChromeContractTest {
             listOf(
                 OperationalLogDataSection.WARNING,
                 OperationalLogDataSection.FILTERS,
-                OperationalLogDataSection.EXPORT,
                 OperationalLogDataSection.EVENTS,
             ),
             operationalLogDataSectionOrder(hasWarning = true),

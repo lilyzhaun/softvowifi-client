@@ -21,8 +21,11 @@ internal class AndroidRootDiagnosticStream(
         val result = AtomicReference<RootDiagnosticReceipt?>()
         val error = AtomicReference<Throwable?>()
         val worker = Thread({
-            try { process.inputStream.use { result.set(parse(it, consume)) } }
-            catch (failure: Throwable) { error.set(failure); process.destroy() }
+            try {
+                val input = process.inputStream
+                try { result.set(parse(input, consume)) }
+                finally { runCatching { input.close() } }
+            } catch (failure: Throwable) { error.set(failure); process.destroy() }
         }, "vowifi-diagnostic-stream").apply { isDaemon = true }
         try {
             process.outputStream.close()
@@ -34,9 +37,14 @@ internal class AndroidRootDiagnosticStream(
             return result.get()?.let { if (process.exitValue() == 0) it else it.copy(complete=false) }
                 ?: RootDiagnosticReceipt(false,0,0,1)
         } finally {
-            process.destroyForcibly()
-            process.inputStream.close(); process.errorStream.close()
-            worker.interrupt(); worker.join(1000)
+            var interrupted = Thread.interrupted()
+            runCatching { process.destroyForcibly() }
+            runCatching { process.outputStream.close() }
+            runCatching { process.inputStream.close() }
+            runCatching { process.errorStream.close() }
+            worker.interrupt()
+            try { worker.join(1000) } catch (_: InterruptedException) { interrupted = true }
+            if (interrupted) Thread.currentThread().interrupt()
         }
     }
 

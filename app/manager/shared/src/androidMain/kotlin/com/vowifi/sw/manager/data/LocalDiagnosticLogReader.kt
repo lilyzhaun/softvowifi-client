@@ -33,15 +33,15 @@ internal class LocalDiagnosticLogReader(private val context: Context) {
                 null
             } else entry(record)
         }
-        val problems = buildList {
-            if (window.issue != null) add("全局诊断读取不完整（${window.issue.name.lowercase()}）")
+        val notices = buildList {
             if (status.failure != null) add("诊断写入已停止（${status.failure.name.lowercase()}）")
             if (status.memory.dropped > 0 || status.writeDropped > 0) {
-                add("当前进程诊断丢弃：内存/频率 ${status.memory.dropped}，写入 ${status.writeDropped}")
+                add("本次应用运行累计未记录：内存/频率限制 ${status.memory.dropped} 条，写入失败 ${status.writeDropped} 条。已保存的记录仍可正常读取，刷新不会补回这些事件。")
             }
         }
         return OperationalLogGroupRead(OperationalLogTail(ID, window.truncated, entries, issues),
-            problems.takeIf { it.isNotEmpty() }?.joinToString("；"))
+            issue = window.issue?.let { "应用日志读取不完整（${it.name.lowercase()}）" },
+            notice = notices.takeIf { it.isNotEmpty() }?.joinToString("；"))
     }
 
     internal fun entry(record: DiagnosticRecord, root: Boolean = false): OperationalLogEntry {

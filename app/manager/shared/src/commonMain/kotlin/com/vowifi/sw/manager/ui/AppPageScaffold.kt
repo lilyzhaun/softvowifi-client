@@ -18,13 +18,13 @@ import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.State
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.movableContentOf
@@ -34,8 +34,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.nestedscroll.nestedScroll
-import androidx.compose.ui.layout.onGloballyPositioned
-import androidx.compose.ui.layout.positionInParent
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.semantics.ProgressBarRangeInfo
 import androidx.compose.ui.semantics.contentDescription
@@ -68,13 +66,12 @@ internal fun AppPageScaffold(
     contentAlpha: State<Float>? = null,
     emptyAlpha: State<Float>? = null,
     actions: @Composable RowScope.() -> Unit = {},
-    refreshRotation: State<Float>? = null,
-    // Height of a page-owned overlay pinned above the bottom inset (e.g. an unsaved-changes bar).
-    bottomOverlayInset: Dp = 0.dp,
+    listState: LazyListState = rememberLazyListState(),
+    // A page-owned bottom bar includes the subpage inset; its measured height is the reservation.
+    bottomOverlay: (@Composable () -> Unit)? = null,
     content: LazyListScope.() -> Unit,
 ) {
     appPageContract()
-    val listState = rememberLazyListState()
     ResetManagerScrollOnConditionChange(listState, scrollResetCondition)
     val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
     if (showTopBar) RegisterRootScrollToTop(listState,
@@ -113,6 +110,7 @@ internal fun AppPageScaffold(
                     }
                 }
             },
+            bottomBar = { bottomOverlay?.invoke() },
             containerColor = canvas.copy(alpha = 1f),
             contentWindowInsets = when (appPageWindowInsets(showTopBar)) {
                 AppPageWindowInsets.ROOT_HORIZONTAL_SYSTEM_BARS ->
@@ -129,25 +127,23 @@ internal fun AppPageScaffold(
             }
             Box(Modifier.fillMaxSize().background(canvas.copy(alpha = 1f)).then(capture)) {
                 val indicator = refreshIndicator ?: refreshController?.let { rememberManagerRefreshIndicator(it) }
+                val barBottom = innerPadding.calculateBottomPadding()
+                val pageBottom = if (bottomOverlay != null) maxOf(barBottom, subpageBottomContentInset)
+                    else barBottom + subpageBottomContentInset
                 val padding = rememberUpdatedState(PaddingValues(
                         start = innerPadding.calculateStartPadding(layoutDirection) + horizontalInset,
                         top = innerPadding.calculateTopPadding() + subpageTopContentInset + contentTopInset,
                         end = innerPadding.calculateEndPadding(layoutDirection) + horizontalInset,
-                        bottom = innerPadding.calculateBottomPadding() + subpageBottomContentInset + rootBottomInset.value + 12.dp +
-                            bottomOverlayInset,
+                        bottom = pageBottom + rootBottomInset.value + 12.dp,
                     ))
                 val latestContent = rememberUpdatedState(content)
                 val latestNestedScroll = rememberUpdatedState(nestedScrollModifier)
                 val latestAlpha = rememberUpdatedState(contentAlpha)
                 val latestEmptyAlpha = rememberUpdatedState(emptyAlpha)
-                val headerExtent = remember { mutableFloatStateOf(0f) }
                 // One scroll/list/key owner survives removal of the library gesture wrapper.
-                val body = remember {
+                val body = remember(listState) {
                     movableContentOf {
-                        Box(Modifier.fillMaxSize().onGloballyPositioned {
-                            val height = it.positionInParent().y.coerceAtLeast(0f)
-                            if (headerExtent.floatValue != height) headerExtent.floatValue = height
-                        }) {
+                        Box(Modifier.fillMaxSize()) {
                             LazyColumn(
                                 state = listState,
                                 overscrollEffect = null,
@@ -169,7 +165,6 @@ internal fun AppPageScaffold(
                     pullState?.refreshState == RefreshState.RefreshComplete
                 if (refreshController != null && pullState != null &&
                     (refreshController.available || refreshController.running || indicator?.value == true || finishingRefresh)) {
-                    val angle = refreshRotation ?: rememberManagerRefreshRotation(refreshController)
                     PullToRefresh(
                         isRefreshing = indicator?.value == true,
                         onRefresh = { refreshController.request() },
@@ -182,11 +177,8 @@ internal fun AppPageScaffold(
                         },
                         pullToRefreshState = pullState,
                         contentPadding = PaddingValues(top = padding.value.calculateTopPadding()),
-                        color = canvas.copy(alpha = 1f),
-                        refreshTexts = emptyList(),
+                        refreshTexts = rememberManagerPullRefreshTexts(pullState, refreshController, indicator?.value == true),
                     ) { body() }
-                    ManagerCompactRefreshIndicator(pullState, refreshController, indicator?.value == true,
-                        angle, headerExtent, padding)
                 } else body()
             }
         }

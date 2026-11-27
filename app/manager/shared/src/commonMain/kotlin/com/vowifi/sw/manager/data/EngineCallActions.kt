@@ -2,11 +2,18 @@ package com.vowifi.sw.manager.data
 
 import com.vowifi.sw.manager.model.*
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
 
-internal suspend fun EngineCallSource.performDial(expected: CallBinding, number: String, started: () -> Boolean = { true }) {
+internal suspend fun EngineCallSource.performDial(
+    expected: CallBinding,
+    number: String,
+    started: () -> Boolean = { true },
+    onPublished: () -> Unit = {},
+) {
     val planned = mutex.withLock {
         if (!owns(expected) || session.phase != CallPhase.Idle || dialOperation != null) return
         if (!CallProtocolCodec.isValidDialNumber(number)) {
@@ -28,48 +35,74 @@ internal suspend fun EngineCallSource.performDial(expected: CallBinding, number:
         dialOperation = operation
         recorder.claimDial(activeIccid, number, generation)?.let(recorder::enqueue)
         publish()
+        onPublished()
         PlannedCallRequest.Dial(transport, number, CallRequestOwner(bindingGeneration, operation, version))
     }
-    val result = EngineCallRequestExecutor.execute(planned)
     var query = false
-    val effects = mutex.withLock {
-        if (closed || activeTransport !== planned.transport || dialOperation != planned.owner.operationId ||
-            bindingGeneration != planned.owner.generation) return@withLock CallEffects()
-        dialOperation = null
-        pendingTerminalCause = when {
-            result.errorCode == 2005 -> CallHistoryCause.DialCanceled
-            result.errorCode != null -> CallHistoryCause.DialFailed
-            else -> null
+    val effects = try {
+        val result = EngineCallRequestExecutor.execute(planned)
+        mutex.withLock {
+            if (closed || activeTransport !== planned.transport || dialOperation != planned.owner.operationId ||
+                bindingGeneration != planned.owner.generation) return@withLock CallEffects()
+            dialOperation = null
+            pendingTerminalCause = when {
+                result.errorCode == 2005 -> CallHistoryCause.DialCanceled
+                result.errorCode != null -> CallHistoryCause.DialFailed
+                else -> null
+            }
+            if (version != planned.owner.version) {
+                session = session.copy(busy = controlOperation != null)
+                publish()
+                query = true
+                return@withLock CallEffects()
+            }
+            if (session.cancelRequested || result.errorCode == 2005 || result.operationMessage == CallFailureMessages.NETWORK) {
+                session = session.copy(busy = controlOperation != null, operationMessage = result.operationMessage)
+                if (result.operationMessage == CallFailureMessages.NETWORK) sync = CallSyncState.Recovering
+                publish()
+                query = true
+                return@withLock CallEffects()
+            }
+            val completed = CallSessionReducer.completeDial(session, result.resultToken, result.operationMessage)
+            val next = if (completed.phase == CallPhase.Idle) completed else completed.copy(direction = session.direction, peer = session.peer)
+            if (result.resultToken != null) query = true
+            commit(next, rpcCause(planned, session, next))
         }
-        if (version != planned.owner.version) {
-            session = session.copy(busy = controlOperation != null)
-            publish()
-            query = true
-            return@withLock CallEffects()
+    } catch (error: CancellationException) {
+        withContext(NonCancellable) {
+            mutex.withLock {
+                if (!closed && activeTransport === planned.transport && dialOperation == planned.owner.operationId &&
+                    bindingGeneration == planned.owner.generation
+                ) {
+                    dialOperation = null
+                    sync = CallSyncState.Recovering
+                    session = session.copy(busy = controlOperation != null)
+                    publish()
+                }
+            }
         }
-        if (session.cancelRequested || result.errorCode == 2005 || result.operationMessage == CallFailureMessages.NETWORK) {
-            session = session.copy(busy = controlOperation != null, operationMessage = result.operationMessage)
-            if (result.operationMessage == CallFailureMessages.NETWORK) sync = CallSyncState.Recovering
-            publish()
-            query = true
-            return@withLock CallEffects()
-        }
-        val completed = CallSessionReducer.completeDial(session, result.resultToken, result.operationMessage)
-        val next = if (completed.phase == CallPhase.Idle) completed else completed.copy(direction = session.direction, peer = session.peer)
-        if (result.resultToken != null) query = true
-        commit(next, rpcCause(planned, session, next))
+        throw error
     }
     apply(effects)
     if (query) fetchSnapshot(planned.transport)
 }
 
-internal suspend fun EngineCallSource.performControl(expected: CallBinding, action: CallAction, started: () -> Boolean = { true }) =
-    performResolvedControl(action, started) { expected }
+internal suspend fun EngineCallSource.performControl(
+    expected: CallBinding,
+    action: CallAction,
+    started: () -> Boolean = { true },
+    onPublished: () -> Unit = {},
+) = performResolvedControl(action, started, onPublished) { expected }
 
 internal suspend fun EngineCallSource.performCurrentControl(action: CallAction) =
-    performResolvedControl(action, { true }) { binding }
+    performResolvedControl(action, { true }, {}) { binding }
 
-private suspend fun EngineCallSource.performResolvedControl(action: CallAction, started: () -> Boolean, resolve: () -> CallBinding?) {
+private suspend fun EngineCallSource.performResolvedControl(
+    action: CallAction,
+    started: () -> Boolean,
+    onPublished: () -> Unit,
+    resolve: () -> CallBinding?,
+) {
     var pendingOnly = false
     var stopProgress: CallAudioSession? = null
     val request = mutex.withLock {
@@ -92,7 +125,7 @@ private suspend fun EngineCallSource.performResolvedControl(action: CallAction, 
         val token = session.token
         if (pendingOnly || token == null) { publish(); return@withLock null }
         if (!started()) return
-        beginControl(expected.owner, token, action)
+        beginControl(expected.owner, token, action).also { onPublished() }
     }
     stopProgress?.let(audio::stopIf)
     request?.let { executeControl(it) }
@@ -135,63 +168,87 @@ private suspend fun EngineCallSource.executeControl(request: CallCommand) {
         CallAction.Hangup -> "hangup"
         CallAction.Cancel -> "cancelCall"
     }
-    val response = try {
-        control.request(request.owner, method, CallProtocolCodec.params(request.token),
-            if (request.action == CallAction.Answer) CallProtocolCodec.ANSWER_TIMEOUT_MILLIS else CallProtocolCodec.CONTROL_TIMEOUT_MILLIS)
-    } catch (error: CancellationException) { throw error }
-    catch (_: Exception) { null }
     var query = false
-    val hangupResult = if (request.action == CallAction.Hangup) response?.let { CallProtocolCodec.hangupResult(it, request.token) } else null
-    val effects = mutex.withLock {
-        if (closed || controlOperation != request.id || bindingGeneration != request.generation ||
-            activeIccid != request.owner || activeTransport !== request.primary || session.token != request.token) return@withLock CallEffects()
-        controlOperation = null
-        pendingAction = null
-        if (version != request.version && request.action != CallAction.Cancel) {
-            if (hangupResult != null) {
-                pendingTerminalCause = CallHistoryCause.Hangup
-                query = true
-            }
-            session = session.copy(busy = dialOperation != null)
-            publish()
-            return@withLock CallEffects()
+    val effects = try {
+        val response = try {
+            control.request(request.owner, method, CallProtocolCodec.params(request.token),
+                if (request.action == CallAction.Answer) CallProtocolCodec.ANSWER_TIMEOUT_MILLIS else CallProtocolCodec.CONTROL_TIMEOUT_MILLIS)
+        } catch (error: CancellationException) {
+            throw error
+        } catch (_: Exception) {
+            null
         }
-        val ok = response?.error == null && response?.result != null && when (request.action) {
-            CallAction.Answer -> CallProtocolCodec.resultCallId(response) == request.token && CallProtocolCodec.resultState(response) == "RINGING"
-            CallAction.Reject -> CallProtocolCodec.resultState(response) == "IDLE"
-            CallAction.Hangup -> hangupResult != null
-            CallAction.Cancel -> (response.result["accepted"] as? JsonPrimitive)?.takeIf { !it.isString }?.booleanOrNull == true &&
-                CallProtocolCodec.resultCallId(response) == request.token
-        }
-        if (!ok) {
-            val code = response?.error?.code
-            val message = if (response == null) CallFailureMessages.NETWORK
-                else if (response.error == null) CallFailureMessages.INVALID else CallProtocolCodec.messageOf(response.error)
-            session = session.copy(busy = dialOperation != null, operationMessage = message,
-                phase = if (session.phase == CallPhase.Ending) request.previousPhase else session.phase)
-            if (code == 1001 || code == 3002 || response == null || request.action == CallAction.Cancel) {
-                sync = CallSyncState.Recovering
-                query = true
-            }
-            publish()
-            return@withLock CallEffects()
-        }
-        when (request.action) {
-            CallAction.Cancel -> {
-                session = session.copy(busy = false)
+        val hangupResult = if (request.action == CallAction.Hangup) response?.let { CallProtocolCodec.hangupResult(it, request.token) } else null
+        mutex.withLock {
+            if (closed || controlOperation != request.id || bindingGeneration != request.generation ||
+                activeIccid != request.owner || activeTransport !== request.primary || session.token != request.token) return@withLock CallEffects()
+            controlOperation = null
+            pendingAction = null
+            if (version != request.version && request.action != CallAction.Cancel) {
+                if (hangupResult != null) {
+                    pendingTerminalCause = CallHistoryCause.Hangup
+                    query = true
+                }
+                session = session.copy(busy = dialOperation != null)
                 publish()
-                CallEffects()
+                return@withLock CallEffects()
             }
-            CallAction.Answer -> commit(CallSessionReducer.completeAnswer(session, null))
-            CallAction.Reject -> commit(CallSession(), CallHistoryCause.Reject)
-            CallAction.Hangup -> if (hangupResult == CallHangupResult.Pending) {
-                pendingTerminalCause = CallHistoryCause.Hangup
-                session = session.copy(phase = CallPhase.Ending, busy = false)
+            val ok = response?.error == null && response?.result != null && when (request.action) {
+                CallAction.Answer -> CallProtocolCodec.resultCallId(response) == request.token && CallProtocolCodec.resultState(response) == "RINGING"
+                CallAction.Reject -> CallProtocolCodec.resultState(response) == "IDLE"
+                CallAction.Hangup -> hangupResult != null
+                CallAction.Cancel -> (response.result["accepted"] as? JsonPrimitive)?.takeIf { !it.isString }?.booleanOrNull == true &&
+                    CallProtocolCodec.resultCallId(response) == request.token
+            }
+            if (!ok) {
+                val code = response?.error?.code
+                val message = if (response == null) CallFailureMessages.NETWORK
+                    else if (response.error == null) CallFailureMessages.INVALID else CallProtocolCodec.messageOf(response.error)
+                session = session.copy(busy = dialOperation != null, operationMessage = message,
+                    phase = if (session.phase == CallPhase.Ending) request.previousPhase else session.phase)
+                if (code == 1001 || code == 3002 || response == null || request.action == CallAction.Cancel) {
+                    sync = CallSyncState.Recovering
+                    query = true
+                }
                 publish()
-                query = true
-                CallEffects()
-            } else commit(CallSession(), CallHistoryCause.Hangup)
+                return@withLock CallEffects()
+            }
+            when (request.action) {
+                CallAction.Cancel -> {
+                    session = session.copy(busy = false)
+                    publish()
+                    CallEffects()
+                }
+                CallAction.Answer -> commit(CallSessionReducer.completeAnswer(session, null))
+                CallAction.Reject -> commit(CallSession(), CallHistoryCause.Reject)
+                CallAction.Hangup -> if (hangupResult == CallHangupResult.Pending) {
+                    pendingTerminalCause = CallHistoryCause.Hangup
+                    session = session.copy(phase = CallPhase.Ending, busy = false)
+                    publish()
+                    query = true
+                    CallEffects()
+                } else commit(CallSession(), CallHistoryCause.Hangup)
+            }
         }
+    } catch (error: CancellationException) {
+        withContext(NonCancellable) {
+            mutex.withLock {
+                if (!closed && controlOperation == request.id && bindingGeneration == request.generation &&
+                    activeIccid == request.owner && activeTransport === request.primary && session.token == request.token
+                ) {
+                    controlOperation = null
+                    pendingAction = null
+                    if (request.action == CallAction.Cancel) cancelDispatched = false
+                    sync = CallSyncState.Recovering
+                    session = session.copy(
+                        busy = dialOperation != null,
+                        phase = if (session.phase == CallPhase.Ending) request.previousPhase else session.phase,
+                    )
+                    publish()
+                }
+            }
+        }
+        throw error
     }
     apply(effects)
     if (query) fetchSnapshot(request.primary)

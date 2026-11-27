@@ -23,6 +23,9 @@ import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.Phone
 import top.yukonga.miuix.kmp.icon.extended.Info
 
+/** Live observations do not change which configuration an open editor may modify. */
+internal fun ConfigurationInstance.configurationEditAuthority() = copy(runtimeFacts = null, resolvedSmsc = "")
+
 /** Overview row: one SIM, its live state and any unsaved/outcome note; editing happens on the SIM's own page. */
 @Composable
 internal fun ConfigurationSimEntry(
@@ -31,7 +34,7 @@ internal fun ConfigurationSimEntry(
     draft: ConfigurationEditorDraft,
     onOpen: (() -> Unit)?,
 ) {
-    LaunchedEffect(instance) { draft.syncFrom(instance) }
+    LaunchedEffect(instance.configurationEditAuthority()) { draft.syncFrom(instance) }
     val header = configurationHeader(row.label)
     Card(
         modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp),
@@ -46,12 +49,15 @@ internal fun ConfigurationSimEntry(
     }
 }
 
-internal fun configurationSimEntrySummary(instance: ConfigurationInstance, draft: ConfigurationEditorDraft, details: String?): String =
-    listOfNotNull(
+internal fun configurationSimEntrySummary(instance: ConfigurationInstance, draft: ConfigurationEditorDraft, details: String?): String {
+    val advancedCount = configurationTotalAdvancedOverrides(draft.snapshotValues())
+    return listOfNotNull(
         details,
         "${configurationLifecycleLabel(instance.lifecycle)} · 底层网络 ${transportLabel(instance.transport)}",
+        "已自定义 $advancedCount 项高级参数".takeIf { advancedCount > 0 && !draft.dirty && draft.status == ConfigurationEditStatus.Idle },
         configurationEditSummary(draft).takeIf { draft.dirty || draft.status != ConfigurationEditStatus.Idle },
     ).joinToString("\n")
+}
 
 @Composable
 internal fun ConfigurationStatusCard(

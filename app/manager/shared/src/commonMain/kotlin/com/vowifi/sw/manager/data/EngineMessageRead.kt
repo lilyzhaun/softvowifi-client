@@ -33,7 +33,7 @@ internal suspend fun markVisibleIncomingRead(
         }
     } catch (error: CancellationException) {
         throw error
-    } catch (_: MessageStorageException) {
+    } catch (_: Exception) {
         session.mutex.withLock {
             if (session.closed) return
             val line = session.sessions[request.ownerId] ?: return

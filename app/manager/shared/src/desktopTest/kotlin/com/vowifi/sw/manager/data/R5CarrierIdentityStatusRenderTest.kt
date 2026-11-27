@@ -11,6 +11,7 @@ import com.vowifi.sw.manager.ui.ConfigurationEditorDraft
 import com.vowifi.sw.manager.ui.ConfigurationEditorModel
 import com.vowifi.sw.manager.ui.ConfigurationSimEditor
 import com.vowifi.sw.manager.ui.SoftVoWiFiTheme
+import com.vowifi.sw.manager.ui.navigation.ConfigurationSection
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
@@ -43,7 +44,8 @@ class R5CarrierIdentityStatusRenderTest {
             SoftVoWiFiTheme(forceDark = scale > 1f) {
                 Scaffold {
                     ConfigurationSimEditor(ConfigurationEditorModel(instance, ready, true, null), ConfigurationEditorDraft(instance),
-                        onSubmit = { _, _, _ -> error("只读身份状态不应提交") })
+                        onSubmit = { _, _, _ -> error("只读身份状态不应提交") },
+                        section = ConfigurationSection.STATUS)
                 }
             }
         }

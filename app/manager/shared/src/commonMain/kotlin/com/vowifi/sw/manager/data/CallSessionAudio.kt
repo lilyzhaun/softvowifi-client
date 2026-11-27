@@ -44,20 +44,22 @@ internal class CallSessionAudio(private val delegate: CallAudioController) {
                 val claim = synchronized(lock) {
                     check(!retired && !closed && revision == ticket)
                     check(current == null || current?.scope === this)
-                    Claim(this, session).also { current = it; last = it; ending = null }
+                    Claim(this, session).also { current = it; ending = null }
                 }
                 try {
                     delegate.start(session)
                     synchronized(lock) {
                         if (retired || closed || revision != ticket || current !== claim) {
-                            delegate.stop()
                             if (current === claim) current = null
+                            delegate.stopIf(session)
+                        } else {
+                            last = claim
                         }
                     }
                 } catch (failure: Exception) {
                     synchronized(lock) {
-                        delegate.stop()
                         if (current === claim) current = null
+                        delegate.stopIf(session)
                     }
                     throw failure
                 }
@@ -68,7 +70,7 @@ internal class CallSessionAudio(private val delegate: CallAudioController) {
         override fun stopIf(session: CallAudioSession) = synchronized(lock) { stopCurrent(session) }
         override fun callEnded(session: CallAudioSession) = synchronized(lock) {
             val owned = last?.takeIf { it.scope === this && it.session.sameCall(session) } ?: return@synchronized
-            if (retired || closed || current != null && current !== owned) return@synchronized
+            if (retired || closed || current != null && (current?.scope !== this || current?.session?.sameCall(session) != true)) return@synchronized
             revision++
             current = null
             last = null
@@ -87,7 +89,7 @@ internal class CallSessionAudio(private val delegate: CallAudioController) {
             revision++
             if (owned != null) {
                 current = null
-                delegate.stop()
+                if (expected != null) delegate.stopIf(expected) else delegate.stop()
             }
         }
     }

@@ -72,7 +72,8 @@ internal fun appSubpageSceneContract(route: AppRoute.Subpage = AppRoute.Settings
         topBarBlendAlpha = when (route) {
             is AppRoute.MessageThread, AppRoute.NewMessage -> 0.92f
             // R7 supplement (2026-10-15): settings use Home's collapsed top-bar material.
-            AppRoute.SettingsAppearance, AppRoute.SettingsConfiguration, is AppRoute.SettingsConfigurationSim,
+            AppRoute.SettingsAppearance, AppRoute.SettingsConfiguration,
+            is AppRoute.SettingsConfigurationSim, is AppRoute.SettingsConfigurationSimSection,
             AppRoute.SettingsDiagnostics, AppRoute.SettingsLogs,
             AppRoute.SettingsCallNotifications, AppRoute.SettingsAbout,
             AppRoute.SettingsEngineInformation -> topBarBlendAlpha(1f)

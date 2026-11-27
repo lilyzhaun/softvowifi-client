@@ -4,7 +4,6 @@ import com.vowifi.sw.manager.model.*
 import kotlin.coroutines.CoroutineContext
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
-import kotlinx.coroutines.sync.Mutex
 
 class CallSourceAggregate(
     private val runtime: EngineMessageRuntime,
@@ -18,8 +17,10 @@ class CallSourceAggregate(
     historyLineLabels: suspend (List<SimOwnerId>) -> Map<SimOwnerId, String> = { emptyMap() },
 ) : CallSource {
     private val scope = CoroutineScope(parentContext.minusKey(Job) + SupervisorJob())
-    private val rosterMutex = Mutex()
     internal val lock = Any()
+    private var rosterRunning = false
+    private var pendingRosterRefresh = false
+    private var pendingRefreshChildren = false
     private val audio = CallSessionAudio(audio)
     private val recorder = CallHistoryRecorder(CallHistoryBinding(repository, ownerIdFor, nextCorrelation), runtime.clock, parentContext, historyLineLabels)
     internal val mutableState = MutableStateFlow<CallUiState>(CallUiState.Loading)
@@ -48,8 +49,45 @@ class CallSourceAggregate(
     private fun launch(block: suspend () -> Unit) { if (!closed) scope.launch { block() } }
 
     private suspend fun updateRoster(refreshChildren: Boolean) {
-        if (!rosterMutex.tryLock()) return
-        try { readRoster(refreshChildren) } finally { rosterMutex.unlock() }
+        val shouldRun = synchronized(lock) {
+            if (closed) {
+                false
+            } else if (rosterRunning) {
+                pendingRosterRefresh = true
+                if (refreshChildren) pendingRefreshChildren = true
+                false
+            } else {
+                rosterRunning = true
+                true
+            }
+        }
+        if (!shouldRun) return
+        var nextRefreshChildren = refreshChildren
+        try {
+            while (!closed) {
+                readRoster(nextRefreshChildren)
+                val rerun = synchronized(lock) {
+                    if (!pendingRosterRefresh || closed) {
+                        rosterRunning = false
+                        pendingRosterRefresh = false
+                        pendingRefreshChildren = false
+                        false
+                    } else {
+                        nextRefreshChildren = pendingRefreshChildren
+                        pendingRosterRefresh = false
+                        pendingRefreshChildren = false
+                        true
+                    }
+                }
+                if (!rerun) return
+            }
+        } finally {
+            synchronized(lock) {
+                rosterRunning = false
+                pendingRosterRefresh = false
+                pendingRefreshChildren = false
+            }
+        }
     }
 
     private suspend fun readRoster(refreshChildren: Boolean) {
@@ -189,6 +227,8 @@ class CallSourceAggregate(
         val retiring = synchronized(lock) {
             if (closed) return
             closed = true
+            pendingRosterRefresh = false
+            pendingRefreshChildren = false
             children.also { children = emptyList() }
         }
         retiring.forEach { it.observer?.cancel(); it.source.close() }

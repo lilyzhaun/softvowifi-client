@@ -159,6 +159,9 @@ private fun subpageEntryProvider(
     entry<AppRoute.SettingsConfigurationSim>(clazzContentKey = ::appRouteContentKey) {
         AppSubpageScene(it, spec, routeActive = isRouteActive(state, it), onBack = { onStateChange(AppNavigator.back(state)) }) { destinationContent(it) }
     }
+    entry<AppRoute.SettingsConfigurationSimSection>(clazzContentKey = ::appRouteContentKey) {
+        AppSubpageScene(it, spec, routeActive = isRouteActive(state, it), onBack = { onStateChange(AppNavigator.back(state)) }) { destinationContent(it) }
+    }
     entry<AppRoute.SettingsDiagnostics>(clazzContentKey = ::appRouteContentKey) { AppSubpageScene(AppRoute.SettingsDiagnostics, spec, routeActive = isRouteActive(state, AppRoute.SettingsDiagnostics), onBack = { onStateChange(AppNavigator.back(state)) }) { destinationContent(AppRoute.SettingsDiagnostics) } }
     entry<AppRoute.SettingsLogs>(clazzContentKey = ::appRouteContentKey) { AppSubpageScene(AppRoute.SettingsLogs, spec, routeActive = isRouteActive(state, AppRoute.SettingsLogs), onBack = { onStateChange(AppNavigator.back(state)) }) { destinationContent(AppRoute.SettingsLogs) } }
     entry<AppRoute.SettingsCallNotifications>(clazzContentKey = ::appRouteContentKey) { AppSubpageScene(AppRoute.SettingsCallNotifications, spec, routeActive = isRouteActive(state, AppRoute.SettingsCallNotifications), onBack = { onStateChange(AppNavigator.back(state)) }) { destinationContent(AppRoute.SettingsCallNotifications) } }

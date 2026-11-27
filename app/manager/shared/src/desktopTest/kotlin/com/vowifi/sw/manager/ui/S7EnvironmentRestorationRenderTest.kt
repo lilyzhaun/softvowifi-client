@@ -164,22 +164,57 @@ class S7EnvironmentRestorationRenderTest {
             val originalFields = fields(); val completion = draft.completionSequence
             val configurationValues = (originalFields + original.instances.flatMap { listOf(it.epdgFqdn, it.imsRealm, it.dns,
                 it.resolvedEpdgFqdn, it.resolvedImsRealm) }).filter(String::isNotEmpty).toSet()
+            // Unknown signaling/media/tunnel facts emit only these fixed UI items.
+            // Never accept arbitrary configuration-prefixed values as saveable state.
+            val signalingUiKeys = setOf("configuration-signaling-title", "configuration-signaling-note")
+            val mediaUiKeys = setOf("configuration-media-title", "configuration-media-notice")
+            val tunnelUiKeys = setOf("configuration-tunnel-title", "configuration-tunnel-policy")
+            val timingUiKeys = setOf("configuration-timing-title", "configuration-timing-policy")
+            val protectionUiKeys = setOf("configuration-ims-protection-title", "configuration-ims-protection-policy")
+            val selectionUiKeys = setOf("configuration-epdg-selection-title", "configuration-epdg-selection-policy")
+            val identityUiKeys = setOf("configuration-tunnel-identity-title", "configuration-tunnel-identity-policy")
+            val imsTimingUiKeys = setOf("configuration-ims-timing-title", "configuration-ims-timing-policy")
+            val swuAccessUiKeys = setOf("configuration-swu-access-title", "configuration-swu-access-policy")
             fun uiOnly(value: Any?): Boolean = when (value) {
                 // Library scroll/top-bar/dropdown numbers are UI state, not configuration fields.
                 null, is Boolean, is Int, is Float, is Double -> true
                 is State<*> -> uiOnly(value.value)
                 // Safe instance keys and the page's own fixed lazy-list item keys only.
-                is String -> value in safeKeys || value.startsWith("configuration-sim-")
+                is String -> value in safeKeys || value.startsWith("configuration-sim-") || value in signalingUiKeys || value in mediaUiKeys || value in tunnelUiKeys || value in timingUiKeys || value in protectionUiKeys || value in selectionUiKeys || value in identityUiKeys || value in imsTimingUiKeys || value in swuAccessUiKeys
                 is List<*> -> value.all { uiOnly(it) }
                 is Map<*, *> -> value.all { (k, v) -> k is String && k in safeKeys && v is Boolean }
                 else -> false
             }
+            assertTrue(signalingUiKeys.all(::uiOnly))
+            assertTrue(mediaUiKeys.all(::uiOnly))
+            assertTrue(tunnelUiKeys.all(::uiOnly))
+            assertTrue(timingUiKeys.all(::uiOnly))
+            assertTrue(protectionUiKeys.all(::uiOnly))
+            assertTrue(selectionUiKeys.all(::uiOnly))
+            assertTrue(identityUiKeys.all(::uiOnly))
+            assertTrue(imsTimingUiKeys.all(::uiOnly))
+            assertTrue(swuAccessUiKeys.all(::uiOnly))
+            assertFalse(uiOnly("configuration-swu-access-title-voice.example.test"), "只接受固定SWu组键，不保存APN值")
+            assertFalse(uiOnly("configuration-swu-access-policy-1358"), "只接受固定SWu组键，不保存接口MTU")
+            assertFalse(uiOnly("configuration-ims-timing-title-128000"), "只接受固定IMS计时标题，不保存配置数值")
+            assertFalse(uiOnly("configuration-tunnel-identity-peer.example.invalid"), "对端身份不能借列表键前缀进入registry")
+            assertFalse(uiOnly("configuration-tunnel-identity-title-key-id"), "只接受固定身份组标题，不保存类型值")
+            assertFalse(uiOnly("configuration-epdg-selection-$edited"), "候选值不能借列表键前缀进入registry")
+            assertFalse(uiOnly("configuration-epdg-selection-title-00101"), "只接受固定标题，不保存注册PLMN")
+            assertFalse(uiOnly("configuration-ims-protection-$edited"), "保护组内容不能借列表键前缀进入registry")
+            assertFalse(uiOnly("configuration-ims-protection-title-esp-null-sha1-96"), "只接受固定保护组标题，不保存组合值")
+            assertFalse(uiOnly("configuration-signaling-$edited"), "配置内容不能借新列表键前缀进入registry")
+            assertFalse(uiOnly("configuration-media-$edited"), "媒体配置内容不能借新列表键前缀进入registry")
+            assertFalse(uiOnly("configuration-tunnel-$edited"), "隧道配置内容不能借新列表键前缀进入registry")
+            assertFalse(uiOnly("configuration-timing-$edited"), "期限配置内容不能借新列表键前缀进入registry")
+            assertFalse(uiOnly("configuration-timing-title-1500"), "只允许固定未知组标题，不接受值伪装的标题")
+            assertTrue(configurationValues.none(::uiOnly), "真实配置字符串仍不允许保存到registry")
             fun registry(restored: Map<String, List<Any?>>? = null) = SaveableStateRegistry(restored, ::uiOnly)
-            fun scene(registry: SaveableStateRegistry) = MotionTestEnvironment(testScheduler, 440, 1800, dispatcher = dispatcher) {
+            fun scene(registry: SaveableStateRegistry, section: com.vowifi.sw.manager.ui.navigation.ConfigurationSection? = null) = MotionTestEnvironment(testScheduler, 440, 1800, dispatcher = dispatcher) {
                 s4SmsHost { CompositionLocalProvider(LocalSaveableStateRegistry provides registry, LocalDensity provides Density(1f, 1f)) {
                     val configuration by source.state.collectAsState()
                     val ready = configuration as ConfigurationUiState.Ready
-                    ConfigurationSimEditor(ConfigurationEditorModel(ready.instances.first(), ready, true, null), draft, source::submit)
+                    ConfigurationSimEditor(ConfigurationEditorModel(ready.instances.first(), ready, true, null), draft, source::submit, section = section)
                 } }
             }
             var current: MotionTestEnvironment? = null
@@ -196,7 +231,15 @@ class S7EnvironmentRestorationRenderTest {
                 val failures = mutableListOf<String>()
                 if (!s4HasText(restored, "底层网络")) failures += "E4 restored SIM page missing"
                 if (!s4HasText(restored, "1 项修改未保存")) failures += "E4 restored unsaved bar missing for the same in-memory draft"
-                if (!s4Nodes(restored).any { it.config.getOrNull(SemanticsProperties.Text)?.any { t -> t.text.startsWith(edited) } == true })
+                if (!s4HasText(restored, "已自定义 4 项 · 未保存")) failures += "E4 restored overview missing unsaved connection summary"
+                restored.close(); current = null
+                val connRegistry = registry()
+                val connFirst = scene(connRegistry, com.vowifi.sw.manager.ui.navigation.ConfigurationSection.CONNECTION).also { current = it }; s4Frames(connFirst, 40)
+                val connSaved = connRegistry.performSave()
+                assertTrue(connSaved.values.flatten().all(::uiOnly), "连接子页也只能保存UI数值/安全key")
+                connFirst.close(); current = null
+                val connRestored = scene(registry(connSaved), com.vowifi.sw.manager.ui.navigation.ConfigurationSection.CONNECTION).also { current = it }; s4Frames(connRestored, 40)
+                if (!s4Nodes(connRestored).any { it.config.getOrNull(SemanticsProperties.Text)?.any { t -> t.text.startsWith(edited) } == true })
                     failures += "E4 restored SMSC row lost the in-memory draft value"
                 assertSame(originalDraft, draft); assertSame(original, source.state.value)
                 assertTrue(fields() == originalFields, "仅内存草稿不能因保存重建被修改")

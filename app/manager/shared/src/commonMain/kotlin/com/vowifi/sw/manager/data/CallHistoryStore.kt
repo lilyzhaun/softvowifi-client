@@ -6,6 +6,7 @@ import com.vowifi.sw.manager.model.CallHistoryDeleteResult
 import com.vowifi.sw.manager.model.CallHistoryViewSnapshot
 import com.vowifi.sw.manager.model.HistoryChangeReason
 import kotlin.coroutines.CoroutineContext
+import kotlin.coroutines.cancellation.CancellationException
 import kotlin.time.Clock
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -52,10 +53,13 @@ internal class CallHistoryStore(
     private var recovered = false
     internal val worker = scope.launch {
         try {
-            try { readHistory() } catch (_: CallHistoryStorageException) { fail() }
+            try { readHistory() }
+            catch (cancelled: CancellationException) { throw cancelled }
+            catch (_: Exception) { fail() }
             while (true) {
                 try { if (!processNext()) break }
-                catch (_: CallHistoryStorageException) { fail() }
+                catch (cancelled: CancellationException) { throw cancelled }
+                catch (_: Exception) { fail() }
             }
         } finally {
             synchronized(selectionLock) {

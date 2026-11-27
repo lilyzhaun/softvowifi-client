@@ -1,26 +1,25 @@
 package com.vowifi.sw.manager.ui
 
 import androidx.compose.foundation.LocalIndication
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.defaultMinSize
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyListScope
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
-import androidx.compose.runtime.State
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.disabled
 import androidx.compose.ui.semantics.error
@@ -36,6 +35,7 @@ import com.vowifi.sw.manager.model.ConfigurationTransport
 import com.vowifi.sw.manager.model.ConfigurationUiState
 import com.vowifi.sw.manager.model.SimControlUiState
 import com.vowifi.sw.manager.model.SimHandle
+import com.vowifi.sw.manager.ui.navigation.ConfigurationSection
 import com.vowifi.sw.manager.ui.navigation.ConfigurationSimHandle
 import kotlinx.coroutines.flow.StateFlow
 import top.yukonga.miuix.kmp.basic.BasicComponent
@@ -69,6 +69,8 @@ internal fun SettingsConfigurationSimScreen(
     provisionBusy: Boolean = false,
     activeCallSims: Map<SimHandle, Int?> = emptyMap(),
 ) {
+    // The loading panel has its own list. Keep only the scroll anchor of this handle, not its old rows.
+    val editorListState = key(handle) { rememberLazyListState() }
     val presentation = configurationPresentation(state, simState)
     val selectedRow = presentation.rows.firstOrNull { it.key == handle.value }
     val row = selectedRow?.takeIf { it.kind == ConfigurationRowKind.CONFIGURED }
@@ -86,7 +88,7 @@ internal fun SettingsConfigurationSimScreen(
     SideEffect { if (heading != null) title?.value = heading }
     if (row == null || instance == null || ready == null || draft == null) {
         AppPageScaffold(title = "SIM 配置", showTopBar = false, contentHorizontalInset = CONFIGURATION_PAGE_INSET,
-            refreshController = refresh, refreshRotation = rotation) {
+            refreshController = refresh) {
             managerRefreshResultItem(refresh, "configuration-sim-refresh-result")
             item(key = "configuration-sim-missing") {
                 val panel = if (selectedRow?.kind == ConfigurationRowKind.REBUILD_REQUIRED) {
@@ -100,8 +102,72 @@ internal fun SettingsConfigurationSimScreen(
     }
     val simHandle = SimHandle(handle.value)
     val callWarning = if (simHandle in activeCallSims) engineStopCallWarning(activeCallSims[simHandle]) else null
-    ConfigurationSimEditor(ConfigurationEditorModel(instance, ready, row.canApply, row.status, callWarning), draft, actions.onSubmit,
-        refresh, rotation)
+    ConfigurationSimEditor(
+        model = ConfigurationEditorModel(instance, ready, row.canApply, row.status, callWarning),
+        draft = draft,
+        onSubmit = actions.onSubmit,
+        refresh = refresh,
+        readEntitlement = actions.readEntitlement,
+        listState = editorListState,
+        onOpenSection = actions.onOpenSection?.let { open -> { section -> open(handle, section) } },
+    )
+}
+
+/** Grouped detail subpage for one SIM's advanced/diagnostic section; shares the SIM's live draft. */
+@Composable
+internal fun SettingsConfigurationSimSectionScreen(
+    handle: ConfigurationSimHandle,
+    section: ConfigurationSection,
+    state: ConfigurationUiState,
+    simState: SimControlUiState?,
+    actions: SettingsConfigurationActions,
+    drafts: ConfigurationDraftStore,
+    provisioning: StateFlow<ConfigurationProvisionState>? = null,
+    provisionBusy: Boolean = false,
+    activeCallSims: Map<SimHandle, Int?> = emptyMap(),
+) {
+    val editorListState = key(handle, section) { rememberLazyListState() }
+    val presentation = configurationPresentation(state, simState)
+    val selectedRow = presentation.rows.firstOrNull { it.key == handle.value }
+    val row = selectedRow?.takeIf { it.kind == ConfigurationRowKind.CONFIGURED }
+    val ready = state as? ConfigurationUiState.Ready
+    val instance = row?.instance.takeIf { ready != null }
+    val draft = instance?.let(drafts::draftFor)
+    val progress = provisioning?.collectAsState()?.value ?: ConfigurationProvisionState()
+    val refresh = rememberManagerRefreshController(
+        actions.onRefresh,
+        enabled = configurationRefreshEnabled(state) && draft?.pending != true && !provisionBusy && progress.pending.isEmpty(),
+    )
+    val rotation = rememberManagerRefreshRotation(refresh)
+    RegisterManagerRefreshAction(refresh, "刷新配置", rotation)
+    val title = LocalSubpageTitle.current
+    SideEffect { title?.value = sectionTitle(section) }
+    if (row == null || instance == null || ready == null || draft == null) {
+        AppPageScaffold(
+            title = sectionTitle(section),
+            showTopBar = false,
+            contentHorizontalInset = CONFIGURATION_PAGE_INSET,
+            refreshController = refresh,
+        ) {
+            managerRefreshResultItem(refresh, "configuration-sim-section-refresh-result")
+            item(key = "configuration-sim-section-missing") {
+                StatePanel(configurationSimMissingPanel(state), onRetry = if (refresh.enabled) ({ refresh.request() }) else null)
+            }
+        }
+        return
+    }
+    val simHandle = SimHandle(handle.value)
+    val callWarning = if (simHandle in activeCallSims) engineStopCallWarning(activeCallSims[simHandle]) else null
+    ConfigurationSimEditor(
+        model = ConfigurationEditorModel(instance, ready, row.canApply, row.status, callWarning),
+        draft = draft,
+        onSubmit = actions.onSubmit,
+        refresh = refresh,
+        readEntitlement = actions.readEntitlement,
+        listState = editorListState,
+        section = section,
+        guardLeave = false,
+    )
 }
 
 internal fun configurationSimMissingPanel(state: ConfigurationUiState): StatePanelSpec =
@@ -109,103 +175,159 @@ internal fun configurationSimMissingPanel(state: ConfigurationUiState): StatePan
         ?: StatePanelSpec(MiuixIcons.Info, StatePanelTone.NEUTRAL, "此 SIM 当前不可用",
             "可能已移除或配置已变化；请返回 SIM 与网络配置重新选择。", retryDescription = "重试读取配置")
 
-/** Editor body shared by the route and host tests: sectioned rows, one pinned save bar and the leave guard. */
+/** Editor body shared by the route and host tests: concise overview or one detail section, one pinned save bar. */
 @Composable
 internal fun ConfigurationSimEditor(
     model: ConfigurationEditorModel,
     draft: ConfigurationEditorDraft,
     onSubmit: ConfigurationSubmit,
     refresh: ManagerRefreshController? = null,
-    refreshRotation: State<Float>? = null,
+    readEntitlement: com.vowifi.sw.manager.model.EntitlementCacheReader? = null,
+    listState: LazyListState = rememberLazyListState(),
+    section: ConfigurationSection? = null,
+    onOpenSection: ((ConfigurationSection) -> Unit)? = null,
+    guardLeave: Boolean = section == null,
 ) {
     val instance = model.instance
-    LaunchedEffect(instance) { draft.syncFrom(instance) }
+    // Live transport facts do not change edit authority or the captured draft.
+    val editAuthority = instance.configurationEditAuthority()
+    LaunchedEffect(editAuthority) { draft.syncFrom(instance) }
     val routeActive = LocalAppRouteActive.current
     val enabled = model.enabled && routeActive && !draft.pending
-    var editing by remember(draft) { mutableStateOf<ConfigurationFieldEdit?>(null) }
+    var localSection by remember(draft, section) { mutableStateOf<ConfigurationSection?>(null) }
+    val shownSection = section ?: localSection
+    val openSection: (ConfigurationSection) -> Unit = onOpenSection ?: { target -> localSection = target }
+    // An unconfirmed dialog is local to the active editor; preserve the draft, not a suspended dialog.
+    var editing by remember(draft, enabled) { mutableStateOf<ConfigurationFieldEdit?>(null) }
+    var signalingEdit by remember(draft) { mutableStateOf<CallSignalingTextEdit?>(null) }
+    var mediaEdit by remember(draft) { mutableStateOf<CallMediaTextEdit?>(null) }
+    var timingEdit by remember(draft) { mutableStateOf<TunnelTimingTextEdit?>(null) }
+    var imsTimingEdit by remember(draft) { mutableStateOf<ImsTimingTextEdit?>(null) }
+    var epdgEdit by remember(draft) { mutableStateOf<EpdgCandidateTextEdit?>(null) }
+    var identityEdit by remember(draft) { mutableStateOf<Long?>(null) }
+    var swuAccessEdit by remember(draft) { mutableStateOf<Long?>(null) }
     var openCount by remember(draft) { mutableLongStateOf(0L) }
-    var barHeight by remember { mutableStateOf(0.dp) }
-    Box(Modifier.fillMaxSize()) {
-        AppPageScaffold(title = "SIM 配置", showTopBar = false, contentHorizontalInset = CONFIGURATION_PAGE_INSET,
-            refreshController = refresh, refreshRotation = refreshRotation, bottomOverlayInset = barHeight) {
-            refresh?.let { managerRefreshResultItem(it, "configuration-sim-refresh-result") }
-            configurationSimSections(model, draft, enabled) { key -> editing = ConfigurationFieldEdit(key, ++openCount) }
+    LaunchedEffect(editAuthority, enabled) { signalingEdit = null; mediaEdit = null; timingEdit = null; imsTimingEdit = null; epdgEdit = null; identityEdit = null; swuAccessEdit = null }
+    AppPageScaffold(title = shownSection?.let(::sectionTitle) ?: "SIM 配置", showTopBar = false, contentHorizontalInset = CONFIGURATION_PAGE_INSET,
+        refreshController = refresh, listState = listState,
+        bottomOverlay = { ConfigurationSaveBar(model.copy(enabled = model.enabled && routeActive), draft, onSubmit) }) {
+        refresh?.let { managerRefreshResultItem(it, "configuration-sim-refresh-result") }
+        when (shownSection) {
+            null -> configurationSimOverviewSections(
+                model = model,
+                draft = draft,
+                enabled = enabled,
+                onOpenSection = openSection,
+            )
+            ConfigurationSection.CONNECTION -> configurationConnectionSectionItems(
+                model = model,
+                draft = draft,
+                enabled = enabled,
+                onEpdgEdit = { index, field -> epdgEdit = EpdgCandidateTextEdit(index, field, ++openCount) },
+                onSwuAccessEdit = { swuAccessEdit = ++openCount },
+                onEdit = { key -> editing = ConfigurationFieldEdit(key, ++openCount) },
+            )
+            ConfigurationSection.VOICE -> configurationVoiceSectionItems(
+                model = model,
+                draft = draft,
+                enabled = enabled,
+                onSignalingEdit = { field -> signalingEdit = CallSignalingTextEdit(field, ++openCount) },
+                onMediaEdit = { index, field -> mediaEdit = CallMediaTextEdit(index, field, ++openCount) },
+            )
+            ConfigurationSection.PROTOCOL -> configurationProtocolSectionItems(
+                model = model,
+                draft = draft,
+                enabled = enabled,
+                onImsTimingEdit = { field -> imsTimingEdit = ImsTimingTextEdit(field, ++openCount) },
+                onTimingEdit = { field -> timingEdit = TunnelTimingTextEdit(field, ++openCount) },
+                onIdentityEdit = { identityEdit = ++openCount },
+                onEdit = { key -> editing = ConfigurationFieldEdit(key, ++openCount) },
+            )
+            ConfigurationSection.STATUS -> configurationStatusSectionItems(
+                instance = instance,
+                entitlementEnabled = !draft.pending && model.readyState.applyingInstanceId == null,
+                readEntitlement = readEntitlement,
+            )
         }
-        ConfigurationSaveBar(model.copy(enabled = model.enabled && routeActive), draft, onSubmit,
-            modifier = Modifier.align(Alignment.BottomCenter), onHeightChange = { barHeight = it })
     }
     ConfigurationFieldDialog(editing.takeIf { enabled }, instance, draft, onDismiss = { editing = null },
         outlets = model.readyState.networkOutlets)
-    ConfigurationLeaveGuard(model.copy(enabled = model.enabled && routeActive), draft, onSubmit)
+    ConfigurationCallSignalingTextDialog(signalingEdit.takeIf { enabled && instance.callSignaling != null }, draft) { signalingEdit = null }
+    ConfigurationCallMediaTextDialog(mediaEdit.takeIf { enabled && instance.callMedia != null }, draft) { mediaEdit = null }
+    ConfigurationTunnelTimingTextDialog(timingEdit.takeIf { enabled && instance.tunnelTiming != null && draft.tunnelTiming?.policy != null }, draft) { timingEdit = null }
+    ConfigurationImsTimingTextDialog(imsTimingEdit.takeIf { enabled && instance.imsTiming != null && draft.imsTiming?.policy != null }, draft) { imsTimingEdit = null }
+    ConfigurationEpdgSelectionTextDialog(epdgEdit.takeIf { enabled && instance.epdgSelection != null && draft.epdgSelection?.candidates != null }, draft) { epdgEdit = null }
+    ConfigurationTunnelIdentityDialog(identityEdit.takeIf { enabled && instance.tunnelIdentity != null }, draft) { identityEdit = null }
+    ConfigurationSwuAccessDialog(swuAccessEdit.takeIf { enabled && instance.swuAccess != null && draft.swuAccess != null }, draft) { swuAccessEdit = null }
+    if (guardLeave && shownSection == null) {
+        ConfigurationLeaveGuard(model.copy(enabled = model.enabled && routeActive), draft, onSubmit)
+    }
 }
 
-internal fun LazyListScope.configurationSimSections(
+private fun LazyListScope.configurationSimOverviewSections(
     model: ConfigurationEditorModel,
     draft: ConfigurationEditorDraft,
     enabled: Boolean,
-    onEdit: (ConfigurationFieldKey) -> Unit,
+    onOpenSection: (ConfigurationSection) -> Unit,
 ) {
     val instance = model.instance
-    item(key = "configuration-sim-overview") { ConfigurationSimOverviewCard(instance, draft) }
-    item(key = "configuration-sim-network-title") { SmallTitle("网络") }
+    val advancedCount = configurationTotalAdvancedOverrides(draft.snapshotValues())
+    item(key = "configuration-sim-overview") { ConfigurationSimOverviewCard(instance, draft, advancedCount) }
+    item(key = "configuration-sim-basic-title") { ConfigurationSectionTitle("常用设置") }
     item(key = "configuration-sim-network") {
-        ConfigurationSectionCard { ConfigurationNetworkPreference(draft, enabled, model.readyState.networkOutlets) }
-    }
-    item(key = "configuration-sim-connection-title") { SmallTitle("连接参数") }
-    item(key = "configuration-sim-connection") {
         ConfigurationSectionCard(bottomGap = 0.dp) {
-            for (key in configurationConnectionFields) ConfigurationValueRow(instance, draft, key, enabled, onEdit,
-                model.readyState.networkOutlets)
-            if (hasIdentityRealmOverride(instance)) {
-                BasicComponent(title = "已有 IMS 域值", summary = "当前 Digest 认证域来自身份域，已有 IMS 域值可能覆盖运营商认证域。请核对后在“IMS 域”中清空并保存；不会自动修改旧值。")
+            ConfigurationNetworkPreference(draft, enabled, model.readyState.networkOutlets)
+        }
+    }
+    item(key = "configuration-sim-basic-note") {
+        ConfigurationFootnote("通常只需选择底层网络；其余参数默认自动适配运营商，无需手动调整。")
+    }
+    item(key = "configuration-sim-advanced-title") { ConfigurationSectionTitle("高级与诊断") }
+    item(key = "configuration-sim-advanced-entries") {
+        ConfigurationSectionCard(bottomGap = 0.dp) {
+            for (entrySection in ConfigurationSection.entries) {
+                ConfigurationSectionEntryRow(
+                    state = configurationSectionState(instance, draft, entrySection),
+                    enabled = !draft.pending,
+                    onOpen = onOpenSection,
+                )
             }
         }
     }
-    item(key = "configuration-sim-connection-note") { ConfigurationFootnote("留空即使用自动解析值，通常无需修改。") }
-    item(key = "configuration-sim-ims-title") { SmallTitle("IMS 高级参数") }
-    item(key = "configuration-sim-ims") {
-        ConfigurationSectionCard(bottomGap = 0.dp) { ConfigurationImsAdvancedRows(instance, draft, enabled, onEdit) }
+    item(key = "configuration-sim-advanced-note") {
+        ConfigurationFootnote("高级参数仅在排障或运营商特殊要求时修改；保存前可随时放弃。")
     }
-    item(key = "configuration-sim-ims-note") { ConfigurationFootnote("仅在运营商要求时修改；选择不会立即应用，保存前可放弃。") }
-    item(key = "configuration-sim-facts-title") { SmallTitle("解析与运行") }
-    item(key = "configuration-sim-facts") {
-        ConfigurationSectionCard {
-            if (instance.facts == null && instance.runtimeFacts == null) {
-                BasicComponent(title = "参数快照未知", summary = "当前后端未提供参数快照，可刷新核对。")
-            } else configurationFactLabels.forEach { (field, label) ->
-                BasicComponent(title = "$label · 快照", summary = configurationFactsSummary(instance, field))
-            }
+    if (advancedCount > 0) {
+        item(key = "configuration-sim-reset-advanced") {
+            ConfigurationResetAdvancedCard(overrideCount = advancedCount, enabled = enabled, draft = draft)
         }
-    }
-    item(key = "configuration-sim-negotiated-title") { SmallTitle("注册协商快照") }
-    item(key = "configuration-sim-negotiated") {
-        ConfigurationSectionCard {
-            if (instance.runtimeFacts?.registrationSeconds == null) {
-                BasicComponent(title = "注册结果未知", summary = "未读取到当前连接已确认的注册期限或算法；不从本地配置推断。")
-            } else {
-                BasicComponent(title = "注册期限", summary = "${instance.runtimeFacts.registrationSeconds} 秒")
-                BasicComponent(title = "IMS 完整性算法", summary = instance.runtimeFacts.integrity ?: "未知")
-                BasicComponent(title = "IMS 加密算法", summary = instance.runtimeFacts.encryption ?: "未知")
-            }
-        }
-    }
-    item(key = "configuration-sim-facts-note") {
-        ConfigurationFootnote("以上为最近一次读取的快照，可用顶栏刷新核对。加载配置或取得注册结果，不代表短信或通话已成功。")
     }
 }
 
 @Composable
-private fun ConfigurationSimOverviewCard(instance: ConfigurationInstance, draft: ConfigurationEditorDraft) {
+private fun ConfigurationSimOverviewCard(
+    instance: ConfigurationInstance,
+    draft: ConfigurationEditorDraft,
+    advancedCount: Int,
+) {
     val header = configurationHeader(instance.displayLabel)
     ConfigurationSectionCard {
         ConfigurationInfoRow("运行状态", configurationLifecycleLabel(instance.lifecycle))
         ConfigurationInfoRow("SIM 标识", header.details ?: "${instance.mcc} / ${instance.mnc}")
+        BasicComponent(
+            title = "配置模式",
+            summary = configurationModeSummary(advancedCount, draft.advancedModified),
+            summaryColor = configurationSummaryColor(draft.advancedModified, error = false),
+        )
         configurationSystemSubscriptionFact(instance)?.takeIf {
             instance.systemSubscription !is com.vowifi.sw.manager.model.SubscriptionDiscovery.Matched
         }?.let { BasicComponent(title = it.title, summary = it.summary) }
-        BasicComponent(title = "参数来源", summary = configurationSourceSummary(instance))
-        BasicComponent(title = "SIM 匹配身份", summary = configurationSIMIdentitySummary(instance.simAttributeReadStatus))
-        BasicComponent(title = "配置生效", summary = configurationApplicationSummary(instance))
+        if (hasIdentityRealmOverride(instance)) {
+            BasicComponent(
+                title = "已有 IMS 域值",
+                summary = "当前 Digest 认证域来自身份域，已有 IMS 域值可能覆盖运营商认证域。可前往“连接与接入”中清空并保存。",
+            )
+        }
         if (instance.draftOwnerId == null) {
             BasicComponent(title = "草稿保留范围", summary = "身份暂无法稳定确认；重建页面数据源后不会恢复未保存修改")
         }
@@ -233,15 +355,18 @@ private fun ConfigurationNetworkPreference(
     val choices = configurationNetworkChoices(outlets)
     val summary = listOfNotNull(configurationNetworkSummary(draft.transport, outlets),
         CONFIGURATION_UNSAVED_MARK.takeIf { draft.transportModified }).joinToString("\n")
-    OverlayDropdownPreference(
-        items = choices.map { it.label },
-        selectedIndex = choices.indexOfFirst { it.transport == draft.transport },
-        title = "底层网络",
-        summary = summary,
-        summaryColor = configurationSummaryColor(draft.transportModified, error = false),
-        enabled = enabled,
-        onSelectedIndexChange = { index -> choices.getOrNull(index)?.let { draft.transport = it.transport } },
-    )
+    // miuix keeps the expanded menu even when its row is disabled.
+    key(enabled) {
+        OverlayDropdownPreference(
+            items = choices.map { it.label },
+            selectedIndex = choices.indexOfFirst { it.transport == draft.transport },
+            title = "底层网络",
+            summary = summary,
+            summaryColor = configurationSummaryColor(draft.transportModified, error = false),
+            enabled = enabled,
+            onSelectedIndexChange = { index -> choices.getOrNull(index)?.let { draft.transport = it.transport } },
+        )
+    }
 }
 
 @Composable
@@ -286,8 +411,13 @@ internal fun ConfigurationSectionCard(bottomGap: Dp = 12.dp, content: @Composabl
 }
 
 @Composable
+internal fun ConfigurationSectionTitle(text: String) {
+    SmallTitle(text, insideMargin = PaddingValues(horizontal = CONFIGURATION_ROW_INSET, vertical = 8.dp))
+}
+
+@Composable
 internal fun ConfigurationFootnote(text: String) {
-    Text(text, modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 12.dp),
+    Text(text, modifier = Modifier.fillMaxWidth().padding(start = CONFIGURATION_ROW_INSET, end = CONFIGURATION_ROW_INSET, top = 8.dp, bottom = 12.dp),
         fontSize = MiuixTheme.textStyles.footnote1.fontSize, lineHeight = MiuixTheme.textStyles.footnote1.lineHeight,
         color = LocalSoftVoWiFiColors.current.textSecondary)
 }
@@ -303,8 +433,9 @@ internal fun configurationSummaryColor(modified: Boolean, error: Boolean) = Loca
 
 internal const val CONFIGURATION_UNSAVED_MARK = "未保存"
 
-/** Both configuration pages use the miuix settings rhythm: 12dp page inset, so SmallTitle (28dp) aligns with row text. */
+/** Card edges sit 12dp inside the page; both headings and preference text sit another 16dp in. */
 internal val CONFIGURATION_PAGE_INSET = 12.dp
+private val CONFIGURATION_ROW_INSET = 16.dp
 
 internal fun Modifier.configurationErrorSemantics(message: String): Modifier = semantics { error(message) }
 

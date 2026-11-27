@@ -19,7 +19,6 @@ internal enum class OperationalLogDataSection {
     WARNING,
     FILTERS,
     EVENTS,
-    EXPORT,
 }
 
 internal fun operationalLogDataSectionOrder(hasWarning: Boolean): List<OperationalLogDataSection> =
@@ -27,13 +26,11 @@ internal fun operationalLogDataSectionOrder(hasWarning: Boolean): List<Operation
         listOf(
             OperationalLogDataSection.WARNING,
             OperationalLogDataSection.FILTERS,
-            OperationalLogDataSection.EXPORT,
             OperationalLogDataSection.EVENTS,
         )
     } else {
         listOf(
             OperationalLogDataSection.FILTERS,
-            OperationalLogDataSection.EXPORT,
             OperationalLogDataSection.EVENTS,
         )
     }

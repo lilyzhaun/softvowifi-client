@@ -1,6 +1,7 @@
 package com.vowifi.sw.manager.data
 
 import com.vowifi.sw.manager.model.MessageUnreadSummary
+import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -24,7 +25,9 @@ internal class MessageUnreadSummaryStore(repository: MessageRepository, scope: C
                     val summary = try {
                         val byOwner = repository.countUnreadByOwner()
                         MessageUnreadSummary.Ready(byOwner.values.sum(), byOwner)
-                    } catch (_: MessageStorageException) {
+                    } catch (error: CancellationException) {
+                        throw error
+                    } catch (_: Exception) {
                         MessageUnreadSummary.Unavailable(lastKnownTotal)
                     }
                     val superseded = requests.tryReceive().isSuccess
