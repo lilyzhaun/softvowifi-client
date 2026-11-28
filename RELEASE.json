@@ -1,10 +1,10 @@
 {
-  "apk_name": "SoftVoWiFi-v0.3.51.apk",
-  "apk_sha256": "21325f1f3f210a99a5e67b03be41dbc31c4d7d85c1d733b3039409fc9d5e1280",
-  "apk_size": 36521510,
-  "client_tree_sha256": "6c8a3a4c78afe797e641b7257ed61115a90e12f92dfdaa61e01f6c41d10cb6e7",
+  "apk_name": "SoftVoWiFi-v0.3.52.apk",
+  "apk_sha256": "a01f5766dbadde430b26b20b2aaf5bfee4abd7311e5ebb7f87136a3b78cfcb89",
+  "apk_size": 36529702,
+  "client_tree_sha256": "490caa1dc4620133d484b0995ccacf67c4c2ec31aa4f9ad51da2685cb0eee46e",
   "schema": 2,
-  "tag": "v0.3.51",
-  "version": "0.3.51",
-  "version_code": 54
+  "tag": "v0.3.52",
+  "version": "0.3.52",
+  "version_code": 55
 }
